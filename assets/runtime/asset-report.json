@@ -1,6 +1,6 @@
 {
   "generator": "GPT Image 2",
-  "runtime_asset_count": 50,
+  "runtime_asset_count": 70,
   "assets": [
     {
       "path": "assets/runtime/ui/mandate_of_myth_title.webp",
@@ -22,6 +22,246 @@
         255
       ],
       "sha256": "a503e01b74828a13eecdfccc8e53dd032f73ddd8020c8ce45ae5ebaee795c072"
+    },
+    {
+      "path": "assets/runtime/cursors/select.png",
+      "source": "assets/source/cursors/select.png",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "196092a9124177f6d3bf36496ed9be3b77e82b49204e3df2573f9a7e195a785c"
+    },
+    {
+      "path": "assets/runtime/cursors/ui_action.png",
+      "source": "assets/source/cursors/ui_action.png",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "10fcbcfde92ebc08478614ccb46c63cd9685ad33c3fb0e2e2cd43da74573bf12"
+    },
+    {
+      "path": "assets/runtime/cursors/box_select.png",
+      "source": "assets/source/cursors/box_select.png",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "496e03ec0b22877e00921fc2d0a7cb1c99e52e8962f8c91d9f5a0aae143457e9"
+    },
+    {
+      "path": "assets/runtime/cursors/move.png",
+      "source": "assets/source/cursors/move.png",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "0832b6f9561064585f68f58620c956f832c87fcfaec449611de72f161fa1b27e"
+    },
+    {
+      "path": "assets/runtime/cursors/attack.png",
+      "source": "assets/source/cursors/attack.png",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "add1adba47b262f8873a393ba34218a55f82def5a8d3f6755cf93cf57064f8dd"
+    },
+    {
+      "path": "assets/runtime/cursors/attack_move.png",
+      "source": "assets/source/cursors/attack_move.png",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "8899a6af7f58af1f8977f551bdbc0a86b900233a379ac9399a736ee047f63533"
+    },
+    {
+      "path": "assets/runtime/cursors/patrol.png",
+      "source": "assets/source/cursors/patrol.png",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "7e1e1b675a35e296542f8d600633ab01c3555d85e55ba3f677d4c75f36c02c3a"
+    },
+    {
+      "path": "assets/runtime/cursors/rally.png",
+      "source": "assets/source/cursors/rally.png",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "59d6cdbe05cc41261addd04c5db570aa287395465f21bef1fb24b6b6bc93a0c3"
+    },
+    {
+      "path": "assets/runtime/cursors/gather_jade.png",
+      "source": "assets/source/cursors/gather_jade.png",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "5752e73347274f6897506668724cab99db5098c69f97534718ac28faeb989526"
+    },
+    {
+      "path": "assets/runtime/cursors/gather_lumber.png",
+      "source": "assets/source/cursors/gather_lumber.png",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "3567f41f8d2b66f6b6653cf68def5a6753c63108f233e80c4d863f564197ea1d"
+    },
+    {
+      "path": "assets/runtime/cursors/gather_essence.png",
+      "source": "assets/source/cursors/gather_essence.png",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "85a4d40ca5872f5c237395dea02ab650220d5510f19a4b845c5fcacd7590141d"
+    },
+    {
+      "path": "assets/runtime/cursors/hunt.png",
+      "source": "assets/source/cursors/hunt.png",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "89936e4201791ae328c63fce89f5c15896635b6fcb04c798bf85ba9ae6783489"
+    },
+    {
+      "path": "assets/runtime/cursors/deposit.png",
+      "source": "assets/source/cursors/deposit.png",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "8528cc4ec473ad8afcf9e4d5cadeadf7cebf32c2562253dedc78b3122ff9b92a"
+    },
+    {
+      "path": "assets/runtime/cursors/repair.png",
+      "source": "assets/source/cursors/repair.png",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "17c2f6f9b5e9a1566cbff8b3b90fbdd40907ea819438acb3237cfac26c9e032f"
+    },
+    {
+      "path": "assets/runtime/cursors/build.png",
+      "source": "assets/source/cursors/build.png",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "b920c54d859ef50496afc1d0be13847dfe6149f7b36fa52d7494192c0ee8f79c"
+    },
+    {
+      "path": "assets/runtime/cursors/forbidden.png",
+      "source": "assets/source/cursors/forbidden.png",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "a9675e39a240604f60a2b98a1699c9f74ad547911bd681883a3008465a754d5d"
+    },
+    {
+      "path": "assets/runtime/cursors/pan.png",
+      "source": "assets/source/cursors/pan.png",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "bdbcb058903543c31804211cda59221888b1e749475099cca73461c65dbe815c"
+    },
+    {
+      "path": "assets/runtime/command_indicators/destination_flag.png",
+      "source": "assets/source/command_indicators/destination_flag.png",
+      "width": 96,
+      "height": 96,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "b86a931f045da627f44d059b878ae8f94a35ce2314dbfe35d591e305796edd96"
+    },
+    {
+      "path": "assets/runtime/command_indicators/interaction_ring.png",
+      "source": "assets/source/command_indicators/interaction_ring.png",
+      "width": 96,
+      "height": 96,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "844402f4fe35c21b0d42894a2ee5525947b84d303aab6d410cb15d4b52b15607"
+    },
+    {
+      "path": "assets/runtime/command_indicators/attack_swords.png",
+      "source": "assets/source/command_indicators/attack_swords.png",
+      "width": 96,
+      "height": 96,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "3b1d91da40f57dfba13ae5600f90c90715b5f31f4c1de61dd8f752f342a90192"
     },
     {
       "path": "assets/runtime/portraits/celestial.webp",
@@ -301,7 +541,7 @@
     },
     {
       "path": "assets/runtime/units/human_hunter.png",
-      "source": "assets/source/units/human_hunter.png",
+      "source": "assets/source/units/human_hunter_female.png",
       "width": 160,
       "height": 176,
       "mode": "RGBA",
@@ -309,7 +549,7 @@
         0,
         255
       ],
-      "sha256": "0df14c7a8e00def57daa3b01c8b3d37f93e001460bb6b60c48720977fd05cdb0"
+      "sha256": "fdd5912821a36af9666af75b9825111f0c6c6343b8e8640124d1ca8cf0b21ee7"
     },
     {
       "path": "assets/runtime/buildings/human_stronghold.png",

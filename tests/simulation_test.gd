@@ -199,7 +199,7 @@ func _test_unit_food_costs(failures: Array[String]) -> void:
 		failures.append("Stronghold rejected a Worker with exactly enough Food")
 	elif int(simulation.players[RtsSimulation.TEAM_PLAYER]["food"]) != 0:
 		failures.append("Worker queue did not deduct its exact Food cost")
-	for kind in [&"worker", &"vanguard", &"mystic", &"jadeclaw"]:
+	for kind in [&"worker", &"hunter", &"vanguard", &"mystic", &"jadeclaw"]:
 		if int(FactionCatalog.stats(kind, &"human").get("food_cost", 0)) <= 0:
 			failures.append("%s does not require Food" % String(kind).capitalize())
 
@@ -265,6 +265,163 @@ func _test_ai_food_economy(failures: Array[String]) -> void:
 	if int(simulation.players[RtsSimulation.TEAM_ENEMY]["food"]) != food_before_stipend:
 		failures.append("computer income stipend bypassed food infrastructure")
 
+	var hunting_simulation := RtsSimulation.new()
+	hunting_simulation.setup(&"human")
+	hunting_simulation.players[RtsSimulation.TEAM_ENEMY]["jade"] = 1000
+	hunting_simulation.players[RtsSimulation.TEAM_ENEMY]["lumber"] = 1000
+	hunting_simulation.players[RtsSimulation.TEAM_ENEMY]["essence"] = 1000
+	hunting_simulation.players[RtsSimulation.TEAM_ENEMY]["food"] = 1000
+	hunting_simulation._try_expand_ai_food_economy()
+	var lodge_id := hunting_simulation.primary_structure_id(RtsSimulation.TEAM_ENEMY, &"hunters_lodge")
+	if lodge_id < 0:
+		failures.append("hunt-only computer commander did not establish a Hunter's Lodge")
+	if hunting_simulation.primary_structure_id(RtsSimulation.TEAM_ENEMY, &"rice_farm") >= 0:
+		failures.append("hunt-only computer commander established a forbidden Rice Farm")
+	if lodge_id >= 0:
+		var lodge := hunting_simulation.entity(lodge_id)
+		lodge["complete"] = 1.0
+		lodge["hp"] = lodge["max_hp"]
+		hunting_simulation._try_train_ai_hunters()
+		var queue := lodge.get("queue", []) as Array
+		if queue.is_empty() or (queue[0] as Dictionary).get("kind") != &"hunter":
+			failures.append("hunt-only computer commander did not queue a Hunter")
+	var ai_hunter_id := hunting_simulation._spawn_unit(
+		RtsSimulation.TEAM_ENEMY,
+		&"hunter",
+		MapCatalog.ENEMY_STRONGHOLD + Vector2i(-1, 2),
+	)
+	hunting_simulation._issue_ai_hunt_orders()
+	if hunting_simulation.entity(ai_hunter_id).get("order") not in [&"attack", &"attack_move"]:
+		failures.append("computer Hunter did not pursue living wildlife")
+
+
+func _test_faction_food_traditions(failures: Array[String]) -> void:
+	var expectations := {
+		&"celestial": {"farm": true, "hunt": false},
+		&"demon": {"farm": false, "hunt": true},
+		&"beast": {"farm": false, "hunt": true},
+		&"human": {"farm": true, "hunt": true},
+	}
+	for faction in expectations:
+		var simulation := RtsSimulation.new()
+		simulation.setup(faction)
+		var expected := expectations[faction] as Dictionary
+		var farm_available := simulation.is_kind_available(RtsSimulation.TEAM_PLAYER, &"rice_farm")
+		var lodge_available := simulation.is_kind_available(RtsSimulation.TEAM_PLAYER, &"hunters_lodge")
+		var hunter_available := simulation.is_kind_available(RtsSimulation.TEAM_PLAYER, &"hunter")
+		if farm_available != bool(expected["farm"]):
+			failures.append("%s farming availability is incorrect" % String(faction).capitalize())
+		if lodge_available != bool(expected["hunt"]) or hunter_available != bool(expected["hunt"]):
+			failures.append("%s hunting availability is incorrect" % String(faction).capitalize())
+		var worker_id := simulation.team_entity_ids(RtsSimulation.TEAM_PLAYER, [&"worker"])[0]
+		simulation.players[RtsSimulation.TEAM_PLAYER]["jade"] = 1000
+		simulation.players[RtsSimulation.TEAM_PLAYER]["lumber"] = 1000
+		simulation.players[RtsSimulation.TEAM_PLAYER]["essence"] = 1000
+		var blocked_kind := &"hunters_lodge" if bool(expected["farm"]) and not bool(expected["hunt"]) else &"rice_farm"
+		if bool(expected["farm"]) == bool(expected["hunt"]):
+			continue
+		if simulation.command_build(worker_id, blocked_kind, MapCatalog.PLAYER_BUILD_TEST_SITE):
+			failures.append("%s constructed forbidden %s infrastructure" % [faction, blocked_kind])
+
+	var human_simulation := RtsSimulation.new()
+	human_simulation.setup(&"human")
+	human_simulation.players[RtsSimulation.TEAM_PLAYER]["jade"] = 1000
+	human_simulation.players[RtsSimulation.TEAM_PLAYER]["food"] = 1000
+	var lodge_site := human_simulation._find_build_site(
+		RtsSimulation.TEAM_PLAYER,
+		&"hunters_lodge",
+		MapCatalog.PLAYER_STRONGHOLD,
+	)
+	var lodge_id := human_simulation._spawn_structure(
+		RtsSimulation.TEAM_PLAYER,
+		&"hunters_lodge",
+		lodge_site,
+		true,
+	)
+	human_simulation._rebuild_pathfinding()
+	if not human_simulation.command_train(lodge_id, &"hunter"):
+		failures.append("Human Hunter's Lodge rejected Hunter production")
+	else:
+		_advance(human_simulation, 7.0)
+		if human_simulation.team_entity_ids(RtsSimulation.TEAM_PLAYER, [&"hunter"]).is_empty():
+			failures.append("Hunter's Lodge did not finish training a Hunter")
+
+	var celestial_simulation := RtsSimulation.new()
+	celestial_simulation.setup(&"celestial")
+	var forbidden_lodge_id := celestial_simulation._spawn_structure(
+		RtsSimulation.TEAM_PLAYER,
+		&"hunters_lodge",
+		MapCatalog.PLAYER_BUILD_TEST_SITE,
+		true,
+	)
+	if celestial_simulation.command_train(forbidden_lodge_id, &"hunter"):
+		failures.append("Celestial Court trained a forbidden Hunter")
+
+
+func _test_wildlife_hunting(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human")
+	if simulation.wildlife_ids().size() != 34:
+		failures.append("simulation did not spawn all 34 wildlife members")
+	for kind in FactionCatalog.WILDLIFE_KINDS:
+		if simulation.wildlife_ids(kind).is_empty():
+			failures.append("simulation did not spawn %s wildlife" % kind)
+
+	var deer := simulation.entity(simulation.wildlife_ids(&"deer")[0])
+	var deer_start := deer["position"] as Vector2
+	deer["wander_timer"] = 0.0
+	for _step in range(90):
+		simulation._advance_wildlife(deer, RtsSimulation.TICK_SECONDS)
+	if (deer["position"] as Vector2).distance_to(deer_start) <= 0.1:
+		failures.append("idle deer did not wander")
+	if (deer["position"] as Vector2).distance_to(deer["herd_origin"] as Vector2) > float(deer["herd_radius"]) + 0.01:
+		failures.append("wandering deer left its herd territory")
+
+	var hunter_cell := Vector2i((deer["position"] as Vector2).round()) + Vector2i(-1, 0)
+	var hunter_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"hunter", hunter_cell)
+	var hunter := simulation.entity(hunter_id)
+	var deer_hp_before := float(deer["hp"])
+	simulation._apply_attack(hunter, deer)
+	if not is_equal_approx(float(deer["hp"]), deer_hp_before - 24.0):
+		failures.append("Hunter did not deal triple damage to wildlife")
+	if deer.get("order") != &"flee":
+		failures.append("passive wildlife did not flee after a nonlethal hit")
+
+	var vanguard_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", hunter_cell)
+	if simulation.are_hostile(simulation.entity(vanguard_id), deer):
+		failures.append("a non-Hunter unit was allowed to target wildlife")
+
+	for aggressive_kind in [&"boar", &"bear"]:
+		var aggressive := simulation.entity(simulation.wildlife_ids(aggressive_kind)[0])
+		hunter["position"] = aggressive["position"] as Vector2 + Vector2(-0.5, 0.0)
+		hunter["cell"] = Vector2i((hunter["position"] as Vector2).round())
+		simulation._apply_attack(hunter, aggressive)
+		if aggressive.get("order") != &"attack" or int(aggressive.get("target_id", -1)) != hunter_id:
+			failures.append("%s did not retaliate against its Hunter" % String(aggressive_kind).capitalize())
+		var hunter_hp_before := float(hunter["hp"])
+		aggressive["attack_cooldown"] = 0.0
+		simulation._advance_wildlife(aggressive, RtsSimulation.TICK_SECONDS)
+		if float(hunter["hp"]) >= hunter_hp_before:
+			failures.append("%s retaliation did not damage the Hunter" % String(aggressive_kind).capitalize())
+
+	var chicken := simulation.entity(simulation.wildlife_ids(&"chicken")[0])
+	chicken["hp"] = 1.0
+	var food_before := int(simulation.players[RtsSimulation.TEAM_PLAYER]["food"])
+	simulation._apply_attack(hunter, chicken)
+	if int(simulation.players[RtsSimulation.TEAM_PLAYER]["food"]) != food_before + int(chicken["food_bounty"]):
+		failures.append("wildlife kill did not grant its exact Food bounty")
+
+	var celestial_simulation := RtsSimulation.new()
+	celestial_simulation.setup(&"celestial")
+	var celestial_deer := celestial_simulation.entity(celestial_simulation.wildlife_ids(&"deer")[0])
+	var forbidden_hunter_id := celestial_simulation._spawn_unit(
+		RtsSimulation.TEAM_PLAYER,
+		&"hunter",
+		celestial_deer["cell"] as Vector2i,
+	)
+	if celestial_simulation.are_hostile(celestial_simulation.entity(forbidden_hunter_id), celestial_deer):
+		failures.append("Celestial Court could hunt through a directly spawned Hunter")
+
 
 func _run() -> void:
 	var failures: Array[String] = []
@@ -277,6 +434,8 @@ func _run() -> void:
 	_test_food_building(&"rice_farm", failures)
 	_test_food_building(&"hunters_lodge", failures)
 	_test_ai_food_economy(failures)
+	_test_faction_food_traditions(failures)
+	_test_wildlife_hunting(failures)
 	var simulation := RtsSimulation.new()
 	simulation.setup(&"human")
 	if int(simulation.players[RtsSimulation.TEAM_PLAYER]["lumber"]) != 30:

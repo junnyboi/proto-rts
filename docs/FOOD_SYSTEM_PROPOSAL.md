@@ -13,11 +13,14 @@ The player begins with **160 Food**, enough to expand or field an opening force,
 
 Both buildings begin producing only after construction completes. Their Food is added directly to the owning faction's stockpile, avoiding a second worker-return loop that would duplicate the existing gathering system without adding a meaningful decision.
 
+The later wildlife expansion adds faction food traditions: Celestials can build only Rice Farms; Demons and Beasts can build only Hunter's Lodges and train Hunters; Humans can use both branches. See `WILDLIFE_HUNTING_PROPOSAL.md` for the authoritative hunting design.
+
 ## Unit Food Costs
 
 | Unit | Food cost | Intent |
 | --- | ---: | --- |
 | Worker | 30 | Economic expansion competes with army growth |
+| Hunter | 25 | Active hunting requires an upfront Food investment |
 | Vanguard | 40 | Core combat unit remains accessible |
 | Mystic | 50 | Premium ranged pressure needs deeper economy |
 | Jadeclaw | 65 | Captured-den production remains powerful but demanding |
@@ -27,7 +30,7 @@ Food is paid when an item enters a production queue, at the same authoritative s
 ## Player Experience
 
 - The top economy bar shows Food at all times.
-- Selecting a worker exposes build commands for a War Camp, Rice Farm, and Hunter's Lodge.
+- Selecting a worker exposes the War Camp plus only the food buildings available to the chosen faction.
 - Placement previews use each structure's true footprint and the existing meadow/occupancy rules.
 - Selecting a food building shows its yield cadence and time until the next harvest.
 - Unit buttons show Food costs and disable immediately when Food is insufficient.
@@ -52,7 +55,7 @@ The two new structures use shared faction-neutral GPT Image 2 sprites. Ownership
 ## Acceptance Criteria
 
 - Every trainable unit has a positive Food cost and cannot be queued without sufficient Food.
-- A valid worker can construct both new buildings; invalid terrain or occupied footprints are rejected.
+- A valid worker can construct its faction's available food buildings; faction restrictions, invalid terrain, and occupied footprints are rejected.
 - Incomplete food buildings produce nothing; completed buildings add exactly their configured yield on cadence.
 - Rice Farm and Hunter's Lodge state survives normal simulation advancement and is visible in selection details and world feedback.
 - The AI constructs food infrastructure, never receives stipend Food, and trains units only when all costs are affordable.

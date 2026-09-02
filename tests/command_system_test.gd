@@ -38,6 +38,19 @@ func _test_shift_order_queue(failures: Array[String]) -> void:
 	if worker.get("order") != &"idle" or not (worker.get("command_queue", []) as Array).is_empty():
 		failures.append("Stop did not clear the active and queued orders")
 
+	var enemy_cell := simulation._nearest_walkable(origin + Vector2i(2, 1))
+	var enemy_id := simulation._spawn_unit(RtsSimulation.TEAM_ENEMY, &"vanguard", enemy_cell)
+	simulation._refresh_visibility()
+	simulation.command_move([worker_id], first)
+	simulation.command_attack([worker_id], enemy_id, true)
+	simulation.command_move([worker_id], second, false, true)
+	simulation.entity(enemy_id)["alive"] = false
+	_walk_unit(simulation, worker, 12.0)
+	simulation._advance_attack_order(worker, RtsSimulation.TICK_SECONDS)
+	_walk_unit(simulation, worker, 12.0)
+	if (worker["position"] as Vector2).distance_to(Vector2(second)) > 0.15:
+		failures.append("an invalid queued target was not skipped in favor of the next order")
+
 
 func _test_patrol(failures: Array[String]) -> void:
 	var simulation := RtsSimulation.new()
@@ -155,6 +168,20 @@ func _test_control_groups(failures: Array[String]) -> void:
 	battlefield.recall_control_group(2)
 	if not battlefield.selected_ids.is_empty() or not (battlefield.control_groups[2] as Array).is_empty():
 		failures.append("control-group recall did not remove dead members")
+
+	battlefield.select_entities([workers[0]])
+	battlefield.assign_control_group(3)
+	battlefield.select_entities([])
+	battlefield.camera_offset = Vector2(123.0, 456.0)
+	battlefield.recall_control_group(3)
+	if battlefield.camera_offset != Vector2(123.0, 456.0):
+		failures.append("first control-group recall unexpectedly centered the camera")
+	battlefield.recall_control_group(3)
+	var double_recall_offset := battlefield.camera_offset
+	battlefield.camera_offset = Vector2(321.0, 654.0)
+	battlefield.center_on_selection()
+	if not battlefield.camera_offset.is_equal_approx(double_recall_offset):
+		failures.append("double control-group recall did not center the camera")
 	battlefield.queue_free()
 
 

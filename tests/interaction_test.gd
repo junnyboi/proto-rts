@@ -31,6 +31,19 @@ func _run() -> void:
 	battlefield.call("_handle_left_release", worker_screen_position)
 	if battlefield.selected_ids.size() != 1 or battlefield.selected_ids[0] != worker_id:
 		failures.append("clicking a worker did not select it")
+	var worker_selection_rect := Rect2(
+		worker_screen_position - Vector2.ONE * 2.0,
+		Vector2.ONE * 4.0,
+	)
+	battlefield.select_entities([])
+	battlefield.call("_select_in_rect", worker_selection_rect, false)
+	if battlefield.selected_ids != [worker_id]:
+		failures.append("drag selection did not produce a typed unit selection")
+	var second_worker_id := workers[1]
+	battlefield.select_entities([second_worker_id])
+	battlefield.call("_select_in_rect", worker_selection_rect, true)
+	if not battlefield.selected_ids.has(worker_id) or not battlefield.selected_ids.has(second_worker_id):
+		failures.append("Shift-drag selection did not preserve and extend its typed unit selection")
 
 	battlefield.call("_handle_left_press", Vector2(-1000.0, -1000.0))
 	battlefield.call("_handle_left_release", Vector2(-1000.0, -1000.0))
@@ -113,14 +126,199 @@ func _run() -> void:
 		if battlefield.placement_worker_id >= 0 or not battlefield.placement_kind.is_empty():
 			failures.append("successful Rice Farm placement did not clear placement mode")
 
+	var hunting_simulation := RtsSimulation.new()
+	hunting_simulation.setup(&"human")
+	battlefield.set_simulation(hunting_simulation)
+	battlefield.set_fog_enabled(false)
+	var wildlife_id := hunting_simulation.wildlife_ids(&"deer")[0]
+	var wildlife := hunting_simulation.entity(wildlife_id)
+	var hunter_cell := (wildlife["cell"] as Vector2i) + Vector2i(-2, 0)
+	var hunting_unit_id := hunting_simulation._spawn_unit(
+		RtsSimulation.TEAM_PLAYER,
+		&"hunter",
+		hunter_cell,
+	)
+	hunting_simulation._refresh_visibility()
+	battlefield.select_entities([hunting_unit_id])
+	battlefield.call("_handle_right_click", battlefield.entity_screen_position(wildlife), false)
+	var hunting_unit := hunting_simulation.entity(hunting_unit_id)
+	if hunting_unit.get("order") != &"attack" or int(hunting_unit.get("target_id", -1)) != wildlife_id:
+		failures.append("right-clicking visible wildlife did not issue a Hunter hunt order")
+
+	_verify_procedural_movement_visuals(battlefield, hunting_simulation, hunting_unit_id, wildlife_id, failures)
+	_verify_command_visualizations(battlefield, failures)
+
 	battlefield.queue_free()
 	if failures.is_empty():
-		print("PASS interaction_test: camera pan and zoom, deterministic depth sorting, selection, Yaoguai Den hunt, Stronghold shortcut and physical deposit, Lumber contextual gather, Rice Farm placement")
+		print("PASS interaction_test: camera, selection, contextual economy, building placement, wildlife hunting, and command visualization")
 		quit(0)
 	else:
 		for failure in failures:
 			push_error(failure)
 		quit(1)
+
+
+func _verify_procedural_movement_visuals(
+	battlefield: Battlefield,
+	simulation: RtsSimulation,
+	hunter_id: int,
+	wildlife_id: int,
+	failures: Array[String],
+) -> void:
+	battlefield.call("_update_movement_visuals", 0.016)
+	for raw_entity in simulation.entities.values():
+		var entity_state := raw_entity as Dictionary
+		if (
+			bool(entity_state.get("alive", false))
+			and entity_state.get("category") in [&"unit", &"wildlife"]
+			and not battlefield._movement_visuals.has(int(entity_state.get("id", -1)))
+		):
+			failures.append("a movable unit was missing its procedural animation state")
+			break
+
+	var hunter := simulation.entity(hunter_id)
+	var hunter_position := hunter["position"] as Vector2
+	hunter["position"] = hunter_position + Vector2(0.0, 0.25)
+	battlefield.call("_update_movement_visuals", 0.016)
+	if not battlefield.call("_movement_faces_left", hunter):
+		failures.append("Hunter sprite did not face left for leftward projected movement")
+	battlefield._walk_animation_time = 0.37
+	if float(battlefield.call("_movement_bounce_offset", hunter)) >= 0.0:
+		failures.append("moving Hunter did not receive an upward procedural bounce")
+
+	hunter["position"] = hunter_position + Vector2(0.25, 0.0)
+	battlefield.call("_update_movement_visuals", 0.016)
+	if battlefield.call("_movement_faces_left", hunter):
+		failures.append("Hunter sprite did not face right for rightward projected movement")
+
+	var wildlife := simulation.entity(wildlife_id)
+	var wildlife_position := wildlife["position"] as Vector2
+	wildlife["position"] = wildlife_position + Vector2(0.0, 0.25)
+	battlefield.call("_update_movement_visuals", 0.016)
+	if not battlefield.call("_movement_faces_left", wildlife):
+		failures.append("wildlife sprite did not face left for leftward projected movement")
+	if float(battlefield.call("_movement_bounce_offset", wildlife)) >= 0.0:
+		failures.append("moving wildlife did not receive an upward procedural bounce")
+	battlefield.call("_update_movement_visuals", 1.0)
+	if not battlefield.call("_movement_faces_left", wildlife):
+		failures.append("wildlife did not preserve its last horizontal facing while idle")
+	if not is_zero_approx(float(battlefield.call("_movement_bounce_offset", wildlife))):
+		failures.append("idle wildlife continued its procedural walking bounce")
+
+
+func _verify_command_visualizations(
+	battlefield: Battlefield,
+	failures: Array[String],
+) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human")
+	battlefield.set_simulation(simulation)
+	battlefield.set_fog_enabled(false)
+	var workers := simulation.team_entity_ids(RtsSimulation.TEAM_PLAYER, [&"worker"])
+	var worker_id := workers[0]
+	var worker := simulation.entity(worker_id)
+	var move_destination := simulation._nearest_walkable(
+		(worker["cell"] as Vector2i) + Vector2i(5, -2),
+	)
+	simulation.command_move([worker_id], move_destination)
+	battlefield.select_entities([worker_id])
+	var records: Array = battlefield.call("_command_visualization_records") as Array
+	if records.size() != 1 or (records[0] as Dictionary).get("kind") != &"flag":
+		failures.append("selected move order did not project one destination flag")
+
+	var resource_id := -1
+	for raw_entity in simulation.entities.values():
+		var entity_state := raw_entity as Dictionary
+		if (
+			entity_state.get("category") == &"resource"
+			and simulation.is_entity_explored_by_team(RtsSimulation.TEAM_PLAYER, entity_state)
+		):
+			resource_id = int(entity_state["id"])
+			break
+	if resource_id < 0:
+		failures.append("no explored resource was available for command visualization")
+	else:
+		simulation.command_gather([worker_id], resource_id)
+		records = battlefield.call("_command_visualization_records") as Array
+		if (
+			records.size() != 1
+			or (records[0] as Dictionary).get("kind") != &"interact"
+			or int((records[0] as Dictionary).get("target_id", -1)) != resource_id
+		):
+			failures.append("selected gather order did not project its resource interaction ring")
+
+	var stronghold_id := simulation.primary_structure_id(RtsSimulation.TEAM_PLAYER, &"stronghold")
+	worker["cargo_kind"] = &"jade"
+	worker["cargo_amount"] = 5.0
+	simulation.command_deposit([worker_id], stronghold_id)
+	records = battlefield.call("_command_visualization_records") as Array
+	if (
+		records.size() != 1
+		or (records[0] as Dictionary).get("kind") != &"interact"
+		or int((records[0] as Dictionary).get("target_id", -1)) != stronghold_id
+	):
+		failures.append("selected structure interaction did not project its Stronghold ring")
+
+	var combat_origin := simulation._nearest_walkable(
+		(worker["cell"] as Vector2i) + Vector2i(1, -1),
+	)
+	var attacker_id := simulation._spawn_unit(
+		RtsSimulation.TEAM_PLAYER,
+		&"vanguard",
+		combat_origin,
+	)
+	var second_attacker_id := simulation._spawn_unit(
+		RtsSimulation.TEAM_PLAYER,
+		&"vanguard",
+		combat_origin,
+	)
+	var target_cell := simulation._nearest_walkable(combat_origin + Vector2i(2, 0))
+	var target_id := simulation._spawn_unit(RtsSimulation.TEAM_ENEMY, &"vanguard", target_cell)
+	simulation._refresh_visibility()
+	simulation.command_attack([attacker_id, second_attacker_id], target_id)
+	battlefield.select_entities([attacker_id])
+	records = battlefield.call("_command_visualization_records") as Array
+	if records.size() != 1 or (records[0] as Dictionary).get("kind") != &"attack":
+		failures.append("selected attack order did not project crossed swords")
+	else:
+		var target := simulation.entity(target_id)
+		var first_endpoint := (records[0] as Dictionary).get("endpoint", Vector2.ZERO) as Vector2
+		target["position"] = target["position"] as Vector2 + Vector2(0.5, 0.25)
+		records = battlefield.call("_command_visualization_records") as Array
+		var moved_record := records[0] as Dictionary
+		var moved_endpoint := moved_record.get("endpoint", Vector2.ZERO) as Vector2
+		if moved_endpoint.is_equal_approx(first_endpoint) or not moved_endpoint.is_equal_approx(target["position"] as Vector2):
+			failures.append("attack swords did not follow the target's live position")
+		var moved_points := moved_record.get("points", []) as Array
+		if moved_points.is_empty() or not (moved_points.back() as Vector2).is_equal_approx(moved_endpoint):
+			failures.append("attack dotted path did not follow the target's live position")
+
+	battlefield.select_entities([attacker_id, second_attacker_id])
+	records = battlefield.call("_command_visualization_records") as Array
+	if records.size() != 1:
+		failures.append("identical selected attack paths and endpoint icons were not deduplicated")
+
+	var capped_ids: Array[int] = []
+	for index in range(Battlefield.MAX_VISIBLE_COMMAND_PATHS + 1):
+		var unit_id := simulation._spawn_unit(
+			RtsSimulation.TEAM_PLAYER,
+			&"vanguard",
+			combat_origin,
+		)
+		var unit := simulation.entity(unit_id)
+		unit["order"] = &"move"
+		unit["path"] = [
+			unit["position"] as Vector2 + Vector2(float(index + 2), float(index % 2)),
+		]
+		unit["path_index"] = 0
+		capped_ids.append(unit_id)
+	battlefield.select_entities(capped_ids)
+	records = battlefield.call("_command_visualization_records") as Array
+	if records.size() != Battlefield.MAX_VISIBLE_COMMAND_PATHS:
+		failures.append("command visualization did not cap projection at ten selected units")
+	battlefield.select_entities([])
+	if not (battlefield.call("_command_visualization_records") as Array).is_empty():
+		failures.append("command visualizations remained after deselection")
 
 
 func _verify_camera_input_bindings(failures: Array[String]) -> void:

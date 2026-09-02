@@ -33,6 +33,16 @@ func _run() -> void:
 	var enemy_id := simulation.primary_structure_id(RtsSimulation.TEAM_ENEMY, &"stronghold")
 	if battlefield.should_render_entity(simulation.entity(enemy_id)):
 		failures.append("an enemy in unexplored territory was renderable")
+	var wildlife_id := simulation.wildlife_ids(&"deer")[0]
+	var wildlife := simulation.entity(wildlife_id)
+	if battlefield.should_render_entity(wildlife):
+		failures.append("moving wildlife rendered outside current vision")
+	wildlife["position"] = Vector2(MapCatalog.PLAYER_WORKERS[0] + Vector2i(2, 0))
+	wildlife["cell"] = Vector2i((wildlife["position"] as Vector2).round())
+	simulation._refresh_visibility()
+	battlefield.call("_refresh_visibility")
+	if not battlefield.should_render_entity(wildlife):
+		failures.append("visible wildlife was not renderable")
 
 	battlefield.set_fog_enabled(false)
 	if not battlefield.is_cell_visible(MapCatalog.ENEMY_STRONGHOLD):

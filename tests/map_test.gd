@@ -105,6 +105,46 @@ func _run() -> void:
 		elif tree_cells[counterpart].get("variant") != tree.get("variant"):
 			failures.append("tree variants are not symmetric at %s" % tree_cell)
 
+	if MapCatalog.WILDLIFE_HERDS.size() != 10:
+		failures.append("expected ten mirrored wildlife herds")
+	var herd_species_counts: Dictionary = {}
+	var animal_count := 0
+	var total_food := 0
+	for herd in MapCatalog.WILDLIFE_HERDS:
+		var herd_kind := herd.get("kind", &"") as StringName
+		var herd_center := herd["center"] as Vector2i
+		var herd_count := int(herd.get("count", 0))
+		var herd_radius := float(herd.get("radius", 0.0))
+		herd_species_counts[herd_kind] = int(herd_species_counts.get(herd_kind, 0)) + 1
+		animal_count += herd_count
+		total_food += herd_count * int(FactionCatalog.stats(herd_kind, &"neutral").get("food_bounty", 0))
+		if herd_kind not in FactionCatalog.WILDLIFE_KINDS:
+			failures.append("unsupported wildlife herd kind %s" % herd_kind)
+		if not MapCatalog.is_static_walkable(herd_center) or tree_cells.has(herd_center):
+			failures.append("wildlife herd center is blocked at %s" % herd_center)
+		if herd_count <= 0 or herd_radius <= 0.0:
+			failures.append("wildlife herd at %s has invalid size or radius" % herd_center)
+		var counterpart_center := MapCatalog.SIZE - Vector2i.ONE - herd_center
+		var found_herd_counterpart := false
+		for candidate in MapCatalog.WILDLIFE_HERDS:
+			if (
+				candidate.get("kind") == herd_kind
+				and (candidate["center"] as Vector2i) == counterpart_center
+				and int(candidate.get("count", 0)) == herd_count
+				and is_equal_approx(float(candidate.get("radius", 0.0)), herd_radius)
+			):
+				found_herd_counterpart = true
+				break
+		if not found_herd_counterpart:
+			failures.append("wildlife herd at %s has no matching counterpart" % herd_center)
+	if animal_count != 34:
+		failures.append("expected 34 wildlife members, found %d" % animal_count)
+	if total_food != 1448:
+		failures.append("wildlife roster contains %d Food instead of 1,448" % total_food)
+	for wildlife_kind in FactionCatalog.WILDLIFE_KINDS:
+		if int(herd_species_counts.get(wildlife_kind, 0)) != 2:
+			failures.append("expected two mirrored %s herds" % wildlife_kind)
+
 	for origin in [MapCatalog.PLAYER_STRONGHOLD, MapCatalog.ENEMY_STRONGHOLD]:
 		for cell in MapCatalog.footprint_cells(origin, Vector2i(2, 2)):
 			if not MapCatalog.is_buildable(cell):
@@ -165,7 +205,7 @@ func _run() -> void:
 		failures.append("the river and tree groves disconnect the two starting armies")
 
 	if failures.is_empty():
-		print("PASS map_test: size, symmetry, river crossings, clearable groves, economy, connectivity")
+		print("PASS map_test: size, symmetry, river crossings, clearable groves, wildlife, economy, connectivity")
 		quit(0)
 	else:
 		for failure in failures:

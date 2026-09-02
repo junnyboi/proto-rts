@@ -26,6 +26,7 @@ var _redraw_timer := 0.0
 func _ready() -> void:
 	clip_contents = true
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	mouse_default_cursor_shape = Control.CURSOR_DRAG
 	tooltip_text = "Click or drag to move the battlefield camera."
 	set_process(true)
 
@@ -87,10 +88,29 @@ func _draw() -> void:
 
 
 func _draw_entities(map_rect: Rect2, cell_size: Vector2) -> void:
+	var layers: Array[Array] = [[], [], [], [], []]
 	for raw_entity in battlefield.simulation.entities.values():
 		var entity_state := raw_entity as Dictionary
 		if not battlefield.should_render_entity(entity_state):
 			continue
+		var category := entity_state.get("category") as StringName
+		var team := int(entity_state.get("team", RtsSimulation.TEAM_NEUTRAL))
+		var layer := 0
+		if category == &"wildlife":
+			layer = 1
+		elif entity_state.get("kind") in [&"yaoguai_den", &"jadeclaw"] and team == RtsSimulation.TEAM_NEUTRAL:
+			layer = 2
+		elif team == RtsSimulation.TEAM_PLAYER:
+			layer = 3
+		elif team == RtsSimulation.TEAM_ENEMY:
+			layer = 4
+		layers[layer].append(entity_state)
+	for layer in layers:
+		for raw_entity in layer:
+			_draw_entity_marker(raw_entity as Dictionary, map_rect, cell_size)
+
+
+func _draw_entity_marker(entity_state: Dictionary, map_rect: Rect2, cell_size: Vector2) -> void:
 		var footprint := entity_state.get("footprint", Vector2i.ONE) as Vector2i
 		var map_position := (entity_state["position"] as Vector2) + Vector2(footprint) * 0.5
 		var center := map_rect.position + map_position / Vector2(MapCatalog.SIZE) * map_rect.size
@@ -107,12 +127,31 @@ func _draw_entities(map_rect: Rect2, cell_size: Vector2) -> void:
 			color = PLAYER_COLOR
 		elif team == RtsSimulation.TEAM_ENEMY:
 			color = ENEMY_COLOR
-		var radius := 2.0
-		if category == &"structure":
+		if entity_state.get("kind") == &"yaoguai_den":
+			var radius := 4.0
+			var diamond := PackedVector2Array([
+				center + Vector2(0.0, -radius),
+				center + Vector2(radius, 0.0),
+				center + Vector2(0.0, radius),
+				center + Vector2(-radius, 0.0),
+			])
+			draw_colored_polygon(diamond, color)
+			draw_polyline(PackedVector2Array([diamond[0], diamond[1], diamond[2], diamond[3], diamond[0]]), color.lightened(0.28), 1.0, true)
+		elif category == &"structure":
 			var marker_size := Vector2(footprint) * cell_size
+			marker_size.x = maxf(marker_size.x, 4.0)
+			marker_size.y = maxf(marker_size.y, 4.0)
 			draw_rect(Rect2(center - marker_size * 0.5, marker_size).grow(0.5), color, true)
+		elif team == RtsSimulation.TEAM_ENEMY and category == &"unit":
+			var chevron := PackedVector2Array([
+				center + Vector2(0.0, -3.8),
+				center + Vector2(3.5, 3.0),
+				center,
+				center + Vector2(-3.5, 3.0),
+			])
+			draw_polyline(chevron, color, 2.0, true)
 		else:
-			radius = 2.8 if category == &"unit" else 2.4 if category == &"wildlife" else 2.2
+			var radius := 2.8 if category == &"unit" else 2.4 if category == &"wildlife" else 2.2
 			draw_circle(center, radius, color)
 
 
@@ -143,7 +182,7 @@ func _draw_camera_view(map_rect: Rect2) -> void:
 		var map_position := battlefield.screen_to_map_position(corner)
 		points.append(map_rect.position + map_position / Vector2(MapCatalog.SIZE) * map_rect.size)
 	points.append(points[0])
-	draw_polyline(points, CAMERA_COLOR, 1.5, true)
+	draw_polyline(points, CAMERA_COLOR, 2.0, true)
 
 
 func _map_rect() -> Rect2:

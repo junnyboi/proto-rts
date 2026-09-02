@@ -59,7 +59,7 @@ Every herd has an exact 180-degree counterpart so both starting positions receiv
 | Boar | (32, 34), (47, 29) | 3.0 |
 | Bear | (38, 20), (41, 43) | 2.5 |
 
-The full map contains 34 animals and 1,274 finite Food. Spawn offsets keep members visually clustered, movement uses the shared navigation grid, and mobile wildlife never becomes a static pathfinding obstacle.
+The full map contains 34 animals and 1,448 finite Food. Spawn offsets keep members visually clustered, movement uses the shared navigation grid, and mobile wildlife never becomes a static pathfinding obstacle.
 
 ## Player Experience
 

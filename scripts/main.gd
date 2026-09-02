@@ -6,6 +6,8 @@ const STATE_MATCH := &"match"
 const STATE_RESULT := &"result"
 const TITLE_ART := preload("res://assets/runtime/ui/mandate_of_myth_title.webp")
 const BATTLEFIELD_MINIMAP := preload("res://scripts/view/battlefield_minimap.gd")
+const HUD_ICON := preload("res://scripts/ui/hud_icon.gd")
+const HUD_COMMAND_BUTTON := preload("res://scripts/ui/hud_command_button.gd")
 
 var state: StringName = STATE_TITLE
 var selected_faction: StringName = &"human"
@@ -15,19 +17,46 @@ var battlefield: Battlefield
 var _screen: Control
 var _resource_label: Label
 var _faction_label: Label
+var _resource_values: Dictionary = {}
 var _selection_title: Label
 var _selection_detail: Label
+var _selection_portrait: TextureRect
+var _selection_portrait_frame: PanelContainer
+var _selection_health: ProgressBar
+var _selection_health_label: Label
+var _selection_status: Label
+var _selection_order: Label
+var _selection_meta: Label
+var _selection_stacks: HBoxContainer
+var _queue_panel: PanelContainer
+var _queue_tiles: Array[Button] = []
 var _feedback_label: Label
+var _toast_panel: PanelContainer
+var _pause_banner: PanelContainer
 var _pause_button: Button
 var _fog_button: Button
+var _fog_icon: HudIcon
 var _minimap: Control
+var _objective_panel: PanelContainer
+var _objective_rows: Array[Label] = []
+var _objective_collapsed := false
+var _objective_toggle: Button
+var _command_deck: PanelContainer
+var _command_grid: GridContainer
+var _command_slots: Array[Control] = []
 var _command_buttons: Dictionary = {}
 var _hud_timer := 0.0
 var _feedback_timer := 0.0
 var _result_overlay: Control
+var _last_queue_focus_id := -1
+var _last_queue_focus_ms := -1000
 
 
 func _ready() -> void:
+	var game_window := get_window()
+	game_window.mouse_entered.connect(CursorSystem.resume)
+	game_window.mouse_exited.connect(CursorSystem.suspend)
+	CursorSystem.resume()
 	_show_title()
 
 
@@ -43,6 +72,7 @@ func _process(delta: float) -> void:
 		_feedback_timer -= delta
 		if _feedback_timer <= 0.0 and _feedback_label != null:
 			_feedback_label.text = ""
+			_toast_panel.visible = false
 
 
 func _unhandled_key_input(event: InputEvent) -> void:
@@ -65,9 +95,11 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	match key.keycode:
 		KEY_ESCAPE:
 			if (
-				battlefield.attack_move_armed
+				battlefield.move_armed
+				or battlefield.attack_move_armed
 				or battlefield.patrol_armed
 				or battlefield.repair_armed
+				or battlefield.rally_armed
 				or battlefield.placement_worker_id >= 0
 			):
 				battlefield.cancel_modes()
@@ -118,14 +150,36 @@ func _clear_screen() -> void:
 	battlefield = null
 	_resource_label = null
 	_faction_label = null
+	_resource_values.clear()
 	_selection_title = null
 	_selection_detail = null
+	_selection_portrait = null
+	_selection_portrait_frame = null
+	_selection_health = null
+	_selection_health_label = null
+	_selection_status = null
+	_selection_order = null
+	_selection_meta = null
+	_selection_stacks = null
+	_queue_panel = null
+	_queue_tiles.clear()
 	_feedback_label = null
+	_toast_panel = null
+	_pause_banner = null
 	_pause_button = null
 	_fog_button = null
+	_fog_icon = null
 	_minimap = null
+	_objective_panel = null
+	_objective_rows.clear()
+	_objective_toggle = null
+	_command_deck = null
+	_command_grid = null
+	_command_slots.clear()
 	_command_buttons.clear()
 	_result_overlay = null
+	_last_queue_focus_id = -1
+	_last_queue_focus_ms = -1000
 
 
 func _make_screen() -> Control:
@@ -288,7 +342,6 @@ func _start_match(faction_id: StringName) -> void:
 	_build_top_bar(root)
 	_build_bottom_hud(root)
 	_build_help_panel(root)
-	_build_minimap(root)
 	_update_hud()
 	_show_feedback("Harvest resources, build food production, and capture Yaoguai Dens before destroying the rival Stronghold.", false)
 
@@ -297,265 +350,798 @@ func _build_top_bar(root: Control) -> void:
 	var panel := PanelContainer.new()
 	panel.name = "TopBar"
 	panel.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	panel.offset_left = 12
-	panel.offset_top = 10
-	panel.offset_right = -12
-	panel.offset_bottom = 62
-	panel.add_theme_stylebox_override(&"panel", ThemeFactory.panel_style(Color(0.025, 0.065, 0.067, 0.94), Color("456f67"), 1, 9))
+	panel.offset_left = 8
+	panel.offset_top = 6
+	panel.offset_right = -8
+	panel.offset_bottom = 56
+	panel.add_theme_stylebox_override(&"panel", ThemeFactory.hud_deck_style(ThemeFactory.GOLD))
 	root.add_child(panel)
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override(&"separation", 22)
+	row.add_theme_constant_override(&"separation", 5)
 	panel.add_child(row)
-	_faction_label = ThemeFactory.label("", 19, ThemeFactory.GOLD)
-	_faction_label.custom_minimum_size.x = 280
+	_faction_label = ThemeFactory.label("", 14, ThemeFactory.GOLD)
+	_faction_label.custom_minimum_size.x = 222
+	_faction_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	row.add_child(_faction_label)
-	_resource_label = ThemeFactory.label("", 16, Color("f4e8c7"))
-	_resource_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_resource_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	row.add_child(_resource_label)
-	_pause_button = ThemeFactory.button("PAUSE  P")
-	_pause_button.custom_minimum_size.x = 120
+	_add_resource_chip(row, &"jade", &"jade", "JADE", ThemeFactory.JADE, 88.0)
+	_add_resource_chip(row, &"lumber", &"lumber", "LUMBER", ThemeFactory.LUMBER, 100.0)
+	_add_resource_chip(row, &"essence", &"essence", "ESSENCE", ThemeFactory.ESSENCE, 108.0)
+	_add_resource_chip(row, &"food", &"food", "FOOD", ThemeFactory.FOOD, 136.0)
+	_add_resource_chip(row, &"population", &"population", "POP", ThemeFactory.IVORY, 88.0)
+	_add_resource_chip(row, &"dens", &"den", "DENS", ThemeFactory.GOLD, 82.0)
+	_add_resource_chip(row, &"time", &"clock", "TIME", ThemeFactory.MUTED, 82.0)
+	_pause_button = ThemeFactory.button("Ⅱ  P", "Pause the realm")
+	_pause_button.name = "PauseButton"
+	_pause_button.custom_minimum_size = Vector2(58.0, 34.0)
+	_pause_button.add_theme_font_size_override(&"font_size", 14)
 	_pause_button.pressed.connect(_toggle_pause)
 	row.add_child(_pause_button)
 
 
-func _build_bottom_hud(root: Control) -> void:
-	var panel := PanelContainer.new()
-	panel.name = "CommandDeck"
-	panel.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	panel.offset_left = 12
-	panel.offset_top = -151
-	panel.offset_right = -12
-	panel.offset_bottom = -10
-	panel.add_theme_stylebox_override(&"panel", ThemeFactory.panel_style(Color(0.022, 0.058, 0.061, 0.97), Color("456f67"), 1, 10))
-	root.add_child(panel)
+func _add_resource_chip(
+	container: Control,
+	id: StringName,
+	glyph: StringName,
+	label_text: String,
+	color: Color,
+	minimum_width: float,
+) -> void:
+	var chip := PanelContainer.new()
+	chip.name = "%sChip" % String(id).capitalize()
+	chip.custom_minimum_size.x = minimum_width
+	chip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	chip.add_theme_stylebox_override(&"panel", ThemeFactory.economy_chip_style(color))
+	container.add_child(chip)
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override(&"separation", 16)
-	panel.add_child(row)
-
-	var selection_box := VBoxContainer.new()
-	selection_box.custom_minimum_size.x = 420
-	selection_box.add_theme_constant_override(&"separation", 5)
-	row.add_child(selection_box)
-	_selection_title = ThemeFactory.label("No selection", 22, ThemeFactory.GOLD)
-	selection_box.add_child(_selection_title)
-	_selection_detail = ThemeFactory.label("Select a unit, structure, or resource.", 14, ThemeFactory.MUTED)
-	_selection_detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_selection_detail.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	selection_box.add_child(_selection_detail)
-	_feedback_label = ThemeFactory.label("", 14, ThemeFactory.JADE)
-	_feedback_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	selection_box.add_child(_feedback_label)
-
-	var spacer := Control.new()
-	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(spacer)
-
-	var command_grid := GridContainer.new()
-	command_grid.columns = 3
-	command_grid.custom_minimum_size = Vector2(630, 116)
-	command_grid.add_theme_constant_override(&"h_separation", 8)
-	command_grid.add_theme_constant_override(&"v_separation", 8)
-	row.add_child(command_grid)
-	_add_command_button(command_grid, &"build", "BUILD WAR CAMP", func() -> void: _command_build(&"war_camp"))
-	_add_command_button(command_grid, &"build_farm", "BUILD RICE FARM", func() -> void: _command_build(&"rice_farm"))
-	_add_command_button(command_grid, &"build_lodge", "BUILD HUNTER'S LODGE", func() -> void: _command_build(&"hunters_lodge"))
-	_add_command_button(command_grid, &"worker", "TRAIN WORKER", func() -> void: _command_train(&"worker"))
-	_add_command_button(command_grid, &"hunter", "TRAIN HUNTER", func() -> void: _command_train(&"hunter"))
-	_add_command_button(command_grid, &"vanguard", "TRAIN VANGUARD", func() -> void: _command_train(&"vanguard"))
-	_add_command_button(command_grid, &"mystic", "TRAIN MYSTIC", func() -> void: _command_train(&"mystic"))
-	_add_command_button(command_grid, &"jadeclaw", "CALL JADECLAW", func() -> void: _command_train(&"jadeclaw"))
-	_add_command_button(command_grid, &"repair", "REPAIR  R", func() -> void: battlefield.begin_repair())
-	_add_command_button(command_grid, &"patrol", "PATROL  T", func() -> void: battlefield.begin_patrol())
-	_add_command_button(command_grid, &"cancel_queue", "CANCEL LAST", _command_cancel_training)
+	row.add_theme_constant_override(&"separation", 5)
+	chip.add_child(row)
+	var icon := HUD_ICON.new().configure(glyph, color) as HudIcon
+	icon.custom_minimum_size = Vector2(24.0, 24.0)
+	row.add_child(icon)
+	var copy := VBoxContainer.new()
+	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	copy.alignment = BoxContainer.ALIGNMENT_CENTER
+	copy.add_theme_constant_override(&"separation", -3)
+	row.add_child(copy)
+	var name_label := ThemeFactory.label(label_text, 9, ThemeFactory.MUTED_SAGE)
+	copy.add_child(name_label)
+	var value_label := ThemeFactory.label("0", 15, ThemeFactory.IVORY)
+	value_label.name = "%sValue" % String(id).capitalize()
+	value_label.clip_text = true
+	copy.add_child(value_label)
+	_resource_values[id] = value_label
 
 
-func _add_command_button(container: Control, id: StringName, text: String, action: Callable) -> void:
-	var button := ThemeFactory.button(text)
-	button.custom_minimum_size = Vector2(204, 52)
-	button.pressed.connect(action)
-	container.add_child(button)
-	_command_buttons[id] = button
+func _build_bottom_hud(root: Control) -> void:
+	_command_deck = PanelContainer.new()
+	_command_deck.name = "CommandDeck"
+	_command_deck.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	_command_deck.offset_left = 8
+	_command_deck.offset_top = -242
+	_command_deck.offset_right = -8
+	_command_deck.offset_bottom = -8
+	var player_accent := FactionCatalog.definition(selected_faction)["accent"] as Color
+	_command_deck.add_theme_stylebox_override(&"panel", ThemeFactory.hud_deck_style(player_accent))
+	root.add_child(_command_deck)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override(&"separation", 7)
+	_command_deck.add_child(row)
+	row.add_child(_build_minimap_bay())
+	row.add_child(_build_selection_bay())
+	row.add_child(_build_command_bay())
+	_build_toast(root)
 
 
-func _build_help_panel(root: Control) -> void:
-	var panel := PanelContainer.new()
-	panel.name = "Objective"
-	panel.position = Vector2(14, 76)
-	panel.size = Vector2(330, 122)
-	panel.add_theme_stylebox_override(&"panel", ThemeFactory.panel_style(Color(0.02, 0.05, 0.052, 0.82), Color("345d57"), 1, 8))
-	root.add_child(panel)
-	var text := ThemeFactory.label("OBJECTIVE\nUse your faction's farming or hunting tradition to supply Food. Hunters harvest roaming wildlife; boars and bears fight back. Claim Dens and destroy the rival Stronghold.", 13, ThemeFactory.MUTED)
-	text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	panel.add_child(text)
-
-
-func _build_minimap(root: Control) -> void:
+func _build_minimap_bay() -> Control:
 	var panel := PanelContainer.new()
 	panel.name = "MinimapPanel"
-	panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	panel.position = Vector2(-250, 76)
-	panel.size = Vector2(236, 225)
-	panel.add_theme_stylebox_override(&"panel", ThemeFactory.panel_style(Color(0.02, 0.05, 0.052, 0.94), Color("456f67"), 1, 8))
-	root.add_child(panel)
-
+	panel.custom_minimum_size.x = 236.0
+	panel.add_theme_stylebox_override(&"panel", ThemeFactory.hud_inset_style(ThemeFactory.GOLD))
 	var column := VBoxContainer.new()
-	column.add_theme_constant_override(&"separation", 6)
+	column.add_theme_constant_override(&"separation", 4)
 	panel.add_child(column)
-	var title := ThemeFactory.label("JADE MERIDIAN", 13, ThemeFactory.GOLD)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	column.add_child(title)
-
+	var header := HBoxContainer.new()
+	column.add_child(header)
+	var title := ThemeFactory.label("JADE MERIDIAN", 11, ThemeFactory.GOLD)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(title)
+	var map_state := ThemeFactory.label("TACTICAL MAP", 9, ThemeFactory.MUTED_SAGE)
+	header.add_child(map_state)
 	_minimap = BATTLEFIELD_MINIMAP.new()
 	_minimap.name = "Minimap"
-	_minimap.custom_minimum_size = Vector2(208, 132)
+	_minimap.custom_minimum_size = Vector2(214.0, 145.0)
 	_minimap.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_minimap.set_battlefield(battlefield)
 	column.add_child(_minimap)
-
-	_fog_button = ThemeFactory.button("FOG OF WAR  ON", "Toggle battlefield and minimap fog of war")
+	var utilities := HBoxContainer.new()
+	utilities.add_theme_constant_override(&"separation", 3)
+	column.add_child(utilities)
+	utilities.add_child(_make_utility_button("Q", "Select all Workers", func() -> void: battlefield.select_all_workers()))
+	utilities.add_child(_make_utility_button("E", "Select the army", func() -> void: battlefield.select_all_army()))
+	utilities.add_child(_make_utility_button("⌂", "Select and center the Stronghold · Space", func() -> void: battlefield.select_player_stronghold()))
+	_fog_button = _make_utility_button("", "Toggle fog of war", _toggle_fog_of_war, &"fog")
 	_fog_button.name = "FogToggle"
-	_fog_button.custom_minimum_size.y = 36
-	_fog_button.pressed.connect(_toggle_fog_of_war)
-	column.add_child(_fog_button)
+	_fog_icon = _fog_button.get_node("Icon") as HudIcon
+	utilities.add_child(_fog_button)
+	utilities.add_child(_make_utility_button("−", "Zoom battlefield out", func() -> void: battlefield.zoom_by(1.0 / 1.14)))
+	utilities.add_child(_make_utility_button("+", "Zoom battlefield in", func() -> void: battlefield.zoom_by(1.14)))
+	return panel
+
+
+func _make_utility_button(
+	button_text: String,
+	tooltip: String,
+	action: Callable,
+	glyph: StringName = &"",
+) -> Button:
+	var button := ThemeFactory.button(button_text, tooltip)
+	button.custom_minimum_size = Vector2(32.0, 30.0)
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.add_theme_font_size_override(&"font_size", 12)
+	button.add_theme_stylebox_override(&"normal", ThemeFactory.command_button_style(Color("102020"), Color("4b655f")))
+	button.add_theme_stylebox_override(&"hover", ThemeFactory.command_button_style(Color("183633"), ThemeFactory.JADE, 2))
+	button.add_theme_stylebox_override(&"pressed", ThemeFactory.command_button_style(ThemeFactory.GOLD, Color("ffe8a0"), 2))
+	button.pressed.connect(action)
+	if not glyph.is_empty():
+		var icon := HUD_ICON.new().configure(glyph, ThemeFactory.GOLD) as HudIcon
+		icon.name = "Icon"
+		icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		icon.offset_left = 6.0
+		icon.offset_top = 5.0
+		icon.offset_right = -6.0
+		icon.offset_bottom = -5.0
+		button.add_child(icon)
+	return button
+
+
+func _build_selection_bay() -> Control:
+	var panel := PanelContainer.new()
+	panel.name = "SelectionBay"
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.add_theme_stylebox_override(&"panel", ThemeFactory.hud_inset_style())
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override(&"separation", 5)
+	panel.add_child(column)
+	_queue_panel = _build_queue_panel()
+	column.add_child(_queue_panel)
+	var body := HBoxContainer.new()
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	body.add_theme_constant_override(&"separation", 10)
+	column.add_child(body)
+	_selection_portrait_frame = PanelContainer.new()
+	_selection_portrait_frame.custom_minimum_size = Vector2(108.0, 112.0)
+	_selection_portrait_frame.add_theme_stylebox_override(&"panel", ThemeFactory.portrait_style())
+	body.add_child(_selection_portrait_frame)
+	_selection_portrait = TextureRect.new()
+	_selection_portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_selection_portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_selection_portrait.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	_selection_portrait_frame.add_child(_selection_portrait)
+	var info := VBoxContainer.new()
+	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info.add_theme_constant_override(&"separation", 2)
+	body.add_child(info)
+	var title_row := HBoxContainer.new()
+	info.add_child(title_row)
+	_selection_title = ThemeFactory.label("NO SELECTION", 20, ThemeFactory.GOLD)
+	_selection_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_selection_title.clip_text = true
+	title_row.add_child(_selection_title)
+	_selection_status = ThemeFactory.label("COMMAND", 10, ThemeFactory.JADE)
+	_selection_status.add_theme_stylebox_override(&"normal", ThemeFactory.badge_style())
+	_selection_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_selection_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_selection_status.custom_minimum_size = Vector2(82.0, 22.0)
+	title_row.add_child(_selection_status)
+	var health_row := HBoxContainer.new()
+	health_row.add_theme_constant_override(&"separation", 7)
+	info.add_child(health_row)
+	_selection_health = ProgressBar.new()
+	_selection_health.show_percentage = false
+	_selection_health.custom_minimum_size.y = 14.0
+	_selection_health.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	health_row.add_child(_selection_health)
+	_selection_health_label = ThemeFactory.label("", 11, ThemeFactory.IVORY)
+	_selection_health_label.custom_minimum_size.x = 92.0
+	_selection_health_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	health_row.add_child(_selection_health_label)
+	_selection_order = ThemeFactory.label("SELECT A UNIT OR STRUCTURE", 13, ThemeFactory.IVORY)
+	_selection_order.clip_text = true
+	info.add_child(_selection_order)
+	_selection_meta = ThemeFactory.label("Q WORKERS · E ARMY · SPACE STRONGHOLD", 11, ThemeFactory.JADE)
+	_selection_meta.clip_text = true
+	info.add_child(_selection_meta)
+	_selection_detail = ThemeFactory.label("Left-click or drag to select. Right-click issues a contextual order.", 11, ThemeFactory.MUTED_SAGE)
+	_selection_detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_selection_detail.max_lines_visible = 2
+	_selection_detail.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	info.add_child(_selection_detail)
+	_selection_stacks = HBoxContainer.new()
+	_selection_stacks.add_theme_constant_override(&"separation", 4)
+	_selection_stacks.visible = false
+	info.add_child(_selection_stacks)
+	return panel
+
+
+func _build_queue_panel() -> PanelContainer:
+	var panel := PanelContainer.new()
+	panel.name = "ProductionQueue"
+	panel.custom_minimum_size.y = 48.0
+	panel.add_theme_stylebox_override(&"panel", ThemeFactory.queue_tile_style(ThemeFactory.GOLD))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override(&"separation", 4)
+	panel.add_child(row)
+	var title_column := VBoxContainer.new()
+	title_column.custom_minimum_size.x = 74.0
+	row.add_child(title_column)
+	var title := ThemeFactory.label("PRODUCTION", 9, ThemeFactory.GOLD)
+	title_column.add_child(title)
+	var hint := ThemeFactory.label("CLICK TO FOCUS", 8, ThemeFactory.MUTED_SAGE)
+	title_column.add_child(hint)
+	for index in range(5):
+		var tile := ThemeFactory.button("", "Select this producer")
+		tile.name = "QueueTile%d" % index
+		tile.custom_minimum_size = Vector2(84.0, 38.0)
+		tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		tile.add_theme_font_size_override(&"font_size", 9)
+		tile.add_theme_stylebox_override(&"normal", ThemeFactory.queue_tile_style())
+		tile.add_theme_stylebox_override(&"hover", ThemeFactory.queue_tile_style(ThemeFactory.JADE))
+		tile.expand_icon = true
+		tile.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		tile.pressed.connect(_on_queue_tile_pressed.bind(tile))
+		tile.visible = false
+		row.add_child(tile)
+		_queue_tiles.append(tile)
+	panel.visible = false
+	return panel
+
+
+func _build_command_bay() -> Control:
+	var panel := PanelContainer.new()
+	panel.name = "CommandCard"
+	panel.custom_minimum_size.x = 326.0
+	panel.add_theme_stylebox_override(&"panel", ThemeFactory.hud_inset_style(ThemeFactory.GOLD))
+	_command_grid = GridContainer.new()
+	_command_grid.columns = 3
+	_command_grid.add_theme_constant_override(&"h_separation", 4)
+	_command_grid.add_theme_constant_override(&"v_separation", 4)
+	panel.add_child(_command_grid)
+	for index in range(9):
+		var slot := Control.new()
+		slot.name = "CommandSlot%d" % (index + 1)
+		slot.custom_minimum_size = Vector2(98.0, 66.0)
+		slot.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		slot.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		_command_grid.add_child(slot)
+		_command_slots.append(slot)
+	var faction := simulation.players[RtsSimulation.TEAM_PLAYER]["faction"] as StringName
+	_add_command_button(0, &"build", "WAR CAMP", func() -> void: _command_build(&"war_camp"), load(FactionCatalog.entity_art_path(faction, &"war_camp")) as Texture2D)
+	_add_command_button(1, &"build_farm", "RICE FARM", func() -> void: _command_build(&"rice_farm"), load(FactionCatalog.entity_art_path(faction, &"rice_farm")) as Texture2D)
+	_add_command_button(2, &"build_lodge", "HUNTER LODGE", func() -> void: _command_build(&"hunters_lodge"), load(FactionCatalog.entity_art_path(faction, &"hunters_lodge")) as Texture2D)
+	_add_command_button(0, &"worker", "WORKER", func() -> void: _command_train(&"worker"), load(FactionCatalog.entity_art_path(faction, &"worker")) as Texture2D)
+	_add_command_button(0, &"hunter", "HUNTER", func() -> void: _command_train(&"hunter"), load(FactionCatalog.entity_art_path(faction, &"hunter")) as Texture2D)
+	_add_command_button(0, &"vanguard", "VANGUARD", func() -> void: _command_train(&"vanguard"), load(FactionCatalog.entity_art_path(faction, &"vanguard")) as Texture2D)
+	_add_command_button(1, &"mystic", "MYSTIC", func() -> void: _command_train(&"mystic"), load(FactionCatalog.entity_art_path(faction, &"mystic")) as Texture2D)
+	_add_command_button(0, &"jadeclaw", "JADECLAW", func() -> void: _command_train(&"jadeclaw"), load(FactionCatalog.entity_art_path(faction, &"jadeclaw")) as Texture2D)
+	_add_command_button(3, &"move", "MOVE", func() -> void: battlefield.begin_move(Input.is_key_pressed(KEY_SHIFT)), null, &"move")
+	_add_command_button(4, &"attack_move", "ATTACK-MOVE", func() -> void: battlefield.begin_attack_move(Input.is_key_pressed(KEY_SHIFT)), null, &"attack_move", "F")
+	_add_command_button(5, &"patrol", "PATROL", func() -> void: battlefield.begin_patrol(Input.is_key_pressed(KEY_SHIFT)), null, &"patrol", "T")
+	_add_command_button(5, &"repair", "REPAIR", func() -> void: battlefield.begin_repair(Input.is_key_pressed(KEY_SHIFT)), null, &"repair", "R")
+	_add_command_button(3, &"rally", "RALLY", func() -> void: battlefield.begin_rally(), null, &"rally")
+	_add_command_button(6, &"stop", "STOP", _command_stop, null, &"stop", "X")
+	_add_command_button(6, &"cancel_queue", "CANCEL LAST", _command_cancel_training, null, &"cancel")
+	return panel
+
+
+func _add_command_button(
+	slot_index: int,
+	id: StringName,
+	title: String,
+	action: Callable,
+	texture: Texture2D = null,
+	glyph: StringName = &"objective",
+	hotkey: String = "",
+) -> void:
+	var button := HUD_COMMAND_BUTTON.new().configure(title, "", hotkey, texture, glyph, ThemeFactory.GOLD) as HudCommandButton
+	button.name = "%sCommand" % String(id).capitalize()
+	button.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	button.add_theme_stylebox_override(&"normal", ThemeFactory.command_button_style(Color("102020"), Color("4b655f")))
+	button.add_theme_stylebox_override(&"hover", ThemeFactory.command_button_style(Color("183633"), ThemeFactory.JADE, 2))
+	button.add_theme_stylebox_override(&"pressed", ThemeFactory.command_button_style(ThemeFactory.GOLD, Color("ffe8a0"), 2))
+	button.add_theme_stylebox_override(&"focus", ThemeFactory.command_button_style(Color("102020"), ThemeFactory.GOLD, 2))
+	button.add_theme_stylebox_override(&"disabled", ThemeFactory.command_button_style(Color("0c1516"), Color("40504e")))
+	button.pressed.connect(action)
+	button.visible = false
+	_command_slots[slot_index].add_child(button)
+	_command_buttons[id] = button
+
+
+func _build_toast(root: Control) -> void:
+	_toast_panel = PanelContainer.new()
+	_toast_panel.name = "AlertToast"
+	_toast_panel.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_toast_panel.position = Vector2(-220.0, -286.0)
+	_toast_panel.size = Vector2(440.0, 38.0)
+	_toast_panel.add_theme_stylebox_override(&"panel", ThemeFactory.toast_style())
+	root.add_child(_toast_panel)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override(&"separation", 8)
+	_toast_panel.add_child(row)
+	var icon := HUD_ICON.new().configure(&"objective", ThemeFactory.JADE) as HudIcon
+	icon.name = "ToastIcon"
+	icon.custom_minimum_size = Vector2(22.0, 22.0)
+	row.add_child(icon)
+	_feedback_label = ThemeFactory.label("", 13, ThemeFactory.JADE)
+	_feedback_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_feedback_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_feedback_label.clip_text = true
+	row.add_child(_feedback_label)
+	_toast_panel.visible = false
+	_pause_banner = PanelContainer.new()
+	_pause_banner.name = "PauseBanner"
+	_pause_banner.set_anchors_preset(Control.PRESET_CENTER)
+	_pause_banner.position = Vector2(-110.0, -46.0)
+	_pause_banner.size = Vector2(220.0, 78.0)
+	_pause_banner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_pause_banner.add_theme_stylebox_override(&"panel", ThemeFactory.toast_style(ThemeFactory.GOLD))
+	root.add_child(_pause_banner)
+	var pause_copy := ThemeFactory.label("REALM PAUSED\nP  TO RESUME", 18, ThemeFactory.GOLD)
+	pause_copy.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pause_copy.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	pause_copy.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_pause_banner.add_child(pause_copy)
+	_pause_banner.visible = false
+
+
+func _build_help_panel(root: Control) -> void:
+	_objective_panel = PanelContainer.new()
+	_objective_panel.name = "Objective"
+	_objective_panel.position = Vector2(10, 64)
+	_objective_panel.size = Vector2(326, 132)
+	_objective_panel.add_theme_stylebox_override(&"panel", ThemeFactory.objective_style(true))
+	root.add_child(_objective_panel)
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override(&"separation", 1)
+	_objective_panel.add_child(column)
+	_objective_toggle = ThemeFactory.button("OBJECTIVES    ▴", "Collapse or expand the objective tracker")
+	_objective_toggle.name = "ObjectiveToggle"
+	_objective_toggle.custom_minimum_size.y = 22.0
+	_objective_toggle.add_theme_font_size_override(&"font_size", 11)
+	_objective_toggle.add_theme_stylebox_override(&"normal", ThemeFactory.command_button_style(Color("0b1919"), ThemeFactory.GOLD))
+	_objective_toggle.pressed.connect(_toggle_objectives)
+	column.add_child(_objective_toggle)
+	for index in range(3):
+		var label := ThemeFactory.label("", 11, ThemeFactory.IVORY)
+		label.name = "ObjectiveRow%d" % (index + 1)
+		label.custom_minimum_size.y = 20.0
+		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		label.clip_text = true
+		column.add_child(label)
+		_objective_rows.append(label)
+
+
+func _build_minimap(root: Control) -> void:
+	# The minimap is integrated into the bottom command deck.
+	pass
 
 
 func _update_hud() -> void:
-	if simulation == null or simulation.players.is_empty() or _resource_label == null:
+	if simulation == null or simulation.players.is_empty() or _resource_values.is_empty():
 		return
 	var player := simulation.players[RtsSimulation.TEAM_PLAYER]
 	var enemy := simulation.players[RtsSimulation.TEAM_ENEMY]
 	var player_definition := FactionCatalog.definition(player["faction"] as StringName)
 	var enemy_definition := FactionCatalog.definition(enemy["faction"] as StringName)
-	_faction_label.text = "%s  vs  %s" % [player_definition["name"], enemy_definition["name"]]
+	_faction_label.text = "%s  ·  VS  ·  %s" % [player_definition["name"], enemy_definition["name"]]
 	_faction_label.add_theme_color_override(&"font_color", player_definition["accent"] as Color)
 	var minutes := floori(simulation.elapsed_time / 60.0)
 	var seconds := int(simulation.elapsed_time) % 60
-	_resource_label.text = "JADE %d    LUMBER %d    ESSENCE %d    FOOD %d (+%.1f/s)    POP %d/%d    DENS %d/%d    %02d:%02d" % [
-		int(player["jade"]),
-		int(player["lumber"]),
-		int(player["essence"]),
-		int(player["food"]),
-		simulation.food_income_per_second(RtsSimulation.TEAM_PLAYER),
-		int(player["population"]),
-		int(player["population_cap"]),
-		simulation.captured_cave_count(RtsSimulation.TEAM_PLAYER),
-		MapCatalog.CAVES.size(),
-		minutes,
-		seconds,
+	(_resource_values[&"jade"] as Label).text = "%d" % int(player["jade"])
+	(_resource_values[&"lumber"] as Label).text = "%d" % int(player["lumber"])
+	(_resource_values[&"essence"] as Label).text = "%d" % int(player["essence"])
+	(_resource_values[&"food"] as Label).text = "%d  +%.1f/s" % [
+		int(player["food"]), simulation.food_income_per_second(RtsSimulation.TEAM_PLAYER),
 	]
-	_update_selection_text()
+	var remaining_population := int(player["population_cap"]) - int(player["population"])
+	var population_label := _resource_values[&"population"] as Label
+	population_label.text = "%d/%d" % [int(player["population"]), int(player["population_cap"])]
+	var population_color := ThemeFactory.IVORY
+	if remaining_population <= 0:
+		population_color = ThemeFactory.DANGER
+	elif remaining_population <= 2:
+		population_color = ThemeFactory.GOLD
+	population_label.add_theme_color_override(&"font_color", population_color)
+	(_resource_values[&"dens"] as Label).text = "%d/%d" % [
+		simulation.captured_cave_count(RtsSimulation.TEAM_PLAYER), MapCatalog.CAVES.size(),
+	]
+	(_resource_values[&"time"] as Label).text = "%02d:%02d" % [minutes, seconds]
+	_update_objectives()
+	_update_selection_panel()
+	_update_production_queue()
 	_update_commands()
+	_update_armed_command_styles()
+	if _fog_icon != null:
+		_fog_icon.glyph_color = ThemeFactory.JADE if battlefield.fog_enabled else ThemeFactory.MUTED_SAGE
+		_fog_icon.queue_redraw()
+		_fog_button.tooltip_text = "Fog of war on" if battlefield.fog_enabled else "Fog of war off"
 
 
 func _on_selection_changed(_ids: Array) -> void:
 	_update_hud()
 
 
-func _update_selection_text() -> void:
+func _toggle_objectives() -> void:
+	_objective_collapsed = not _objective_collapsed
+	_update_objectives()
+
+
+func _update_objectives() -> void:
+	if _objective_panel == null or _objective_rows.size() < 3:
+		return
+	var food_buildings := 0
+	for raw_entity in simulation.entities.values():
+		var entity_state := raw_entity as Dictionary
+		if (
+			bool(entity_state.get("alive", false))
+			and int(entity_state.get("team", RtsSimulation.TEAM_NEUTRAL)) == RtsSimulation.TEAM_PLAYER
+			and entity_state.get("kind") in RtsSimulation.FOOD_PRODUCER_KINDS
+			and float(entity_state.get("complete", 0.0)) >= 1.0
+		):
+			food_buildings += 1
+	var dens := simulation.captured_cave_count(RtsSimulation.TEAM_PLAYER)
+	var enemy_stronghold_id := simulation.primary_structure_id(RtsSimulation.TEAM_ENEMY, &"stronghold")
+	var enemy_stronghold := simulation.entity(enemy_stronghold_id)
+	var stronghold_destroyed := enemy_stronghold.is_empty() or not bool(enemy_stronghold.get("alive", false))
+	var completed: Array[bool] = [food_buildings > 0, dens > 0, stronghold_destroyed]
+	var copy: Array[String] = [
+		"Build Food Supply  %d/1" % mini(food_buildings, 1),
+		"Capture a Yaoguai Den  %d/%d" % [dens, MapCatalog.CAVES.size()],
+		"Destroy the Rival Stronghold",
+	]
+	var next_index := 2
+	for index in range(completed.size()):
+		if not completed[index]:
+			next_index = index
+			break
+	for index in range(_objective_rows.size()):
+		var row := _objective_rows[index]
+		row.text = "%s  %s" % ["✓" if completed[index] else "◆", copy[index]]
+		row.add_theme_color_override(
+			&"font_color",
+			ThemeFactory.MUTED_SAGE if completed[index] else ThemeFactory.IVORY,
+		)
+		row.visible = not _objective_collapsed or index == next_index
+	_objective_panel.size.y = 58.0 if _objective_collapsed else 132.0
+	_objective_panel.add_theme_stylebox_override(&"panel", ThemeFactory.objective_style(not completed.all(func(value: bool) -> bool: return value)))
+	_objective_toggle.text = "OBJECTIVES    ▾" if _objective_collapsed else "OBJECTIVES    ▴"
+
+
+func _update_selection_panel() -> void:
 	if battlefield == null or _selection_title == null:
 		return
-	var ids := battlefield.selected_ids
+	for child in _selection_stacks.get_children():
+		_selection_stacks.remove_child(child)
+		child.queue_free()
+	_selection_stacks.visible = false
+	_selection_health.visible = true
+	_selection_health_label.visible = true
+	var ids: Array[int] = battlefield.selected_ids
 	if ids.is_empty():
-		_selection_title.text = "No selection"
-		_selection_detail.text = "Left-click a unit, structure, or animal. Select Hunters and right-click wildlife to hunt for Food."
+		_selection_portrait.texture = load(FactionCatalog.portrait_path(selected_faction)) as Texture2D
+		_selection_portrait_frame.add_theme_stylebox_override(&"panel", ThemeFactory.portrait_style(FactionCatalog.definition(selected_faction)["accent"] as Color))
+		_selection_title.text = "NO SELECTION"
+		_selection_status.text = "COMMAND"
+		_selection_status.add_theme_color_override(&"font_color", ThemeFactory.JADE)
+		_selection_health.visible = false
+		_selection_health_label.visible = false
+		_selection_order.text = "SELECT A UNIT OR STRUCTURE"
+		_selection_meta.text = "Q WORKERS · E ARMY · SPACE STRONGHOLD"
+		_selection_detail.text = "Left-click or drag to select. Right-click issues a contextual order."
 		return
 	if ids.size() > 1:
-		var workers := 0
-		var hunters := 0
-		var vanguards := 0
-		var mystics := 0
-		var jadeclaws := 0
-		for id in ids:
-			match simulation.entity(id).get("kind"):
-				&"worker": workers += 1
-				&"hunter": hunters += 1
-				&"vanguard": vanguards += 1
-				&"mystic": mystics += 1
-				&"jadeclaw": jadeclaws += 1
-		_selection_title.text = "%d units selected" % ids.size()
-		_selection_detail.text = "Workers %d  ·  Hunters %d  ·  Vanguards %d  ·  Mystics %d  ·  Jadeclaws %d\nF: attack-move  ·  T: patrol  ·  R: repair  ·  X: stop  ·  Shift: queue" % [workers, hunters, vanguards, mystics, jadeclaws]
+		_update_group_selection(ids)
 		return
 	var entity_state := simulation.entity(ids[0])
 	if entity_state.is_empty():
 		return
-	if entity_state.get("category") == &"resource":
-		match entity_state.get("resource_kind"):
-			&"jade":
-				_selection_title.text = "Jade Outcrop"
-			&"lumber":
-				_selection_title.text = "Lumber Tree"
-			_:
-				_selection_title.text = "Essence Shrine"
-		_selection_detail.text = "%d remaining · Select workers and right-click this node to gather." % int(entity_state.get("amount", 0.0))
-		return
-	if entity_state.get("category") == &"wildlife":
-		var wildlife_stats := FactionCatalog.stats(entity_state["kind"] as StringName, &"neutral")
-		_selection_title.text = String(wildlife_stats["name"])
-		var reaction := "Fights back when attacked" if bool(entity_state.get("retaliates", false)) else "Flees when attacked"
-		_selection_detail.text = "%s · %d / %d health\n%s · Hunt bounty: %d Food." % [
-			wildlife_stats["role"],
-			int(entity_state["hp"]),
-			int(entity_state["max_hp"]),
-			reaction,
-			int(entity_state.get("food_bounty", 0)),
-		]
-		return
-	if entity_state.get("kind") == &"yaoguai_den":
-		_selection_title.text = "Yaoguai Den"
-		var owner := int(entity_state.get("team", RtsSimulation.TEAM_NEUTRAL))
-		var guardians := simulation.cave_guardian_count(int(entity_state["id"]))
-		var cave_detail := ""
-		if guardians > 0:
-			cave_detail = "Guarded neutral objective · %d Jadeclaws remain. Hunt them for 45 Jade, 30 Lumber, and 25 Essence each." % guardians
-		elif owner == RtsSimulation.TEAM_NEUTRAL:
-			cave_detail = "Cleared neutral objective · Hold the ring with military units for 6 seconds to capture it."
-		elif owner == RtsSimulation.TEAM_PLAYER:
-			cave_detail = "Controlled by your faction · Produces durable Jadeclaws for 90 Jade, 55 Essence, and 65 Food."
-		else:
-			cave_detail = "Controlled by the rival · Hold the ring uncontested for 6 seconds to seize it."
-		if bool(entity_state.get("capture_contested", false)):
-			cave_detail += "\nCapture contested."
-		elif float(entity_state.get("capture_progress", 0.0)) > 0.0:
-			var capture_percent := int(100.0 * float(entity_state["capture_progress"]) / RtsSimulation.CAVE_CAPTURE_SECONDS)
-			var capturing_side := "your forces" if int(entity_state.get("capture_team", -1)) == RtsSimulation.TEAM_PLAYER else "the rival"
-			cave_detail += "\nCapture %d%% · %s." % [capture_percent, capturing_side]
-		var cave_queue := entity_state.get("queue", []) as Array
-		if not cave_queue.is_empty():
-			var cave_item := cave_queue[0] as Dictionary
-			cave_detail += "\nCalling Jadeclaw · %.1fs · Queue %d" % [float(cave_item["remaining"]), cave_queue.size()]
-		_selection_detail.text = cave_detail
-		return
-	var stats := FactionCatalog.stats(entity_state["kind"] as StringName, entity_state["faction"] as StringName)
-	_selection_title.text = String(stats["name"])
-	var hp_text := "%d / %d health" % [int(entity_state["hp"]), int(entity_state["max_hp"])]
-	var detail := "%s\n%s · Order: %s" % [stats["role"], hp_text, String(entity_state.get("order", &"idle")).capitalize()]
-	if entity_state.get("category") == &"unit":
-		var command_queue := entity_state.get("command_queue", []) as Array
-		if not command_queue.is_empty():
-			detail += " · Orders queued: %d" % command_queue.size()
+	_selection_portrait.texture = _selection_art_texture(entity_state)
+	var team := int(entity_state.get("team", RtsSimulation.TEAM_NEUTRAL))
+	var accent := ThemeFactory.GOLD
+	if team == RtsSimulation.TEAM_PLAYER:
+		accent = FactionCatalog.definition(selected_faction)["accent"] as Color
+	elif team == RtsSimulation.TEAM_ENEMY:
+		accent = ThemeFactory.DANGER
+	_selection_portrait_frame.add_theme_stylebox_override(&"panel", ThemeFactory.portrait_style(accent))
+	match entity_state.get("category"):
+		&"resource":
+			_update_resource_selection(entity_state)
+		&"wildlife":
+			_update_wildlife_selection(entity_state)
+		_:
+			if entity_state.get("kind") == &"yaoguai_den":
+				_update_den_selection(entity_state)
+			else:
+				_update_owned_selection(entity_state)
+
+
+func _update_group_selection(ids: Array[int]) -> void:
+	var groups := {}
+	var current_hp := 0.0
+	var maximum_hp := 0.0
+	var shared_order: StringName = &""
+	var mixed_orders := false
+	for id in ids:
+		var entity_state := simulation.entity(id)
+		if entity_state.is_empty():
+			continue
+		var kind := entity_state.get("kind", &"unknown") as StringName
+		if not groups.has(kind):
+			groups[kind] = []
+		(groups[kind] as Array).append(id)
+		current_hp += float(entity_state.get("hp", 0.0))
+		maximum_hp += float(entity_state.get("max_hp", 1.0))
+		var order := entity_state.get("order", &"idle") as StringName
+		if shared_order.is_empty():
+			shared_order = order
+		elif shared_order != order:
+			mixed_orders = true
+	_selection_portrait.texture = load(FactionCatalog.portrait_path(selected_faction)) as Texture2D
+	_selection_portrait_frame.add_theme_stylebox_override(&"panel", ThemeFactory.portrait_style(FactionCatalog.definition(selected_faction)["accent"] as Color))
+	_selection_title.text = "%d UNITS SELECTED" % ids.size()
+	_selection_status.text = "GROUP"
+	_selection_status.add_theme_color_override(&"font_color", ThemeFactory.JADE)
+	_set_selection_progress(current_hp, maximum_hp, "%d / %d TOTAL HP" % [int(current_hp), int(maximum_hp)], ThemeFactory.JADE)
+	_selection_order.text = "MIXED ORDERS" if mixed_orders else _order_label({"order": shared_order}).to_upper()
+	_selection_meta.text = "%d TYPES · SHIFT QUEUES ORDERS" % groups.size()
+	_selection_detail.text = "Click a unit stack to select that type. Shared commands remain in fixed slots."
+	_selection_stacks.visible = true
+	var group_kinds := groups.keys()
+	group_kinds.sort()
+	for raw_kind in group_kinds:
+		var kind := raw_kind as StringName
+		var subgroup: Array[int] = []
+		for raw_id in groups[kind] as Array:
+			subgroup.append(int(raw_id))
+		var sample := simulation.entity(subgroup[0])
+		var stack := ThemeFactory.button("%s  ×%d" % [String(kind).replace("_", " ").capitalize(), subgroup.size()], "Select only this unit type")
+		stack.custom_minimum_size = Vector2(84.0, 28.0)
+		stack.add_theme_font_size_override(&"font_size", 9)
+		stack.icon = _selection_art_texture(sample)
+		stack.expand_icon = true
+		stack.pressed.connect(_select_subgroup.bind(subgroup))
+		_selection_stacks.add_child(stack)
+
+
+func _select_subgroup(ids: Array[int]) -> void:
+	battlefield.select_entities(ids)
+
+
+func _update_resource_selection(entity_state: Dictionary) -> void:
+	var resource_kind := entity_state.get("resource_kind", &"jade") as StringName
+	var resource_name := "Jade Outcrop"
+	var resource_color := ThemeFactory.JADE
+	if resource_kind == &"lumber":
+		resource_name = "Lumber Tree"
+		resource_color = ThemeFactory.LUMBER
+	elif resource_kind == &"essence":
+		resource_name = "Essence Shrine"
+		resource_color = ThemeFactory.ESSENCE
+	var assigned := 0
+	for raw_entity in simulation.entities.values():
+		var worker := raw_entity as Dictionary
+		if (
+			bool(worker.get("alive", false))
+			and int(worker.get("team", RtsSimulation.TEAM_NEUTRAL)) == RtsSimulation.TEAM_PLAYER
+			and worker.get("kind") == &"worker"
+			and int(worker.get("gather_source_id", -1)) == int(entity_state["id"])
+		):
+			assigned += 1
+	var amount := float(entity_state.get("amount", 0.0))
+	var max_amount := float(entity_state.get("max_amount", maxf(amount, 1.0)))
+	_selection_title.text = resource_name.to_upper()
+	_selection_status.text = "RESOURCE"
+	_selection_status.add_theme_color_override(&"font_color", resource_color)
+	_set_selection_progress(amount, max_amount, "%d REMAIN" % int(amount), resource_color)
+	_selection_order.text = "%d WORKERS ASSIGNED" % assigned
+	_selection_meta.text = String(resource_kind).to_upper()
+	_selection_detail.text = "Select Workers, then right-click this source to begin gathering."
+
+
+func _update_wildlife_selection(entity_state: Dictionary) -> void:
+	var stats := FactionCatalog.stats(entity_state["kind"] as StringName, &"neutral")
+	var reaction := "RETALIATES" if bool(entity_state.get("retaliates", false)) else "FLEES"
+	_selection_title.text = String(stats["name"]).to_upper()
+	_selection_status.text = "WILDLIFE"
+	_selection_status.add_theme_color_override(&"font_color", ThemeFactory.FOOD)
+	_set_selection_progress(float(entity_state["hp"]), float(entity_state["max_hp"]), "%d / %d HP" % [int(entity_state["hp"]), int(entity_state["max_hp"])], ThemeFactory.JADE)
+	_selection_order.text = reaction
+	_selection_meta.text = "%d FOOD BOUNTY" % int(entity_state.get("food_bounty", 0))
+	_selection_detail.text = "Hunters deal triple damage to wildlife. %s" % String(stats["role"])
+
+
+func _update_den_selection(entity_state: Dictionary) -> void:
+	var owner := int(entity_state.get("team", RtsSimulation.TEAM_NEUTRAL))
+	var guardians := simulation.cave_guardian_count(int(entity_state["id"]))
+	var progress := float(entity_state.get("capture_progress", 0.0))
+	var contested := bool(entity_state.get("capture_contested", false))
+	_selection_title.text = "YAOGUAI DEN"
+	if guardians > 0:
+		_selection_status.text = "GUARDED"
+	elif contested:
+		_selection_status.text = "CONTESTED"
+	elif owner == RtsSimulation.TEAM_PLAYER:
+		_selection_status.text = "CONTROLLED"
+	elif owner == RtsSimulation.TEAM_ENEMY:
+		_selection_status.text = "RIVAL"
+	else:
+		_selection_status.text = "CLEARED"
+	var status_color := ThemeFactory.DANGER if contested or owner == RtsSimulation.TEAM_ENEMY else ThemeFactory.GOLD if owner == RtsSimulation.TEAM_NEUTRAL else ThemeFactory.JADE
+	_selection_status.add_theme_color_override(&"font_color", status_color)
+	if progress > 0.0 or contested:
+		_set_selection_progress(progress, RtsSimulation.CAVE_CAPTURE_SECONDS, "CAPTURE %d%%" % int(100.0 * progress / RtsSimulation.CAVE_CAPTURE_SECONDS), status_color)
+	else:
+		_set_selection_progress(float(entity_state["hp"]), float(entity_state["max_hp"]), "%d / %d HP" % [int(entity_state["hp"]), int(entity_state["max_hp"])], ThemeFactory.JADE)
+	if guardians > 0:
+		_selection_order.text = "%d GUARDIANS REMAIN" % guardians
+	elif owner == RtsSimulation.TEAM_PLAYER:
+		_selection_order.text = "DEN SECURED"
+	elif contested:
+		_selection_order.text = "CAPTURE CONTESTED"
+	else:
+		_selection_order.text = "HOLD THE RING FOR 6 SECONDS"
+	var queue := entity_state.get("queue", []) as Array
+	_selection_meta.text = "JADECLAW QUEUE  %d" % queue.size() if owner == RtsSimulation.TEAM_PLAYER else "CAPTURE OBJECTIVE"
+	if not queue.is_empty():
+		var item := queue[0] as Dictionary
+		_selection_detail.text = "Calling Jadeclaw · %.1fs remaining · rally %s" % [float(item.get("remaining", 0.0)), _cell_label(entity_state.get("rally_cell", Vector2i.ZERO) as Vector2i)]
+	elif guardians > 0:
+		_selection_detail.text = "Defeat the guardians, then occupy the capture ring uncontested."
+	else:
+		_selection_detail.text = "Produces Jadeclaws when controlled · rally %s" % _cell_label(entity_state.get("rally_cell", Vector2i.ZERO) as Vector2i)
+
+
+func _update_owned_selection(entity_state: Dictionary) -> void:
+	var kind := entity_state["kind"] as StringName
+	var faction := entity_state.get("faction", selected_faction) as StringName
+	var stats := FactionCatalog.stats(kind, faction)
+	var completion := float(entity_state.get("complete", 1.0))
+	_selection_title.text = String(stats["name"]).to_upper()
+	_selection_status.text = "STRUCTURE" if entity_state.get("category") == &"structure" else "UNIT"
+	_selection_status.add_theme_color_override(&"font_color", ThemeFactory.JADE)
+	if completion < 1.0:
+		_set_selection_progress(completion, 1.0, "CONSTRUCTION %d%%" % int(completion * 100.0), ThemeFactory.GOLD)
+	else:
+		_set_selection_progress(float(entity_state["hp"]), float(entity_state["max_hp"]), "%d / %d HP" % [int(entity_state["hp"]), int(entity_state["max_hp"])], ThemeFactory.JADE)
+	_selection_order.text = _order_label(entity_state).to_upper()
 	if entity_state.get("category") == &"structure":
-		var completion := float(entity_state.get("complete", 1.0))
-		if completion < 1.0:
-			detail += " · Construction %d%%" % int(completion * 100.0)
 		var queue := entity_state.get("queue", []) as Array
-		if not queue.is_empty():
-			var item := queue[0] as Dictionary
-			detail += "\nTraining %s · %.1fs · Queue %d" % [String(item["kind"]).capitalize(), float(item["remaining"]), queue.size()]
-		if entity_state.get("kind") in RtsSimulation.FOOD_PRODUCER_KINDS and completion >= 1.0:
-			var food_yield := int(stats.get("food_yield", 0))
+		_selection_meta.text = "QUEUE %d · RALLY %s" % [queue.size(), _cell_label(entity_state.get("rally_cell", Vector2i.ZERO) as Vector2i)]
+		if kind in RtsSimulation.FOOD_PRODUCER_KINDS and completion >= 1.0:
 			var interval := float(stats.get("food_interval", 1.0))
 			var next_harvest := maxf(0.0, interval - float(entity_state.get("food_timer", 0.0)))
-			detail += "\nHarvest: +%d Food every %.0fs · next in %.1fs" % [food_yield, interval, next_harvest]
-	elif entity_state.get("kind") == &"worker" and float(entity_state.get("cargo_amount", 0.0)) > 0.0:
-		detail += "\nCarrying %d %s" % [int(entity_state["cargo_amount"]), String(entity_state["cargo_kind"]).capitalize()]
-	_selection_detail.text = detail
+			_selection_detail.text = "+%d Food every %.0fs · next harvest in %.1fs" % [int(stats.get("food_yield", 0)), interval, next_harvest]
+		elif not queue.is_empty():
+			var item := queue[0] as Dictionary
+			_selection_detail.text = "Training %s · %.1fs remaining" % [String(item.get("kind", &"unit")).capitalize(), float(item.get("remaining", 0.0))]
+		else:
+			_selection_detail.text = String(stats["role"])
+	else:
+		var command_queue := entity_state.get("command_queue", []) as Array
+		if kind == &"worker" and float(entity_state.get("cargo_amount", 0.0)) > 0.0:
+			_selection_meta.text = "CARRYING %d/%d %s" % [int(entity_state["cargo_amount"]), int(RtsSimulation.CARGO_CAPACITY), String(entity_state.get("cargo_kind", &"")).to_upper()]
+		else:
+			_selection_meta.text = "DAMAGE %d · RANGE %.1f · QUEUED %d" % [int(stats.get("damage", 0)), float(stats.get("range", 0.0)), command_queue.size()]
+		_selection_detail.text = String(stats["role"])
+
+
+func _order_label(entity_state: Dictionary) -> String:
+	var order := entity_state.get("order", &"idle") as StringName
+	match order:
+		&"move": return "Moving"
+		&"attack_move": return "Attack-moving"
+		&"attack": return "Attacking"
+		&"gather":
+			var source := simulation.entity(int(entity_state.get("gather_source_id", -1)))
+			return "Gathering %s" % String(source.get("resource_kind", &"resources")).capitalize()
+		&"return": return "Returning cargo"
+		&"repair": return "Repairing"
+		&"patrol": return "Patrolling"
+		&"construct": return "Constructing"
+		&"constructing": return "Constructing"
+		_: return String(order).replace("_", " ").capitalize()
+
+
+func _set_selection_progress(current: float, maximum: float, label_text: String, color: Color) -> void:
+	_selection_health.visible = true
+	_selection_health_label.visible = true
+	_selection_health.max_value = maxf(maximum, 0.001)
+	_selection_health.value = clampf(current, 0.0, _selection_health.max_value)
+	_selection_health.add_theme_stylebox_override(&"fill", ThemeFactory.progress_fill_style(color))
+	_selection_health_label.text = label_text
+
+
+func _selection_art_texture(entity_state: Dictionary) -> Texture2D:
+	if entity_state.get("category") == &"resource":
+		match entity_state.get("resource_kind"):
+			&"lumber": return load("res://assets/runtime/resources/lumber_pine.png") as Texture2D
+			&"essence": return load("res://assets/runtime/resources/essence_shrine.png") as Texture2D
+			_: return load("res://assets/runtime/resources/jade_outcrop.png") as Texture2D
+	var faction := entity_state.get("faction", &"neutral") as StringName
+	return load(FactionCatalog.entity_art_path(faction, entity_state.get("kind", &"worker") as StringName)) as Texture2D
+
+
+func _cell_label(cell: Vector2i) -> String:
+	return "%d,%d" % [cell.x, cell.y]
+
+
+func _update_production_queue() -> void:
+	if _queue_panel == null:
+		return
+	var producers: Array[Dictionary] = []
+	for raw_entity in simulation.entities.values():
+		var entity_state := raw_entity as Dictionary
+		if (
+			bool(entity_state.get("alive", false))
+			and int(entity_state.get("team", RtsSimulation.TEAM_NEUTRAL)) == RtsSimulation.TEAM_PLAYER
+			and entity_state.get("category") == &"structure"
+			and not (entity_state.get("queue", []) as Array).is_empty()
+		):
+			producers.append(entity_state)
+	producers.sort_custom(func(first: Dictionary, second: Dictionary) -> bool: return int(first["id"]) < int(second["id"]))
+	var queue_items: Array[Dictionary] = []
+	for producer in producers:
+		var queue := producer.get("queue", []) as Array
+		var index := 0
+		while index < queue.size():
+			var item := queue[index] as Dictionary
+			var kind := item.get("kind", &"unit") as StringName
+			var count := 1
+			while index + count < queue.size() and (queue[index + count] as Dictionary).get("kind") == kind:
+				count += 1
+			queue_items.append({
+				"producer_id": int(producer["id"]),
+				"kind": kind,
+				"count": count,
+				"remaining": float(item.get("remaining", 0.0)),
+			})
+			index += count
+	for tile_index in range(_queue_tiles.size()):
+		var tile := _queue_tiles[tile_index]
+		tile.visible = tile_index < queue_items.size()
+		if not tile.visible:
+			continue
+		var item := queue_items[tile_index]
+		var kind := item["kind"] as StringName
+		var producer_id := int(item["producer_id"])
+		tile.set_meta(&"producer_id", producer_id)
+		tile.icon = load(FactionCatalog.entity_art_path(selected_faction, kind)) as Texture2D
+		tile.text = "%s%s\n%.1fs" % [String(kind).replace("_", " ").capitalize(), " ×%d" % int(item["count"]) if int(item["count"]) > 1 else "", float(item["remaining"])]
+		tile.tooltip_text = "Select producer %d · click again to center" % producer_id
+	_queue_panel.visible = not queue_items.is_empty()
+
+
+func _on_queue_tile_pressed(tile: Button) -> void:
+	var producer_id := int(tile.get_meta(&"producer_id", -1))
+	if producer_id < 0 or simulation.entity(producer_id).is_empty():
+		return
+	var now := Time.get_ticks_msec()
+	var should_center := producer_id == _last_queue_focus_id and now - _last_queue_focus_ms <= 500
+	battlefield.select_entities([producer_id])
+	if should_center:
+		battlefield.center_on_selection()
+	_last_queue_focus_id = producer_id
+	_last_queue_focus_ms = now
 
 
 func _update_commands() -> void:
 	if battlefield == null or _command_buttons.is_empty():
 		return
-	var selected_structure := battlefield.primary_selected_structure()
+	for raw_button in _command_buttons.values():
+		(raw_button as HudCommandButton).visible = false
+	var selected_structure_id := battlefield.primary_selected_structure()
+	var structure := simulation.entity(selected_structure_id) if selected_structure_id >= 0 else {}
+	var has_units := not battlefield.selected_commandable_units().is_empty()
 	var has_worker := false
 	var has_military := false
 	for id in battlefield.selected_ids:
@@ -564,7 +1150,6 @@ func _update_commands() -> void:
 			has_worker = true
 		elif selected_entity.get("kind") in [&"vanguard", &"mystic", &"jadeclaw"]:
 			has_military = true
-	var structure := simulation.entity(selected_structure) if selected_structure >= 0 else {}
 	var player_faction := simulation.players[RtsSimulation.TEAM_PLAYER]["faction"] as StringName
 	var build_commands := {
 		&"build": &"war_camp",
@@ -573,65 +1158,111 @@ func _update_commands() -> void:
 	}
 	for button_id in build_commands:
 		var structure_kind := build_commands[button_id] as StringName
-		var build_stats := FactionCatalog.stats(structure_kind, player_faction)
-		var build_button := _command_buttons[button_id] as Button
-		build_button.visible = has_worker and simulation.is_kind_available(RtsSimulation.TEAM_PLAYER, structure_kind)
-		build_button.disabled = not simulation.can_afford_kind(RtsSimulation.TEAM_PLAYER, structure_kind)
-		build_button.text = "BUILD %s\n%s" % [String(build_stats["name"]).to_upper(), _short_cost(build_stats)]
-		build_button.tooltip_text = _long_cost(build_stats)
-
-	var worker_button := _command_buttons[&"worker"] as Button
-	worker_button.visible = not structure.is_empty() and structure.get("kind") == &"stronghold"
-	worker_button.disabled = not simulation.can_afford_kind(RtsSimulation.TEAM_PLAYER, &"worker") or not simulation.has_population_for(RtsSimulation.TEAM_PLAYER, &"worker")
-	var worker_stats := FactionCatalog.stats(&"worker", player_faction)
-	worker_button.text = "TRAIN WORKER\n%s" % _short_cost(worker_stats)
-	worker_button.tooltip_text = _long_cost(worker_stats)
-	var hunter_button := _command_buttons[&"hunter"] as Button
-	hunter_button.visible = (
-		not structure.is_empty()
-		and structure.get("kind") == &"hunters_lodge"
-		and float(structure.get("complete", 0.0)) >= 1.0
-		and simulation.is_kind_available(RtsSimulation.TEAM_PLAYER, &"hunter")
-	)
-	hunter_button.disabled = not simulation.can_afford_kind(RtsSimulation.TEAM_PLAYER, &"hunter") or not simulation.has_population_for(RtsSimulation.TEAM_PLAYER, &"hunter")
-	var hunter_stats := FactionCatalog.stats(&"hunter", player_faction)
-	hunter_button.text = "TRAIN HUNTER\n%s" % _short_cost(hunter_stats)
-	hunter_button.tooltip_text = _long_cost(hunter_stats)
-	var vanguard_button := _command_buttons[&"vanguard"] as Button
-	vanguard_button.visible = not structure.is_empty() and structure.get("kind") == &"war_camp" and float(structure.get("complete", 0.0)) >= 1.0
-	vanguard_button.disabled = not simulation.can_afford_kind(RtsSimulation.TEAM_PLAYER, &"vanguard") or not simulation.has_population_for(RtsSimulation.TEAM_PLAYER, &"vanguard")
-	var vanguard_stats := FactionCatalog.stats(&"vanguard", player_faction)
-	vanguard_button.text = "TRAIN VANGUARD\n%s" % _short_cost(vanguard_stats)
-	vanguard_button.tooltip_text = _long_cost(vanguard_stats)
-	var mystic_button := _command_buttons[&"mystic"] as Button
-	mystic_button.visible = vanguard_button.visible
-	mystic_button.disabled = not simulation.can_afford_kind(RtsSimulation.TEAM_PLAYER, &"mystic") or not simulation.has_population_for(RtsSimulation.TEAM_PLAYER, &"mystic")
-	var mystic_stats := FactionCatalog.stats(&"mystic", player_faction)
-	mystic_button.text = "TRAIN MYSTIC\n%s" % _short_cost(mystic_stats)
-	mystic_button.tooltip_text = _long_cost(mystic_stats)
-	var jadeclaw_button := _command_buttons[&"jadeclaw"] as Button
-	jadeclaw_button.visible = not structure.is_empty() and structure.get("kind") == &"yaoguai_den"
-	jadeclaw_button.disabled = not simulation.can_afford_kind(RtsSimulation.TEAM_PLAYER, &"jadeclaw") or not simulation.has_population_for(RtsSimulation.TEAM_PLAYER, &"jadeclaw")
-	var jadeclaw_stats := FactionCatalog.stats(&"jadeclaw", player_faction)
-	jadeclaw_button.text = "CALL JADECLAW\n%s" % _short_cost(jadeclaw_stats)
-	jadeclaw_button.tooltip_text = _long_cost(jadeclaw_stats)
-
-	var repair_button := _command_buttons[&"repair"] as Button
-	repair_button.visible = has_worker
-	repair_button.disabled = false
-	repair_button.tooltip_text = "Repair a damaged allied structure · 15 health per 1 Lumber"
-	var patrol_button := _command_buttons[&"patrol"] as Button
-	patrol_button.visible = has_military
-	patrol_button.disabled = false
-	patrol_button.tooltip_text = "Patrol repeatedly between the unit's position and a destination"
-	var cancel_button := _command_buttons[&"cancel_queue"] as Button
+		if has_worker and simulation.is_kind_available(RtsSimulation.TEAM_PLAYER, structure_kind):
+			_show_cost_command(button_id, structure_kind, "Build")
+	if not structure.is_empty() and float(structure.get("complete", 0.0)) >= 1.0:
+		match structure.get("kind"):
+			&"stronghold": _show_cost_command(&"worker", &"worker", "Train", true)
+			&"war_camp":
+				_show_cost_command(&"vanguard", &"vanguard", "Train", true)
+				_show_cost_command(&"mystic", &"mystic", "Train", true)
+			&"hunters_lodge":
+				if simulation.is_kind_available(RtsSimulation.TEAM_PLAYER, &"hunter"):
+					_show_cost_command(&"hunter", &"hunter", "Train", true)
+			&"yaoguai_den": _show_cost_command(&"jadeclaw", &"jadeclaw", "Call", true)
+	_set_simple_command(&"move", has_units, "Choose a movement destination")
+	_set_simple_command(&"attack_move", has_military, "Move while engaging hostile targets · F")
+	_set_simple_command(&"patrol", has_military, "Patrol repeatedly between the current position and a destination · T")
+	_set_simple_command(&"repair", has_worker, "Repair a damaged allied structure · 15 health per 1 Lumber · R")
+	_set_simple_command(&"stop", has_units, "Cancel current and queued orders · X")
+	_set_simple_command(&"rally", not structure.is_empty(), "Set the selected producer's rally destination")
 	var production_queue := structure.get("queue", []) as Array if not structure.is_empty() else []
+	var cancel_button := _command_buttons[&"cancel_queue"] as HudCommandButton
 	cancel_button.visible = not production_queue.is_empty()
 	cancel_button.disabled = production_queue.is_empty()
 	if not production_queue.is_empty():
-		var queued_item := production_queue[-1] as Dictionary
-		cancel_button.text = "CANCEL LAST\n%s" % String(queued_item.get("kind", &"unit")).to_upper()
+		cancel_button.set_command_title("CANCEL LAST")
+		cancel_button.set_cost_markup("REFUND")
 		cancel_button.tooltip_text = "Refund the newest queued unit and release its reserved population"
+	for raw_button in _command_buttons.values():
+		var command_button := raw_button as HudCommandButton
+		CursorSystem.apply(command_button, CursorSystem.FORBIDDEN if command_button.disabled else CursorSystem.UI_ACTION)
+
+
+func _show_cost_command(button_id: StringName, kind: StringName, verb: String, check_population: bool = false) -> void:
+	var button := _command_buttons[button_id] as HudCommandButton
+	var faction := simulation.players[RtsSimulation.TEAM_PLAYER]["faction"] as StringName
+	var stats := FactionCatalog.stats(kind, faction)
+	button.visible = true
+	button.disabled = not simulation.can_afford_kind(RtsSimulation.TEAM_PLAYER, kind) or (check_population and not simulation.has_population_for(RtsSimulation.TEAM_PLAYER, kind))
+	button.set_cost_markup(_cost_markup(stats))
+	var tooltip := "%s %s · %s" % [verb, stats["name"], _long_cost(stats)]
+	var unavailable := _unavailable_reason(stats, check_population)
+	if not unavailable.is_empty():
+		tooltip += "\nUnavailable: %s" % unavailable
+	button.tooltip_text = tooltip
+
+
+func _set_simple_command(button_id: StringName, visible: bool, tooltip: String) -> void:
+	var button := _command_buttons[button_id] as HudCommandButton
+	button.visible = visible
+	button.disabled = false
+	button.set_cost_markup("")
+	button.tooltip_text = tooltip
+
+
+func _cost_markup(stats: Dictionary) -> String:
+	var parts: Array[String] = []
+	for definition in [
+		["jade_cost", "J", "6fd2aa"],
+		["lumber_cost", "L", "d0a25c"],
+		["essence_cost", "E", "a974e6"],
+		["food_cost", "F", "e8c56a"],
+	]:
+		var amount := int(stats.get(definition[0], 0))
+		if amount > 0:
+			parts.append("[color=#%s]%d%s[/color]" % [definition[2], amount, definition[1]])
+	return "  ".join(parts) if not parts.is_empty() else "FREE"
+
+
+func _unavailable_reason(stats: Dictionary, check_population: bool) -> String:
+	var player := simulation.players[RtsSimulation.TEAM_PLAYER]
+	var missing: Array[String] = []
+	for definition in [
+		["jade_cost", "jade", "Jade"],
+		["lumber_cost", "lumber", "Lumber"],
+		["essence_cost", "essence", "Essence"],
+		["food_cost", "food", "Food"],
+	]:
+		var shortfall := int(stats.get(definition[0], 0)) - int(player.get(definition[1], 0))
+		if shortfall > 0:
+			missing.append("need %d more %s" % [shortfall, definition[2]])
+	if check_population:
+		var population_cost := int(stats.get("population", 0))
+		var room := int(player["population_cap"]) - int(player["population"])
+		if population_cost > room:
+			missing.append("need %d population space" % (population_cost - room))
+	return ", ".join(missing)
+
+
+func _update_armed_command_styles() -> void:
+	var active := {
+		&"move": battlefield.move_armed,
+		&"attack_move": battlefield.attack_move_armed,
+		&"patrol": battlefield.patrol_armed,
+		&"repair": battlefield.repair_armed,
+		&"rally": battlefield.rally_armed,
+		&"build": battlefield.placement_kind == &"war_camp",
+		&"build_farm": battlefield.placement_kind == &"rice_farm",
+		&"build_lodge": battlefield.placement_kind == &"hunters_lodge",
+	}
+	for button_id in active:
+		var button := _command_buttons[button_id] as HudCommandButton
+		if active[button_id]:
+			button.add_theme_stylebox_override(&"normal", ThemeFactory.command_button_style(Color("173a33"), ThemeFactory.JADE, 2))
+			button.tooltip_text += "\nARMED · Esc cancels"
+		else:
+			button.add_theme_stylebox_override(&"normal", ThemeFactory.command_button_style(Color("102020"), Color("4b655f")))
 
 
 func _short_cost(stats: Dictionary) -> String:
@@ -664,6 +1295,15 @@ func _long_cost(stats: Dictionary) -> String:
 
 func _command_build(structure_kind: StringName) -> void:
 	battlefield.begin_structure_placement(structure_kind)
+
+
+func _command_stop() -> void:
+	var units := battlefield.selected_commandable_units()
+	if units.is_empty():
+		_show_feedback("Select units before issuing Stop.", true)
+		return
+	simulation.command_stop(units)
+	_show_feedback("Selected units halted.", false)
 
 
 func _command_train(kind: StringName) -> void:
@@ -721,26 +1361,46 @@ func _on_battle_notice(message: String, team: int) -> void:
 
 
 func _show_feedback(message: String, is_error: bool = false) -> void:
-	if _feedback_label == null:
+	if _feedback_label == null or _toast_panel == null:
 		return
+	var color := ThemeFactory.IVORY
+	var duration := 2.0
+	var lower := message.to_lower()
+	if lower.contains("under attack") or lower.contains("population cap") or lower.contains("being seized"):
+		color = ThemeFactory.DANGER
+		duration = 4.0
+	elif is_error:
+		color = ThemeFactory.GOLD
+		duration = 3.0
+	elif lower.contains("captured") or lower.contains("completed") or lower.contains("trained") or lower.contains("foundation placed") or lower.contains("refunded") or lower.contains("deposited"):
+		color = ThemeFactory.JADE
+		duration = 2.2
 	_feedback_label.text = message
-	_feedback_label.add_theme_color_override(&"font_color", ThemeFactory.DANGER if is_error else ThemeFactory.JADE)
-	_feedback_timer = 3.0
+	_feedback_label.tooltip_text = message
+	_feedback_label.add_theme_color_override(&"font_color", color)
+	_toast_panel.add_theme_stylebox_override(&"panel", ThemeFactory.toast_style(color))
+	var toast_icon := _toast_panel.get_node_or_null("HBoxContainer/ToastIcon") as HudIcon
+	if toast_icon != null:
+		toast_icon.glyph_color = color
+		toast_icon.queue_redraw()
+	_toast_panel.visible = true
+	_feedback_timer = duration
 
 
 func _toggle_pause() -> void:
 	if state != STATE_MATCH or simulation == null or not simulation.outcome.is_empty():
 		return
 	paused = not paused
-	_pause_button.text = "RESUME  P" if paused else "PAUSE  P"
-	_show_feedback("The realm is paused." if paused else "The realm resumes its poor decisions.", false)
+	_pause_button.text = "▶  P" if paused else "Ⅱ  P"
+	_pause_button.tooltip_text = "Resume the realm" if paused else "Pause the realm"
+	_pause_banner.visible = paused
+	_show_feedback("The realm is paused." if paused else "The realm resumes.", false)
 
 
 func _toggle_fog_of_war() -> void:
 	if battlefield == null:
 		return
 	battlefield.set_fog_enabled(not battlefield.fog_enabled)
-	_fog_button.text = "FOG OF WAR  ON" if battlefield.fog_enabled else "FOG OF WAR  OFF"
 	_show_feedback("Fog of war enabled." if battlefield.fog_enabled else "Fog of war disabled.", false)
 
 

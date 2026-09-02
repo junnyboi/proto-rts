@@ -21,6 +21,11 @@ const RESOURCE_TEXTURES := {
 	&"lumber_fir": preload("res://assets/runtime/resources/lumber_fir.png"),
 	&"lumber_juniper": preload("res://assets/runtime/resources/lumber_juniper.png"),
 }
+const COMMAND_INDICATOR_TEXTURES := {
+	&"flag": preload("res://assets/runtime/command_indicators/destination_flag.png"),
+	&"interact": preload("res://assets/runtime/command_indicators/interaction_ring.png"),
+	&"attack": preload("res://assets/runtime/command_indicators/attack_swords.png"),
+}
 const IDLE_WORKER_ALERT_TEXTURE := preload("res://assets/runtime/ui/idle_worker_alert.png")
 const PLAYER_COLOR := Color("78dfb7")
 const ENEMY_COLOR := Color("f06656")
@@ -40,6 +45,35 @@ const TREE_SWAY_BANDS := 12
 const TREE_SWAY_ANCHOR := 0.72
 const TREE_SWAY_STRENGTH := 0.052
 const TREE_SWAY_MIN_SCALE := 0.28
+const WALK_BOUNCE_HEIGHT := 4.5
+const WALK_BOUNCE_SPEED := 8.5
+const WALK_MOTION_MEMORY_SECONDS := 0.16
+const WALK_MOTION_EPSILON_SQUARED := 0.000001
+const WALK_FACING_EPSILON := 0.01
+const MAX_VISIBLE_COMMAND_PATHS := 10
+const COMMAND_PATH_DOT_SPACING := 16.0
+const COMMAND_PATH_DOT_RADIUS := 2.4
+const COMMAND_PATH_POINT_EPSILON_SQUARED := 0.0001
+const COMMAND_INTERACTION_ROTATION_SPEED := 1.75
+# Static source art is not uniformly oriented, so flipping has to account for
+# each sprite's authored direction instead of assuming every image faces right.
+const NATIVE_RIGHT_FACING_ART := {
+	"beast:hunter": true,
+	"beast:mystic": true,
+	"beast:worker": true,
+	"celestial:mystic": true,
+	"celestial:vanguard": true,
+	"celestial:worker": true,
+	"demon:hunter": true,
+	"demon:vanguard": true,
+	"human:hunter": true,
+	"human:mystic": true,
+	"neutral:bear": true,
+	"neutral:bison": true,
+	"neutral:boar": true,
+	"neutral:chicken": true,
+	"neutral:deer": true,
+}
 const WHEEL_ZOOM_STEP := 1.12
 const MIN_CAMERA_SCALE := 0.14
 const MAX_CAMERA_SCALE := 1.05
@@ -47,9 +81,11 @@ const CONTROL_GROUP_DOUBLE_TAP_MS := 450
 
 var simulation: RtsSimulation
 var selected_ids: Array[int] = []
+var move_armed := false
 var attack_move_armed := false
 var patrol_armed := false
 var repair_armed := false
+var rally_armed := false
 var placement_worker_id := -1
 var placement_kind: StringName = &""
 var fog_enabled := true
@@ -68,6 +104,7 @@ var _armed_append := false
 var _last_control_group := -1
 var _last_control_group_recall_ms := -1000
 var _mouse_position := Vector2.ZERO
+var _cursor_state: StringName = &""
 var _texture_cache: Dictionary = {}
 var _effects: Array[Dictionary] = []
 var _visible_cells: Dictionary = {}
@@ -75,9 +112,14 @@ var _explored_cells: Dictionary = {}
 var _visibility_timer := 0.0
 var _water_animation_time := 0.0
 var _wind_animation_time := 0.0
+var _walk_animation_time := 0.0
+var _command_indicator_time := 0.0
+var _movement_visuals: Dictionary = {}
 
 
 func _ready() -> void:
+	CursorSystem.install()
+	CursorSystem.apply(self, CursorSystem.SELECT)
 	set_process(true)
 	set_process_unhandled_key_input(true)
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -96,6 +138,7 @@ func set_simulation(value: RtsSimulation) -> void:
 	_last_control_group = -1
 	_last_control_group_recall_ms = -1000
 	_texture_cache.clear()
+	_movement_visuals.clear()
 	_visible_cells.clear()
 	_explored_cells.clear()
 	_refresh_visibility()
@@ -115,7 +158,7 @@ func _fit_camera() -> void:
 	if size.x <= 1.0 or size.y <= 1.0:
 		return
 	var bounds := IsoProjection.map_bounds(MapCatalog.SIZE)
-	var available := Vector2(size.x - 56.0, size.y - 176.0)
+	var available := Vector2(size.x - 56.0, size.y - 278.0)
 	var overview_scale := minf(available.x / bounds.size.x, available.y / bounds.size.y)
 	camera_scale = clampf(overview_scale * 2.376, 0.504, 0.864)
 	var focus := MapCatalog.PLAYER_STRONGHOLD if simulation != null else MapCatalog.SIZE / 2
@@ -132,6 +175,10 @@ func center_on_cell(cell: Vector2i) -> void:
 
 func center_on_player_stronghold() -> void:
 	center_on_cell(MapCatalog.PLAYER_STRONGHOLD)
+
+
+func zoom_by(factor: float) -> void:
+	_zoom_at(size * 0.5, factor)
 
 
 func screen_to_map_position(screen_position: Vector2) -> Vector2:
@@ -171,6 +218,9 @@ func should_render_entity(entity_state: Dictionary) -> bool:
 func _process(delta: float) -> void:
 	_water_animation_time += delta
 	_wind_animation_time = fmod(_wind_animation_time + delta, TAU * 1000.0)
+	_walk_animation_time = fmod(_walk_animation_time + delta, TAU * 1000.0)
+	_command_indicator_time = fmod(_command_indicator_time + delta, TAU * 1000.0)
+	_update_movement_visuals(delta)
 	_visibility_timer -= delta
 	if simulation != null and _visibility_timer <= 0.0:
 		_visibility_timer = VISIBILITY_REFRESH_SECONDS
@@ -188,6 +238,7 @@ func _process(delta: float) -> void:
 		_effects[index]["remaining"] = float(_effects[index]["remaining"]) - delta
 		if float(_effects[index]["remaining"]) <= 0.0:
 			_effects.remove_at(index)
+	_refresh_cursor()
 	queue_redraw()
 
 
@@ -218,11 +269,13 @@ func _gui_input(event: InputEvent) -> void:
 		if _middle_dragging:
 			camera_offset += motion.relative
 			_clamp_camera()
+			_refresh_cursor()
 			accept_event()
 			return
 		if _selection_pressed:
 			_selection_current = motion.position
 			_selection_dragging = _selection_current.distance_to(_selection_start) >= 6.0
+			_refresh_cursor()
 			accept_event()
 	elif event is InputEventMagnifyGesture:
 		var magnify := event as InputEventMagnifyGesture
@@ -235,6 +288,7 @@ func _gui_input(event: InputEvent) -> void:
 		_mouse_position = button.position
 		if button.button_index == MOUSE_BUTTON_MIDDLE:
 			_middle_dragging = button.pressed
+			_refresh_cursor()
 			accept_event()
 			return
 		if (
@@ -252,9 +306,11 @@ func _gui_input(event: InputEvent) -> void:
 				_handle_left_press(button.position, button.shift_pressed)
 			else:
 				_handle_left_release(button.position)
+			_refresh_cursor()
 			accept_event()
 		elif button.button_index == MOUSE_BUTTON_RIGHT and button.pressed:
 			_handle_right_click(button.position, button.shift_pressed)
+			_refresh_cursor()
 			accept_event()
 
 
@@ -272,6 +328,28 @@ func _handle_left_press(screen_position: Vector2, append: bool = false) -> void:
 			placement_kind = &""
 		else:
 			feedback.emit("That site cannot host a %s." % structure_name, true)
+		return
+	if move_armed:
+		var move_cell := screen_to_cell(screen_position)
+		var move_units := selected_commandable_units()
+		if not move_units.is_empty() and MapCatalog.in_bounds(move_cell):
+			simulation.command_move(move_units, move_cell, false, append or _armed_append)
+			feedback.emit("Move queued." if append or _armed_append else "Move order issued.", false)
+		else:
+			feedback.emit("Choose a valid move destination.", true)
+		move_armed = false
+		_armed_append = false
+		return
+	if rally_armed:
+		var rally_cell := screen_to_cell(screen_position)
+		var rally_structure := primary_selected_structure()
+		if rally_structure >= 0 and MapCatalog.in_bounds(rally_cell):
+			simulation.set_rally(rally_structure, rally_cell)
+			feedback.emit("Rally point updated.", false)
+		else:
+			feedback.emit("Choose a valid rally destination.", true)
+		rally_armed = false
+		_armed_append = false
 		return
 	if repair_armed:
 		var repair_target_id := entity_at_screen(screen_position, false)
@@ -413,7 +491,9 @@ func _handle_right_click(screen_position: Vector2, append: bool = false) -> void
 
 
 func _select_in_rect(rect: Rect2, additive: bool = false) -> void:
-	var ids: Array[int] = selected_ids.duplicate() if additive else []
+	var ids: Array[int] = []
+	if additive:
+		ids.assign(selected_ids)
 	for raw_entity in simulation.entities.values():
 		var entity_state := raw_entity as Dictionary
 		if not bool(entity_state.get("alive", false)):
@@ -438,6 +518,7 @@ func select_entities(ids: Array[int]) -> void:
 		):
 			selected_ids.append(id)
 	selection_changed.emit(selected_ids.duplicate())
+	_refresh_cursor()
 	queue_redraw()
 
 
@@ -545,7 +626,18 @@ func begin_attack_move(append: bool = false) -> void:
 	cancel_modes()
 	attack_move_armed = true
 	_armed_append = append
+	_refresh_cursor()
 	feedback.emit("Queued attack-move: choose a destination." if append else "Attack-move armed: choose a destination.", false)
+
+
+func begin_move(append: bool = false) -> void:
+	if selected_commandable_units().is_empty():
+		feedback.emit("Select units before issuing a move.", true)
+		return
+	cancel_modes()
+	move_armed = true
+	_armed_append = append
+	feedback.emit("Queued move: choose a destination." if append else "Move armed: choose a destination.", false)
 
 
 func begin_patrol(append: bool = false) -> void:
@@ -555,6 +647,7 @@ func begin_patrol(append: bool = false) -> void:
 	cancel_modes()
 	patrol_armed = true
 	_armed_append = append
+	_refresh_cursor()
 	feedback.emit("Queued patrol: choose a destination." if append else "Patrol armed: choose a destination.", false)
 
 
@@ -565,7 +658,17 @@ func begin_repair(append: bool = false) -> void:
 	cancel_modes()
 	repair_armed = true
 	_armed_append = append
+	_refresh_cursor()
 	feedback.emit("Queued repair: choose a structure." if append else "Repair armed: choose a damaged allied structure.", false)
+
+
+func begin_rally() -> void:
+	if primary_selected_structure() < 0:
+		feedback.emit("Select an allied production structure before setting a rally point.", true)
+		return
+	cancel_modes()
+	rally_armed = true
+	feedback.emit("Rally point armed: choose a destination.", false)
 
 
 func begin_war_camp_placement() -> void:
@@ -586,18 +689,22 @@ func begin_structure_placement(structure_kind: StringName) -> void:
 	cancel_modes()
 	placement_worker_id = workers[0]
 	placement_kind = structure_kind
+	_refresh_cursor()
 	var faction := simulation.players[RtsSimulation.TEAM_PLAYER]["faction"] as StringName
 	var structure_name := String(FactionCatalog.stats(structure_kind, faction)["name"])
 	feedback.emit("Choose a clear meadow footprint for the %s." % structure_name, false)
 
 
 func cancel_modes() -> void:
+	move_armed = false
 	attack_move_armed = false
 	patrol_armed = false
 	repair_armed = false
+	rally_armed = false
 	placement_worker_id = -1
 	placement_kind = &""
 	_armed_append = false
+	_refresh_cursor()
 
 
 func selected_commandable_units() -> Array[int]:
@@ -685,6 +792,133 @@ func entity_at_screen(screen_position: Vector2, selectable_only: bool) -> int:
 	return best_id
 
 
+func cursor_context_at(screen_position: Vector2) -> Dictionary:
+	if simulation == null or not simulation.outcome.is_empty():
+		return _cursor_context(CursorSystem.SELECT)
+	if _middle_dragging:
+		return _cursor_context(CursorSystem.PAN)
+	if _selection_pressed and _selection_dragging:
+		return _cursor_context(CursorSystem.BOX_SELECT)
+
+	var cell := screen_to_cell(screen_position)
+	var target_id := entity_at_screen(screen_position, false)
+	if placement_worker_id >= 0:
+		var can_build := (
+			MapCatalog.in_bounds(cell)
+			and simulation.can_place_structure(RtsSimulation.TEAM_PLAYER, placement_kind, cell)
+			and simulation.can_afford_kind(RtsSimulation.TEAM_PLAYER, placement_kind)
+		)
+		return _cursor_context(
+			CursorSystem.BUILD if can_build else CursorSystem.FORBIDDEN,
+			target_id,
+			can_build,
+		)
+	if repair_armed:
+		var can_repair := _cursor_can_repair_target(target_id)
+		return _cursor_context(
+			CursorSystem.REPAIR if can_repair else CursorSystem.FORBIDDEN,
+			target_id,
+			can_repair,
+		)
+	if attack_move_armed:
+		var can_attack_move := MapCatalog.in_bounds(cell) and not selected_commandable_units().is_empty()
+		return _cursor_context(
+			CursorSystem.ATTACK_MOVE if can_attack_move else CursorSystem.FORBIDDEN,
+			target_id,
+			can_attack_move,
+		)
+	if patrol_armed:
+		var can_patrol := MapCatalog.in_bounds(cell) and not selected_military_units().is_empty()
+		return _cursor_context(
+			CursorSystem.PATROL if can_patrol else CursorSystem.FORBIDDEN,
+			target_id,
+			can_patrol,
+		)
+
+	var commandable_units := selected_commandable_units()
+	var selected_structure := primary_selected_structure()
+	if not MapCatalog.in_bounds(cell) and (not commandable_units.is_empty() or selected_structure >= 0):
+		return _cursor_context(CursorSystem.FORBIDDEN, target_id, false)
+	if target_id >= 0:
+		var target := simulation.entity(target_id)
+		if target.get("kind") == &"yaoguai_den" and not commandable_units.is_empty():
+			return _cursor_context(CursorSystem.HUNT, target_id)
+		if (
+			not commandable_units.is_empty()
+			and simulation.are_hostile(simulation.entity(commandable_units[0]), target)
+		):
+			return _cursor_context(
+				CursorSystem.HUNT if target.get("category") == &"wildlife" else CursorSystem.ATTACK,
+				target_id,
+			)
+		var workers := _selected_of_kind(&"worker")
+		if target.get("kind") == &"stronghold" and _any_worker_carrying(workers):
+			return _cursor_context(CursorSystem.DEPOSIT, target_id)
+		if not workers.is_empty() and _cursor_can_repair_target(target_id):
+			return _cursor_context(CursorSystem.REPAIR, target_id)
+		if target.get("category") == &"resource" and not workers.is_empty():
+			return _cursor_context(_resource_cursor_state(target), target_id)
+	if selected_structure >= 0 and commandable_units.is_empty():
+		return _cursor_context(CursorSystem.RALLY, target_id)
+	if not commandable_units.is_empty():
+		return _cursor_context(CursorSystem.MOVE, target_id)
+	return _cursor_context(CursorSystem.SELECT, target_id)
+
+
+func _cursor_context(
+	state_name: StringName,
+	target_id: int = -1,
+	valid: bool = true,
+) -> Dictionary:
+	return {
+		"state": state_name,
+		"label": CursorSystem.label_for(state_name),
+		"target_id": target_id,
+		"valid": valid,
+	}
+
+
+func _refresh_cursor() -> void:
+	var next_state := cursor_context_at(_mouse_position).get("state", CursorSystem.SELECT) as StringName
+	if next_state == _cursor_state:
+		return
+	_cursor_state = next_state
+	CursorSystem.apply(self, _cursor_state)
+
+
+func _cursor_can_repair_target(target_id: int) -> bool:
+	if target_id < 0:
+		return false
+	var target := simulation.entity(target_id)
+	if (
+		target.is_empty()
+		or not bool(target.get("alive", false))
+		or target.get("category") != &"structure"
+		or int(target.get("team", RtsSimulation.TEAM_NEUTRAL)) != RtsSimulation.TEAM_PLAYER
+		or float(target.get("complete", 0.0)) < 1.0
+		or float(target.get("hp", 0.0)) >= float(target.get("max_hp", 0.0))
+	):
+		return false
+	return not _selected_of_kind(&"worker").is_empty()
+
+
+func _any_worker_carrying(workers: Array[int]) -> bool:
+	for worker_id in workers:
+		if float(simulation.entity(worker_id).get("cargo_amount", 0.0)) > 0.0:
+			return true
+	return false
+
+
+func _resource_cursor_state(resource: Dictionary) -> StringName:
+	match resource.get("resource_kind"):
+		&"jade":
+			return CursorSystem.GATHER_JADE
+		&"lumber":
+			return CursorSystem.GATHER_LUMBER
+		_:
+			return CursorSystem.GATHER_ESSENCE
+
+
 func _zoom_at(screen_position: Vector2, factor: float) -> void:
 	var world_point := (screen_position - camera_offset) / camera_scale
 	camera_scale = clampf(camera_scale * factor, MIN_CAMERA_SCALE, MAX_CAMERA_SCALE)
@@ -708,6 +942,215 @@ func _clamp_camera() -> void:
 		camera_offset.y -= scaled.position.y - (size.y - margin.y)
 
 
+func _command_visualization_records() -> Array[Dictionary]:
+	var records: Array[Dictionary] = []
+	if simulation == null or selected_ids.is_empty():
+		return records
+	var seen: Dictionary = {}
+	var considered_units := 0
+	for unit_id in selected_ids:
+		var unit := simulation.entity(unit_id)
+		if (
+			unit.is_empty()
+			or not bool(unit.get("alive", false))
+			or unit.get("category") != &"unit"
+			or int(unit.get("team", RtsSimulation.TEAM_NEUTRAL)) != RtsSimulation.TEAM_PLAYER
+		):
+			continue
+		if considered_units >= MAX_VISIBLE_COMMAND_PATHS:
+			break
+		considered_units += 1
+		var record := _command_visualization_record(unit)
+		if record.is_empty():
+			continue
+		var dedupe_key := _command_visualization_dedupe_key(record)
+		if seen.has(dedupe_key):
+			continue
+		seen[dedupe_key] = true
+		records.append(record)
+	return records
+
+
+func _command_visualization_record(unit: Dictionary) -> Dictionary:
+	var order := unit.get("order", &"idle") as StringName
+	var indicator_kind: StringName = &""
+	var target_id := int(unit.get("target_id", -1))
+	var endpoint := Vector2.ZERO
+	var target := simulation.entity(target_id)
+	var has_live_target := not target.is_empty() and bool(target.get("alive", false))
+
+	if (
+		order in [&"attack", &"attack_move", &"patrol"]
+		and has_live_target
+		and simulation.are_hostile(unit, target)
+		and should_render_entity(target)
+	):
+		indicator_kind = &"attack"
+		endpoint = _entity_world_center(target)
+	elif order in [&"gather", &"build", &"repair"] and has_live_target:
+		indicator_kind = &"interact"
+		endpoint = _entity_world_center(target)
+	elif order == &"return":
+		if not has_live_target:
+			target_id = simulation.primary_structure_id(
+				int(unit.get("team", RtsSimulation.TEAM_NEUTRAL)),
+				&"stronghold",
+			)
+			target = simulation.entity(target_id)
+			has_live_target = not target.is_empty() and bool(target.get("alive", false))
+		if not has_live_target:
+			return {}
+		indicator_kind = &"interact"
+		endpoint = _entity_world_center(target)
+	else:
+		match order:
+			&"move":
+				var path := unit.get("path", []) as Array
+				if path.is_empty():
+					return {}
+				indicator_kind = &"flag"
+				endpoint = path.back() as Vector2
+			&"attack_move":
+				var attack_move_destination := unit.get(
+					"attack_move_destination",
+					Vector2i(-1, -1),
+				) as Vector2i
+				if not MapCatalog.in_bounds(attack_move_destination):
+					return {}
+				indicator_kind = &"flag"
+				endpoint = Vector2(attack_move_destination)
+			&"patrol":
+				var patrol_target := unit.get("patrol_target", Vector2i(-1, -1)) as Vector2i
+				if not MapCatalog.in_bounds(patrol_target):
+					return {}
+				indicator_kind = &"flag"
+				endpoint = Vector2(patrol_target)
+			_:
+				return {}
+
+	return {
+		"unit_id": int(unit.get("id", -1)),
+		"kind": indicator_kind,
+		"target_id": target_id if indicator_kind != &"flag" else -1,
+		"endpoint": endpoint,
+		"points": _command_route_points(unit, endpoint),
+	}
+
+
+func _command_route_points(unit: Dictionary, endpoint: Vector2) -> Array[Vector2]:
+	var points: Array[Vector2] = []
+	_append_command_route_point(points, _entity_world_center(unit))
+	var path := unit.get("path", []) as Array
+	var path_index := clampi(int(unit.get("path_index", 0)), 0, path.size())
+	for index in range(path_index, path.size()):
+		_append_command_route_point(points, path[index] as Vector2)
+	_append_command_route_point(points, endpoint)
+	return points
+
+
+func _append_command_route_point(points: Array[Vector2], point: Vector2) -> void:
+	if points.is_empty() or points.back().distance_squared_to(point) > COMMAND_PATH_POINT_EPSILON_SQUARED:
+		points.append(point)
+
+
+func _entity_world_center(entity_state: Dictionary) -> Vector2:
+	var footprint := entity_state.get("footprint", Vector2i.ONE) as Vector2i
+	return (
+		entity_state.get("position", Vector2.ZERO) as Vector2
+		+ (Vector2(footprint) - Vector2.ONE) * 0.5
+	)
+
+
+func _command_visualization_dedupe_key(record: Dictionary) -> String:
+	var parts := PackedStringArray([
+		String(record.get("kind", &"")),
+		str(int(record.get("target_id", -1))),
+	])
+	for raw_point in record.get("points", []) as Array:
+		var point := raw_point as Vector2
+		var quantized := Vector2i(roundi(point.x * 100.0), roundi(point.y * 100.0))
+		parts.append("%d,%d" % [quantized.x, quantized.y])
+	return "|".join(parts)
+
+
+func _draw_command_visualizations(records: Array[Dictionary]) -> void:
+	for record in records:
+		_draw_command_path(record)
+	for record in records:
+		_draw_command_indicator(record)
+
+
+func _draw_command_path(record: Dictionary) -> void:
+	var raw_points := record.get("points", []) as Array
+	if raw_points.size() < 2:
+		return
+	var points: Array[Vector2] = []
+	for raw_point in raw_points:
+		points.append(
+			camera_offset
+			+ IsoProjection.position_center(raw_point as Vector2) * camera_scale
+		)
+	var color := _command_visualization_color(record.get("kind", &"flag") as StringName)
+	var next_dot_distance := COMMAND_PATH_DOT_SPACING * 0.5
+	for index in range(points.size() - 1):
+		var start := points[index]
+		var segment := points[index + 1] - start
+		var segment_length := segment.length()
+		if segment_length <= 0.001:
+			continue
+		while next_dot_distance <= segment_length:
+			var dot := start + segment * (next_dot_distance / segment_length)
+			draw_circle(dot, COMMAND_PATH_DOT_RADIUS + 1.6, Color(0.01, 0.04, 0.045, 0.82))
+			draw_circle(dot, COMMAND_PATH_DOT_RADIUS, color)
+			next_dot_distance += COMMAND_PATH_DOT_SPACING
+		next_dot_distance -= segment_length
+
+
+func _draw_command_indicator(record: Dictionary) -> void:
+	var indicator_kind := record.get("kind", &"flag") as StringName
+	var texture := COMMAND_INDICATOR_TEXTURES.get(indicator_kind) as Texture2D
+	if texture == null:
+		return
+	var endpoint := record.get("endpoint", Vector2.ZERO) as Vector2
+	var anchor := camera_offset + IsoProjection.position_center(endpoint) * camera_scale
+	var scale_factor := clampf(0.72 + camera_scale * 0.42, 0.78, 1.12)
+	var icon_size := Vector2.ONE * 52.0 * scale_factor
+	var rotation := 0.0
+	var rect := Rect2(-icon_size * 0.5, icon_size)
+	var tint := Color.WHITE
+	match indicator_kind:
+		&"flag":
+			var pulse := 1.0 + sin(_command_indicator_time * 2.6) * 0.035
+			icon_size = Vector2.ONE * 50.0 * scale_factor * pulse
+			rect = Rect2(Vector2(-icon_size.x * 0.5, -icon_size.y + 4.0), icon_size)
+		&"interact":
+			icon_size = Vector2.ONE * 62.0 * scale_factor
+			rotation = _command_indicator_time * COMMAND_INTERACTION_ROTATION_SPEED
+			rect = Rect2(-icon_size * 0.5, icon_size)
+			tint.a = 0.94
+		&"attack":
+			var pulse := 1.0 + sin(_command_indicator_time * 4.5) * 0.06
+			icon_size = Vector2.ONE * 54.0 * scale_factor * pulse
+			var hover := clampf(42.0 * camera_scale, 18.0, 44.0)
+			var icon_anchor := anchor + Vector2(0.0, -hover)
+			draw_line(anchor, icon_anchor + Vector2(0.0, icon_size.y * 0.34), Color(0.96, 0.34, 0.25, 0.72), 1.5, true)
+			anchor = icon_anchor
+			rect = Rect2(-icon_size * 0.5, icon_size)
+	draw_set_transform(anchor, rotation, Vector2.ONE)
+	draw_texture_rect(texture, rect, false, tint)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+func _command_visualization_color(indicator_kind: StringName) -> Color:
+	match indicator_kind:
+		&"interact":
+			return Color(0.94, 0.79, 0.35, 0.92)
+		&"attack":
+			return Color(0.96, 0.34, 0.25, 0.94)
+		_:
+			return Color(0.47, 0.92, 0.73, 0.92)
+
+
 func _draw() -> void:
 	if simulation == null:
 		return
@@ -717,6 +1160,7 @@ func _draw() -> void:
 	_draw_entities()
 	_draw_effects()
 	_draw_fog_of_war()
+	_draw_command_visualizations(_command_visualization_records())
 	if _selection_pressed and _selection_dragging:
 		var rect := Rect2(_selection_start, _selection_current - _selection_start).abs()
 		draw_rect(rect, Color(0.32, 0.93, 0.72, 0.12), true)
@@ -809,6 +1253,12 @@ func _draw_hover_feedback() -> void:
 			_structure_display_size(placement_kind) * 0.78 * camera_scale,
 			Color(1, 1, 1, 0.58 if valid else 0.35),
 		)
+	elif move_armed:
+		draw_colored_polygon(points, Color(PLAYER_COLOR, 0.12))
+		draw_polyline(closed, PLAYER_COLOR, 2.0, true)
+	elif rally_armed:
+		draw_colored_polygon(points, Color(Color("f0d278"), 0.14))
+		draw_polyline(closed, Color("f0d278"), 2.0, true)
 	elif repair_armed:
 		draw_colored_polygon(points, Color(Color("e4c66d"), 0.14))
 		draw_polyline(closed, Color("e4c66d"), 2.0, true)
@@ -906,7 +1356,13 @@ func _draw_entity(entity_state: Dictionary) -> void:
 			display_size = Vector2(124.0, 112.0)
 		elif kind == &"yaoguai_den":
 			display_size = Vector2(250.0, 212.0)
-		_draw_world_texture(texture, center, display_size * camera_scale, tint)
+		var is_movable := category in [&"unit", &"wildlife"]
+		var sprite_center := center
+		var flip_h := false
+		if is_movable:
+			sprite_center.y += _movement_bounce_offset(entity_state)
+			flip_h = _movement_sprite_flipped(entity_state)
+		_draw_world_texture(texture, sprite_center, display_size * camera_scale, tint, flip_h)
 		if kind == &"yaoguai_den":
 			_draw_cave_status(entity_state, center)
 		else:
@@ -919,14 +1375,93 @@ func _draw_entity(entity_state: Dictionary) -> void:
 		draw_circle(center + Vector2(23.0, -40.0) * camera_scale, maxf(3.0, 5.0 * camera_scale), cargo_color)
 
 
-func _draw_world_texture(texture: Texture2D, center: Vector2, display_size: Vector2, tint: Color) -> void:
+func _draw_world_texture(
+	texture: Texture2D,
+	center: Vector2,
+	display_size: Vector2,
+	tint: Color,
+	flip_h: bool = false,
+) -> void:
 	if texture == null:
 		return
 	var rect := Rect2(
-		Vector2(center.x - display_size.x * 0.5, center.y - display_size.y + 10.0 * camera_scale),
+		Vector2(-display_size.x * 0.5, -display_size.y + 10.0 * camera_scale),
 		display_size,
 	)
+	draw_set_transform(center, 0.0, Vector2(-1.0 if flip_h else 1.0, 1.0))
 	draw_texture_rect(texture, rect, false, tint)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+func _update_movement_visuals(delta: float) -> void:
+	if simulation == null:
+		_movement_visuals.clear()
+		return
+	var live_ids: Dictionary = {}
+	for raw_entity in simulation.entities.values():
+		var entity_state := raw_entity as Dictionary
+		if not bool(entity_state.get("alive", false)) or not _is_movable_visual(entity_state):
+			continue
+		var entity_id := int(entity_state.get("id", -1))
+		var position := entity_state.get("position", Vector2.ZERO) as Vector2
+		live_ids[entity_id] = true
+		if not _movement_visuals.has(entity_id):
+			_movement_visuals[entity_id] = {
+				"position": position,
+				"faces_left": not _native_art_faces_right(entity_state),
+				"moving_for": 0.0,
+			}
+			continue
+		var visual := _movement_visuals[entity_id] as Dictionary
+		var previous_position := visual.get("position", position) as Vector2
+		var movement := position - previous_position
+		if movement.length_squared() > WALK_MOTION_EPSILON_SQUARED:
+			var projected_movement := IsoProjection.project(movement)
+			if absf(projected_movement.x) > WALK_FACING_EPSILON:
+				visual["faces_left"] = projected_movement.x < 0.0
+			visual["moving_for"] = WALK_MOTION_MEMORY_SECONDS
+		else:
+			visual["moving_for"] = maxf(0.0, float(visual.get("moving_for", 0.0)) - delta)
+		visual["position"] = position
+		_movement_visuals[entity_id] = visual
+	for raw_id in _movement_visuals.keys():
+		var entity_id := int(raw_id)
+		if not live_ids.has(entity_id):
+			_movement_visuals.erase(entity_id)
+
+
+func _is_movable_visual(entity_state: Dictionary) -> bool:
+	return entity_state.get("category") in [&"unit", &"wildlife"]
+
+
+func _native_art_faces_right(entity_state: Dictionary) -> bool:
+	if entity_state.get("kind") == &"jadeclaw":
+		return false
+	var art_key := "%s:%s" % [
+		String(entity_state.get("faction", &"neutral")),
+		String(entity_state.get("kind", &"")),
+	]
+	return bool(NATIVE_RIGHT_FACING_ART.get(art_key, false))
+
+
+func _movement_sprite_flipped(entity_state: Dictionary) -> bool:
+	return _movement_faces_left(entity_state) == _native_art_faces_right(entity_state)
+
+
+func _movement_faces_left(entity_state: Dictionary) -> bool:
+	var visual := _movement_visuals.get(int(entity_state.get("id", -1)), {}) as Dictionary
+	return bool(visual.get("faces_left", not _native_art_faces_right(entity_state)))
+
+
+func _movement_bounce_offset(entity_state: Dictionary) -> float:
+	var entity_id := int(entity_state.get("id", -1))
+	var visual := _movement_visuals.get(entity_id, {}) as Dictionary
+	var moving_for := float(visual.get("moving_for", 0.0))
+	if moving_for <= 0.0:
+		return 0.0
+	var fade := clampf(moving_for / (WALK_MOTION_MEMORY_SECONDS * 0.5), 0.0, 1.0)
+	var phase := _walk_animation_time * WALK_BOUNCE_SPEED + float(entity_id) * 1.61803398875
+	return -absf(sin(phase)) * WALK_BOUNCE_HEIGHT * camera_scale * fade
 
 
 func _structure_display_size(kind: StringName) -> Vector2:
