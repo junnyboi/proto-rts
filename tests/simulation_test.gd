@@ -166,14 +166,14 @@ func _test_large_formations_and_separation(failures: Array[String]) -> void:
 	var separation_simulation := RtsSimulation.new()
 	separation_simulation.setup(&"human")
 	var separation_cell := separation_simulation._nearest_walkable(MapCatalog.SIZE / 2)
-	var first_id := separation_simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", separation_cell)
-	var second_id := separation_simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", separation_cell)
+	var first_id := separation_simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", separation_cell)
+	var second_id := separation_simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", separation_cell)
 	separation_simulation._resolve_unit_separation()
 	var separation := (
 		separation_simulation.entity(first_id)["position"] as Vector2
 	).distance_to(separation_simulation.entity(second_id)["position"] as Vector2)
 	if separation < RtsSimulation.UNIT_SEPARATION_DISTANCE - 0.01:
-		failures.append("overlapping units did not separate locally")
+		failures.append("overlapping military units did not separate locally")
 
 
 func _test_units_pass_through_friendly_structures(failures: Array[String]) -> void:

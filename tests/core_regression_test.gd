@@ -90,13 +90,74 @@ func _test_live_placement_occupancy(failures: Array[String]) -> void:
 	_expect(not simulation.can_place_structure(RtsSimulation.TEAM_PLAYER, &"rice_farm", farm_origin), "multi-cell structure footprint accepted a live-unit overlap", failures)
 
 
-func _test_unit_separation(failures: Array[String]) -> void:
+func _test_worker_friendly_passthrough_and_unit_separation(failures: Array[String]) -> void:
 	var simulation := _blank_simulation()
-	var first_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", Vector2i(14, 50))
-	var second_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", Vector2i(14, 50))
+	var lane_y := 54
+	var moving_worker_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", Vector2i(8, lane_y))
+	var friendly_worker_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", Vector2i(11, lane_y))
+	var friendly_vanguard_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", Vector2i(14, lane_y))
+	var friendly_worker_start := simulation.entity(friendly_worker_id)["position"] as Vector2
+	var friendly_vanguard_start := simulation.entity(friendly_vanguard_id)["position"] as Vector2
+	var destination := Vector2i(18, lane_y)
+	_expect(
+		simulation.command_move(RtsSimulation.TEAM_PLAYER, [moving_worker_id], destination),
+		"worker traversal command was rejected",
+		failures,
+	)
+	_advance(simulation, 12.0)
+	_expect(
+		(simulation.entity(moving_worker_id)["position"] as Vector2).distance_to(Vector2(destination)) < 0.15,
+		"worker did not pass through friendly units to reach its destination",
+		failures,
+	)
+	_expect(
+		(simulation.entity(friendly_worker_id)["position"] as Vector2).is_equal_approx(friendly_worker_start),
+		"passing worker displaced a friendly worker",
+		failures,
+	)
+	_expect(
+		(simulation.entity(friendly_vanguard_id)["position"] as Vector2).is_equal_approx(friendly_vanguard_start),
+		"passing worker displaced a friendly military unit",
+		failures,
+	)
+
+	var overlap_cell := Vector2i(24, lane_y)
+	var overlapping_worker_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", overlap_cell)
+	var overlapping_friendly_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", overlap_cell)
 	simulation._resolve_unit_separation()
-	var distance := (simulation.entity(first_id)["position"] as Vector2).distance_to(simulation.entity(second_id)["position"] as Vector2)
-	_expect(distance >= RtsSimulation.UNIT_SEPARATION_DISTANCE - 0.001, "overlapping units did not separate", failures)
+	_expect(
+		(simulation.entity(overlapping_worker_id)["position"] as Vector2).is_equal_approx(
+			simulation.entity(overlapping_friendly_id)["position"] as Vector2
+		),
+		"worker could not overlap a friendly unit while passing through",
+		failures,
+	)
+
+	var military_simulation := _blank_simulation()
+	var first_military_id := military_simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", overlap_cell)
+	var second_military_id := military_simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"mystic", overlap_cell)
+	military_simulation._resolve_unit_separation()
+	var military_distance := (
+		military_simulation.entity(first_military_id)["position"] as Vector2
+	).distance_to(military_simulation.entity(second_military_id)["position"] as Vector2)
+	_expect(
+		military_distance >= RtsSimulation.UNIT_SEPARATION_DISTANCE - 0.001,
+		"friendly military units stopped separating",
+		failures,
+	)
+
+	var hostile_simulation := _blank_simulation()
+	var worker_id := hostile_simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", overlap_cell)
+	var enemy_id := hostile_simulation._spawn_unit(RtsSimulation.TEAM_ENEMY, &"vanguard", overlap_cell)
+	hostile_simulation._resolve_unit_separation()
+	var hostile_distance := (
+		hostile_simulation.entity(worker_id)["position"] as Vector2
+	).distance_to(hostile_simulation.entity(enemy_id)["position"] as Vector2)
+	_expect(
+		hostile_distance >= RtsSimulation.UNIT_SEPARATION_DISTANCE - 0.001,
+		"worker incorrectly passed through an enemy unit",
+		failures,
+	)
 
 
 func _test_ai_natural_construction_and_fallback(failures: Array[String]) -> void:
@@ -237,12 +298,12 @@ func _run() -> void:
 	_test_attack_move_external_kill(failures)
 	_test_scalable_and_partial_formations(failures)
 	_test_live_placement_occupancy(failures)
-	_test_unit_separation(failures)
+	_test_worker_friendly_passthrough_and_unit_separation(failures)
 	_test_ai_natural_construction_and_fallback(failures)
 	_test_line_of_sight_and_invalid_commands(failures)
 	_test_command_authority(failures)
 	if failures.is_empty():
-		print("PASS core_regression_test: attack-move race, scalable/partial formations, occupancy, separation, fair AI economy, sight, bounds, authority")
+		print("PASS core_regression_test: attack-move race, scalable/partial formations, occupancy, worker passthrough, separation, fair AI economy, sight, bounds, authority")
 		quit(0)
 		return
 	for failure in failures:

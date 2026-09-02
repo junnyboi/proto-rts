@@ -2234,6 +2234,8 @@ func _resolve_unit_separation() -> void:
 			for second_index in range(first_index + 1, unit_ids.size()):
 				var second_id := unit_ids[second_index]
 				var second := entity(second_id)
+				if _worker_passes_through_friendly_unit(first, second):
+					continue
 				var delta := (second["position"] as Vector2) - (first["position"] as Vector2)
 				var distance := delta.length()
 				if distance >= UNIT_SEPARATION_DISTANCE:
@@ -2256,6 +2258,15 @@ func _resolve_unit_separation() -> void:
 			if _is_walkable_unit_position(proposed):
 				unit["position"] = proposed
 				unit["cell"] = Vector2i(proposed.round())
+
+
+func _worker_passes_through_friendly_unit(first: Dictionary, second: Dictionary) -> bool:
+	var first_team := int(first.get("team", TEAM_NEUTRAL))
+	return (
+		first_team >= 0
+		and first_team == int(second.get("team", TEAM_NEUTRAL))
+		and (first.get("kind") == &"worker" or second.get("kind") == &"worker")
+	)
 
 
 func _is_walkable_unit_position(position: Vector2) -> bool:
