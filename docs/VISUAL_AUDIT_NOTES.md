@@ -63,3 +63,9 @@ The definitive instrumented Godot 4.7.2 suite exercised **2,224 authored trees**
 ## Final HUD-icon and audio-control regression
 
 The post-integration 1280 × 720 skirmish and strategic overview both pass. The generated Jade, Lumber, Essence, Food, Population, and Den icons remain distinct at compact ribbon scale; labels and numeric values retain adequate contrast; and the new **AUDIO ON** control fits without clipping the time or pause modules. The dense one-per-authored-cell strategic grove LOD, river crossings, wildlife silhouettes, objective panel, production queue, command grid, selection composition, minimap overlays, and camera framing remain legible. No terrain seams, malformed sprites, stale markers, or HUD collisions were observed.
+
+## Public deployment verification
+
+The published GitHub Pages bundle at source revision `f0f4d6a` and Pages revision `088e9f7` loaded successfully over HTTPS. The Godot loader completed, the title action accepted keyboard activation, and faction selection rendered all four cards, generated portraits, descriptions, and deterministic focus without clipping.
+
+The public faction screen remained stable through repeated synthetic keyboard and coordinate events. The sandbox browser harness did not activate a faction after title transition, despite the dedicated native UI regression passing deterministic faction-button focus. The byte-identical locally served bundle completed the title-to-faction-to-skirmish flow with a clean browser console, while the public bundle independently verified HTTPS loading and faction-screen rendering.
