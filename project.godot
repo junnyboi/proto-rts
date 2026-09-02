@@ -1,0 +1,47 @@
+; Engine configuration file.
+; Edit through Godot when possible; this project intentionally keeps its root scene minimal.
+
+config_version=5
+
+[application]
+
+config/name="Mandate of Myth"
+config/description="A browser-playable Chinese mythology real-time strategy skirmish."
+run/main_scene="res://scenes/main.tscn"
+config/icon="res://assets/runtime/resources/essence_shrine.png"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/size/window_width_override=1280
+window/size/window_height_override=720
+window/stretch/mode="canvas_items"
+window/handheld/orientation=1
+
+[input]
+
+camera_up={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":4194320)]
+}
+camera_down={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":4194322)]
+}
+camera_left={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":4194319)]
+}
+camera_right={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":4194321)]
+}
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/default_filters/use_nearest_mipmap_filter=true
+textures/canvas_textures/default_texture_filter=1
+environment/defaults/default_clear_color=Color(0.025, 0.047, 0.05, 1)

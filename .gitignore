@@ -1,0 +1,7 @@
+.DS_Store
+.godot/
+.venv/
+*.import
+__pycache__/
+*.pyc
+build/web/.serve.pid

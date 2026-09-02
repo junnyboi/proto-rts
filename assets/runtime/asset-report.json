@@ -1,0 +1,342 @@
+{
+  "generator": "GPT Image 2",
+  "runtime_asset_count": 30,
+  "assets": [
+    {
+      "path": "assets/runtime/ui/mandate_of_myth_title.webp",
+      "source": "assets/source/key_art/mandate_of_myth_title.png",
+      "width": 1600,
+      "height": 900,
+      "mode": "RGB",
+      "alpha_extrema": null,
+      "sha256": "fb64ba2c54ab96858f3f2b40f397a9db198e5b41ade84148a91dd20ba0cd65ee"
+    },
+    {
+      "path": "assets/runtime/portraits/celestial.webp",
+      "source": "assets/source/factions/celestial_portrait.png",
+      "width": 360,
+      "height": 480,
+      "mode": "RGB",
+      "alpha_extrema": null,
+      "sha256": "4ddac7064008b71ba379f6100c22a97eec12acccfba2db8253b0206d4f75ae96"
+    },
+    {
+      "path": "assets/runtime/units/celestial_worker.png",
+      "source": "assets/source/units/celestial_worker.png",
+      "width": 160,
+      "height": 176,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "5a83bef0384b0081155349282dab126341af7d3e0b2e64b70c1435340465c3a0"
+    },
+    {
+      "path": "assets/runtime/units/celestial_vanguard.png",
+      "source": "assets/source/units/celestial_vanguard.png",
+      "width": 160,
+      "height": 176,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "4ba08afed133f89e7d20f8ad6b2126d8de39921a1ecb32f2c8754796ba2e2025"
+    },
+    {
+      "path": "assets/runtime/units/celestial_mystic.png",
+      "source": "assets/source/units/celestial_mystic.png",
+      "width": 160,
+      "height": 176,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "c89bc2b41cd4a576e92d500abbd67e58d581e3eac74c4134597e369e3d4f4e36"
+    },
+    {
+      "path": "assets/runtime/buildings/celestial_stronghold.png",
+      "source": "assets/source/buildings/celestial_stronghold.png",
+      "width": 288,
+      "height": 240,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "e5f55eb39ef8666644fc62ad3655ba4e678c6b2884be6381958137adb24c7a57"
+    },
+    {
+      "path": "assets/runtime/buildings/celestial_war_camp.png",
+      "source": "assets/source/buildings/celestial_war_camp.png",
+      "width": 288,
+      "height": 240,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "beba2e04e326f4540a4682b90f5199b42cd201f50ab4919d299ff1732cec1fae"
+    },
+    {
+      "path": "assets/runtime/portraits/demon.webp",
+      "source": "assets/source/factions/demon_portrait.png",
+      "width": 360,
+      "height": 480,
+      "mode": "RGB",
+      "alpha_extrema": null,
+      "sha256": "5dc0733ceef55c3bf3f2babadadc55564b63c2618e91608f771ffe14c5770d07"
+    },
+    {
+      "path": "assets/runtime/units/demon_worker.png",
+      "source": "assets/source/units/demon_worker.png",
+      "width": 160,
+      "height": 176,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "eea0867b591ebd3a1921f51d3bf5cea3cf7cb50637ba6d5e466f294ebcc73ddf"
+    },
+    {
+      "path": "assets/runtime/units/demon_vanguard.png",
+      "source": "assets/source/units/demon_vanguard.png",
+      "width": 160,
+      "height": 176,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "f863e4575478a843b9a3769b6f01e9bd99b18c75dd277407283415f93f527f6d"
+    },
+    {
+      "path": "assets/runtime/units/demon_mystic.png",
+      "source": "assets/source/units/demon_mystic.png",
+      "width": 160,
+      "height": 176,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "113cdf7f25c00e001458a0e4dd695e74defe3775c42a9eff229c5e48ae542491"
+    },
+    {
+      "path": "assets/runtime/buildings/demon_stronghold.png",
+      "source": "assets/source/buildings/demon_stronghold.png",
+      "width": 288,
+      "height": 240,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "d9c1af3617ca64f176d7851af0560d985bc56c7fa23840e5259eeb2f12ff37bb"
+    },
+    {
+      "path": "assets/runtime/buildings/demon_war_camp.png",
+      "source": "assets/source/buildings/demon_war_camp.png",
+      "width": 288,
+      "height": 240,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "81c324b96401b13b73f45fe382fdb4d0174dffe994e4a28255976bff3a899ad5"
+    },
+    {
+      "path": "assets/runtime/portraits/beast.webp",
+      "source": "assets/source/factions/beast_portrait.png",
+      "width": 360,
+      "height": 480,
+      "mode": "RGB",
+      "alpha_extrema": null,
+      "sha256": "f7266f60eab69748014590f11fa5b61eafcc695a5265f83b9f2420a6bbcde932"
+    },
+    {
+      "path": "assets/runtime/units/beast_worker.png",
+      "source": "assets/source/units/beast_worker.png",
+      "width": 160,
+      "height": 176,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "1e8bbd525d2b5a242dbae061f8e4a0f3f370d8f5c5cac0c3f8ddae85b5b97243"
+    },
+    {
+      "path": "assets/runtime/units/beast_vanguard.png",
+      "source": "assets/source/units/beast_vanguard.png",
+      "width": 160,
+      "height": 176,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "ff0c70f18fce5179143b7f185ba977705c6ed8d991ad6c556c910c3692b0b1b9"
+    },
+    {
+      "path": "assets/runtime/units/beast_mystic.png",
+      "source": "assets/source/units/beast_mystic.png",
+      "width": 160,
+      "height": 176,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "0e24d50a846920ce69689df9f97fae4a447b250e929c1357bc4fba4d0974f4cd"
+    },
+    {
+      "path": "assets/runtime/buildings/beast_stronghold.png",
+      "source": "assets/source/buildings/beast_stronghold.png",
+      "width": 288,
+      "height": 240,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "74d02b1d6cda25197e544fa9237dfcca10b7212587cb69fd883cac0a7db44fca"
+    },
+    {
+      "path": "assets/runtime/buildings/beast_war_camp.png",
+      "source": "assets/source/buildings/beast_war_camp.png",
+      "width": 288,
+      "height": 240,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "1dff6f367d18de42f6a6f07a3c52d7266cd66989fc9825fd5f8ff69696432733"
+    },
+    {
+      "path": "assets/runtime/portraits/human.webp",
+      "source": "assets/source/factions/human_portrait.png",
+      "width": 360,
+      "height": 480,
+      "mode": "RGB",
+      "alpha_extrema": null,
+      "sha256": "2ef73c9fad9a9f71b4a833d56d2bb4c4a0eba82650469fd10f2c1da1d94a99d4"
+    },
+    {
+      "path": "assets/runtime/units/human_worker.png",
+      "source": "assets/source/units/human_worker.png",
+      "width": 160,
+      "height": 176,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "0e07c760b4c938531944c2aba92f41e64e465786980b70bd7ec06891d3117d1f"
+    },
+    {
+      "path": "assets/runtime/units/human_vanguard.png",
+      "source": "assets/source/units/human_vanguard.png",
+      "width": 160,
+      "height": 176,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "174d56749c71263680721f5b18e8adb62fe40f747a46c6a449f7c3727138c033"
+    },
+    {
+      "path": "assets/runtime/units/human_mystic.png",
+      "source": "assets/source/units/human_mystic.png",
+      "width": 160,
+      "height": 176,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "633386a7b5f897ac55eae20633b2a039c0dba9b7e755d9b0447978d1765a1e38"
+    },
+    {
+      "path": "assets/runtime/buildings/human_stronghold.png",
+      "source": "assets/source/buildings/human_stronghold.png",
+      "width": 288,
+      "height": 240,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "2af32463523e06d2d626352dedb76670d45c458871b59e6bd4bd2bbf43b29b29"
+    },
+    {
+      "path": "assets/runtime/buildings/human_war_camp.png",
+      "source": "assets/source/buildings/human_war_camp.png",
+      "width": 288,
+      "height": 240,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "f53d6290667d8f14b135bdba420c050b4427f7d7fa731ba0671be2ed4ae28cf8"
+    },
+    {
+      "path": "assets/runtime/terrain/jade_meadow.webp",
+      "source": "assets/source/terrain/jade_meadow.png",
+      "width": 512,
+      "height": 512,
+      "mode": "RGB",
+      "alpha_extrema": null,
+      "sha256": "ed1f0fc9c3656b62e49cbfec6f647c553780f837db612acdaabd093d332c1f33"
+    },
+    {
+      "path": "assets/runtime/terrain/inkstone_ridge.webp",
+      "source": "assets/source/terrain/inkstone_ridge.png",
+      "width": 512,
+      "height": 512,
+      "mode": "RGB",
+      "alpha_extrema": null,
+      "sha256": "8a47ea61f09e90c895f9a69a0fd4a8c2691590f917af5fa991be865f2df656ed"
+    },
+    {
+      "path": "assets/runtime/terrain/celadon_water.webp",
+      "source": "assets/source/terrain/celadon_water.png",
+      "width": 512,
+      "height": 512,
+      "mode": "RGB",
+      "alpha_extrema": null,
+      "sha256": "0bf520e661e98186481e979f7e667b457144430087bd82e27e5e82b779648de7"
+    },
+    {
+      "path": "assets/runtime/resources/jade_outcrop.png",
+      "source": "assets/source/resources/jade_outcrop.png",
+      "width": 176,
+      "height": 160,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "b6ab32571756292cfeeea099bfc7d7fa5bfaca9573a2421e6d0c87f637f3fd1c"
+    },
+    {
+      "path": "assets/runtime/resources/essence_shrine.png",
+      "source": "assets/source/resources/essence_shrine.png",
+      "width": 176,
+      "height": 160,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "24dafbf63f149592990abd0c753c340ad69a1259ce50a0484fe696640a8dab07"
+    }
+  ]
+}
