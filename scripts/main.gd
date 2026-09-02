@@ -55,6 +55,7 @@ var _feedback_label: Label
 var _toast_panel: PanelContainer
 var _pause_banner: PanelContainer
 var _pause_button: Button
+var _audio_button: Button
 var _fog_button: Button
 var _fog_icon: HudIcon
 var _minimap: Control
@@ -72,9 +73,13 @@ var _feedback_timer := 0.0
 var _result_overlay: Control
 var _last_queue_focus_id := -1
 var _last_queue_focus_ms := -1000
+var audio_director: AudioDirector
 
 
 func _ready() -> void:
+	audio_director = AudioDirector.new()
+	audio_director.name = "AudioDirector"
+	add_child(audio_director)
 	var game_window := get_window()
 	game_window.mouse_entered.connect(CursorSystem.resume)
 	game_window.mouse_exited.connect(CursorSystem.suspend)
@@ -107,8 +112,13 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	var key := event as InputEventKey
 	if not key.pressed or key.echo:
 		return
+	audio_director.ensure_bgm()
+	if key.keycode == KEY_M:
+		_toggle_audio()
+		return
 	if state != STATE_MATCH or battlefield == null:
 		if key.keycode == KEY_ESCAPE and state == STATE_FACTION:
+			audio_director.play_ui(&"ui_cancel")
 			_show_title()
 		return
 	var control_group := _control_group_index(key)
@@ -129,6 +139,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 				or battlefield.placement_worker_id >= 0
 			):
 				battlefield.cancel_modes()
+				audio_director.play_ui(&"ui_cancel")
 				_update_armed_command_styles()
 				_show_feedback("Command cancelled.", false)
 			else:
@@ -154,6 +165,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			_update_armed_command_styles()
 		KEY_X:
 			simulation.command_stop(battlefield.selected_commandable_units())
+			audio_director.play_ui(&"ui_cancel")
 			_show_feedback("Selected units halted.", false)
 
 
@@ -198,6 +210,7 @@ func _clear_screen() -> void:
 	_toast_panel = null
 	_pause_banner = null
 	_pause_button = null
+	_audio_button = null
 	_fog_button = null
 	_fog_icon = null
 	_minimap = null
@@ -245,6 +258,8 @@ func _show_title() -> void:
 	state = STATE_TITLE
 	paused = false
 	simulation = null
+	audio_director.set_music_state(STATE_TITLE)
+	audio_director.ensure_bgm()
 	var root := _make_screen()
 	_add_title_background(root, 0.42)
 
@@ -262,13 +277,14 @@ func _show_title() -> void:
 	var play := ThemeFactory.button("START GAME")
 	play.custom_minimum_size = Vector2(340, 56)
 	play.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	play.pressed.connect(_show_faction_select)
+	_connect_button(play, _show_faction_select)
 	content.add_child(play)
 	play.grab_focus()
 
 
 func _show_faction_select() -> void:
 	state = STATE_FACTION
+	audio_director.set_music_state(STATE_FACTION)
 	var root := _make_screen()
 	_add_title_background(root, 0.72)
 
@@ -299,7 +315,7 @@ func _show_faction_select() -> void:
 	var back := ThemeFactory.button("BACK")
 	back.position = Vector2(20, 18)
 	back.size = Vector2(110, 40)
-	back.pressed.connect(_show_title)
+	_connect_button(back, _show_title, &"ui_cancel")
 	root.add_child(back)
 
 	var controls := ThemeFactory.label("Controls: left select · drag box-select · right contextual order · F attack-move · X stop · Q workers · E army · Space stronghold · WASD / arrows camera · Cmd+wheel / pinch zoom", 14, ThemeFactory.MUTED)
@@ -348,7 +364,7 @@ func _make_faction_card(faction_id: StringName) -> PanelContainer:
 	button_spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	column.add_child(button_spacer)
 	var choose := ThemeFactory.button("COMMAND %s" % String(definition["name"]).to_upper())
-	choose.pressed.connect(func() -> void: _start_match(faction_id))
+	_connect_button(choose, func() -> void: _start_match(faction_id))
 	column.add_child(choose)
 	return panel
 
@@ -357,6 +373,8 @@ func _start_match(faction_id: StringName) -> void:
 	selected_faction = faction_id
 	state = STATE_MATCH
 	paused = false
+	audio_director.set_music_state(STATE_MATCH)
+	audio_director.ensure_bgm()
 	simulation = RtsSimulation.new()
 	simulation.setup(faction_id)
 	simulation.match_ended.connect(_on_match_ended)
@@ -369,6 +387,8 @@ func _start_match(faction_id: StringName) -> void:
 	battlefield.set_simulation(simulation)
 	battlefield.selection_changed.connect(_on_selection_changed)
 	battlefield.feedback.connect(_show_feedback)
+	battlefield.audio_cue.connect(audio_director.play_cue)
+	battlefield.simulation_event.connect(audio_director.handle_simulation_event)
 	root.add_child(battlefield)
 
 	_build_top_bar(root)
@@ -408,6 +428,15 @@ func _build_top_bar(root: Control) -> void:
 	_pause_button.add_theme_font_size_override(&"font_size", 14)
 	_pause_button.pressed.connect(_toggle_pause)
 	row.add_child(_pause_button)
+	_audio_button = ThemeFactory.button(
+		"AUDIO OFF  M" if audio_director.muted else "AUDIO ON  M",
+		"Toggle music and sound effects",
+	)
+	_audio_button.name = "AudioButton"
+	_audio_button.custom_minimum_size = Vector2(104.0, 34.0)
+	_audio_button.add_theme_font_size_override(&"font_size", 12)
+	_audio_button.pressed.connect(_toggle_audio)
+	row.add_child(_audio_button)
 
 
 func _add_resource_chip(
@@ -1380,6 +1409,7 @@ func _command_stop() -> void:
 		_show_feedback("Select units before issuing Stop.", true)
 		return
 	simulation.command_stop(units)
+	audio_director.play_ui(&"ui_cancel")
 	_show_feedback("Selected units halted.", false)
 
 
@@ -1389,6 +1419,7 @@ func _command_train(kind: StringName) -> void:
 		_show_feedback("Select the correct production structure.", true)
 		return
 	if simulation.command_train(structure_id, kind):
+		audio_director.play_ui(&"ui_confirm")
 		_show_feedback("%s added to the training queue." % String(kind).capitalize(), false)
 	else:
 		_show_feedback("Insufficient resources, Food, population, or production capacity.", true)
@@ -1406,6 +1437,7 @@ func _command_cancel_training() -> void:
 	if cancelled.is_empty():
 		_show_feedback("There is no queued unit to cancel.", true)
 		return
+	audio_director.play_ui(&"ui_cancel")
 	var costs := cancelled.get("costs", {}) as Dictionary
 	var refund_parts: Array[String] = []
 	for definition in [
@@ -1438,6 +1470,9 @@ func _on_battle_notice(message: String, team: int) -> void:
 
 
 func _show_feedback(message: String, is_error: bool = false) -> void:
+	audio_director.ensure_bgm()
+	if is_error:
+		audio_director.play_ui(&"ui_error")
 	if _feedback_label == null or _toast_panel == null:
 		return
 	var color := ThemeFactory.IVORY
@@ -1471,6 +1506,8 @@ func _toggle_pause() -> void:
 	_pause_button.text = "▶  P" if paused else "Ⅱ  P"
 	_pause_button.tooltip_text = "Resume the realm" if paused else "Pause the realm"
 	_pause_banner.visible = paused
+	audio_director.set_music_state(&"paused" if paused else STATE_MATCH)
+	audio_director.play_ui(&"ui_cancel" if paused else &"ui_confirm")
 	_show_feedback("The realm is paused." if paused else "The realm resumes.", false)
 
 
@@ -1478,12 +1515,22 @@ func _toggle_fog_of_war() -> void:
 	if battlefield == null:
 		return
 	battlefield.set_fog_enabled(not battlefield.fog_enabled)
+	audio_director.play_ui(&"ui_confirm")
 	_show_feedback("Fog of war enabled." if battlefield.fog_enabled else "Fog of war disabled.", false)
+
+
+func _toggle_audio() -> void:
+	var is_muted := audio_director.toggle_muted()
+	if _audio_button != null:
+		_audio_button.text = "AUDIO OFF  M" if is_muted else "AUDIO ON  M"
+	if not is_muted:
+		audio_director.play_ui(&"ui_confirm")
 
 
 func _on_match_ended(result: StringName) -> void:
 	paused = true
 	state = STATE_RESULT
+	audio_director.play_outcome(result)
 	_result_overlay = Control.new()
 	_result_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_screen.add_child(_result_overlay)
@@ -1518,12 +1565,21 @@ func _on_match_ended(result: StringName) -> void:
 	time_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(time_label)
 	var rematch := ThemeFactory.button("REMATCH")
-	rematch.pressed.connect(func() -> void: _start_match(selected_faction))
+	_connect_button(rematch, func() -> void: _start_match(selected_faction))
 	column.add_child(rematch)
 	var choose := ThemeFactory.button("CHOOSE ANOTHER FACTION")
-	choose.pressed.connect(_show_faction_select)
+	_connect_button(choose, _show_faction_select)
 	column.add_child(choose)
 	var title_button := ThemeFactory.button("RETURN TO TITLE")
-	title_button.pressed.connect(_show_title)
+	_connect_button(title_button, _show_title, &"ui_cancel")
 	column.add_child(title_button)
 	rematch.grab_focus()
+
+
+func _connect_button(button: Button, action: Callable, cue: StringName = &"ui_confirm") -> void:
+	button.pressed.connect(func() -> void:
+		audio_director.ensure_bgm()
+		if not cue.is_empty():
+			audio_director.play_ui(cue)
+		action.call()
+	)

@@ -8,6 +8,7 @@ for test_script in \
 	tests/map_test.gd \
 	tests/projection_test.gd \
 	tests/assets_test.gd \
+	tests/audio_test.gd \
 	tests/cursor_test.gd \
 	tests/hud_test.gd \
 	tests/interaction_test.gd \

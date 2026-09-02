@@ -216,5 +216,16 @@ func _run() -> void:
 	game.battlefield.center_on_cell(MapCatalog.SIZE / 2)
 	await _settle(2)
 	_capture("map-overview")
+	var director := game.audio_director as AudioDirector
+	director._music_player.stop()
+	for player in director._players:
+		player.stop()
+	await create_timer(0.15).timeout
+	for player in director._players:
+		player.stream = null
+	director._music_player.stream = null
+	root.remove_child(game)
+	game.free()
+	await process_frame
 	print("PASS visual_capture: title, faction-select, skirmish, worker cargo icons, pause, caves, production queue, armed command, multi-selection, food economy, wildlife hunt, command visualization, map overview")
 	quit(0)

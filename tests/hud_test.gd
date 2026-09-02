@@ -22,6 +22,14 @@ func _run() -> void:
 	_verify_move_and_rally(game, battlefield, simulation, failures)
 	_verify_toast(game, failures)
 
+	var director := game.audio_director as AudioDirector
+	director._music_player.stop()
+	for player in director._players:
+		player.stop()
+	await create_timer(0.15).timeout
+	for player in director._players:
+		player.stream = null
+	director._music_player.stream = null
 	game.queue_free()
 	await process_frame
 	if not CursorSystem.is_suspended():
@@ -54,6 +62,8 @@ func _verify_economy_and_objectives(game: Node, simulation: RtsSimulation, failu
 		failures.append("Jade chip did not bind to the simulation value")
 	if game._objective_rows.size() != 3:
 		failures.append("objective tracker did not create three checklist rows")
+	if game._audio_button == null or not game._audio_button.text.contains("AUDIO ON"):
+		failures.append("economy ribbon is missing the enabled audio control")
 	var players_before := simulation.players.duplicate(true)
 	game.call("_toggle_objectives")
 	if not game._objective_collapsed or game._objective_panel.size.y > 60.0:

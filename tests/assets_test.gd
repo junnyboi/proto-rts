@@ -29,7 +29,17 @@ func _run() -> void:
 		"res://assets/runtime/command_indicators/destination_flag.png",
 		"res://assets/runtime/command_indicators/interaction_ring.png",
 		"res://assets/runtime/command_indicators/attack_swords.png",
+		"res://assets/runtime/audio/bgm/the_jade_meridian_endures.ogg",
 	]
+	for audio_name in [
+		"attack_beast", "attack_magic", "attack_melee", "attack_ranged",
+		"defeat", "deposit_resource", "gather_resource", "harvest_food",
+		"impact_damage", "objective_secured", "order_attack", "order_move",
+		"order_work", "repair_tick", "structure_complete", "structure_destroyed",
+		"structure_placed", "ui_cancel", "ui_confirm", "ui_error",
+		"unit_death", "unit_ready", "unit_select", "victory",
+	]:
+		paths.append("res://assets/runtime/audio/sfx/%s.ogg" % audio_name)
 	for wildlife_kind in FactionCatalog.WILDLIFE_KINDS:
 		paths.append(FactionCatalog.entity_art_path(&"neutral", wildlife_kind))
 	for cursor_state in CursorSystem.ORDER:
@@ -45,10 +55,10 @@ func _run() -> void:
 	for path in paths:
 		if not ResourceLoader.exists(path) or load(path) == null:
 			failures.append("missing or invalid runtime asset: %s" % path)
-	if paths.size() != 76:
-		failures.append("expected 76 runtime assets, enumerated %d" % paths.size())
+	if paths.size() != 101:
+		failures.append("expected 101 runtime assets, enumerated %d" % paths.size())
 	if failures.is_empty():
-		print("PASS assets_test: 76 generated runtime assets resolve")
+		print("PASS assets_test: 101 generated runtime assets resolve")
 		quit(0)
 	else:
 		for failure in failures:

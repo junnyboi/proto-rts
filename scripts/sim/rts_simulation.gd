@@ -477,7 +477,12 @@ func command_deposit(ids: Array[int], stronghold_id: int, append: bool = false) 
 		worker["cargo_kind"] = &""
 		deposited_workers += 1
 	if deposited_workers > 0:
-		_add_event(&"deposit", _entity_center(stronghold), Color("f1d477"))
+		_add_event(
+			&"deposit",
+			_entity_center(stronghold),
+			Color("f1d477"),
+			{"team": stronghold_team, "category": &"structure", "kind": &"stronghold"},
+		)
 	return deposited_workers
 
 
@@ -694,7 +699,12 @@ func command_build(worker_id: int, structure_kind: StringName, cell: Vector2i) -
 	worker["path"] = []
 	_clear_attack_move(worker)
 	_rebuild_pathfinding()
-	_add_event(&"build", Vector2(cell), FactionCatalog.definition(faction)["accent"] as Color)
+	_add_event(
+		&"build",
+		Vector2(cell),
+		FactionCatalog.definition(faction)["accent"] as Color,
+		{"team": team, "category": &"structure", "kind": structure_kind},
+	)
 	return true
 
 
@@ -793,7 +803,12 @@ func command_cancel_training(structure_id: int, requesting_team: int) -> Diction
 			int(players[requesting_team][resource_key])
 			+ int(costs.get(resource_key, 0))
 		)
-	_add_event(&"cancel", _entity_center(structure), Color("f0d278"))
+	_add_event(
+		&"cancel",
+		_entity_center(structure),
+		Color("f0d278"),
+		{"team": requesting_team, "category": &"unit", "kind": cancelled.get("kind", &"")},
+	)
 	return cancelled.duplicate(true)
 
 
@@ -928,7 +943,16 @@ func _advance_construction(delta: float) -> void:
 		if progress >= 1.0:
 			target["order"] = &"idle"
 			_finish_unit_order(worker)
-			_add_event(&"complete", _entity_center(target), Color("f3d47b"))
+			_add_event(
+				&"complete",
+				_entity_center(target),
+				Color("f3d47b"),
+				{
+					"team": int(target["team"]),
+					"category": &"structure",
+					"kind": target["kind"],
+				},
+			)
 
 
 func _advance_production(delta: float) -> void:
@@ -954,7 +978,16 @@ func _advance_production(delta: float) -> void:
 			int(players[int(structure["team"])]["population"]) - int(item["reserved_population"])
 		)
 		command_move([unit_id], structure.get("rally_cell", spawn_cell) as Vector2i)
-		_add_event(&"complete", Vector2(spawn_cell), Color("f3d47b"))
+		_add_event(
+			&"complete",
+			Vector2(spawn_cell),
+			Color("f3d47b"),
+			{
+				"team": int(structure["team"]),
+				"category": &"unit",
+				"kind": item["kind"],
+			},
+		)
 
 
 func _advance_food_production(delta: float) -> void:
@@ -981,7 +1014,12 @@ func _advance_food_production(delta: float) -> void:
 		while float(structure["food_timer"]) >= interval:
 			structure["food_timer"] = float(structure["food_timer"]) - interval
 			players[team]["food"] = int(players[team]["food"]) + food_yield
-			_add_event(&"food", _entity_center(structure), Color("f2c85b"))
+			_add_event(
+				&"food",
+				_entity_center(structure),
+				Color("f2c85b"),
+				{"team": team, "category": &"structure", "kind": structure["kind"]},
+			)
 
 
 func _advance_cave_capture(delta: float) -> void:
@@ -1046,7 +1084,12 @@ func _complete_cave_capture(cave: Dictionary, team: int) -> void:
 	cave["capture_team"] = TEAM_NEUTRAL
 	cave["capture_progress"] = 0.0
 	cave["capture_contested"] = false
-	_add_event(&"capture", _entity_center(cave), _team_color(team))
+	_add_event(
+		&"capture",
+		_entity_center(cave),
+		_team_color(team),
+		{"team": team, "category": &"structure", "kind": &"yaoguai_den"},
+	)
 	if team == TEAM_PLAYER:
 		battle_notice.emit("Yaoguai Den captured. Jadeclaw production unlocked.", team)
 	else:
@@ -1118,6 +1161,12 @@ func _advance_gather(worker: Dictionary, delta: float) -> void:
 		&"gather",
 		_entity_center(resource),
 		_resource_event_color(resource_kind),
+		{
+			"team": int(worker["team"]),
+			"category": &"resource",
+			"kind": resource["kind"],
+			"resource_kind": resource_kind,
+		},
 	)
 	if float(resource["amount"]) <= 0.0:
 		resource["alive"] = false
@@ -1157,7 +1206,12 @@ func _advance_return(worker: Dictionary) -> void:
 		_set_path(worker, source["cell"] as Vector2i)
 	else:
 		_finish_unit_order(worker)
-	_add_event(&"deposit", _entity_center(stronghold), Color("f1d477"))
+	_add_event(
+		&"deposit",
+		_entity_center(stronghold),
+		Color("f1d477"),
+		{"team": int(worker["team"]), "category": &"structure", "kind": &"stronghold"},
+	)
 
 
 func _start_return(worker: Dictionary, resume_gather: bool = true) -> void:
@@ -1222,7 +1276,12 @@ func _advance_repair(worker: Dictionary, delta: float) -> void:
 	players[team]["lumber"] = int(players[team]["lumber"]) - REPAIR_LUMBER_COST
 	var restored := minf(REPAIR_AMOUNT, float(target["max_hp"]) - float(target["hp"]))
 	target["hp"] = float(target["hp"]) + restored
-	_add_event(&"repair", _entity_center(target), Color("e4c66d"))
+	_add_event(
+		&"repair",
+		_entity_center(target),
+		Color("e4c66d"),
+		{"team": team, "category": &"structure", "kind": target["kind"]},
+	)
 	if float(target["hp"]) >= float(target["max_hp"]):
 		_finish_unit_order(worker)
 
@@ -1554,6 +1613,11 @@ func _apply_attack(attacker: Dictionary, target: Dictionary) -> void:
 		"from": _entity_center(attacker),
 		"to": _entity_center(target),
 		"color": _team_color(int(attacker.get("team", TEAM_NEUTRAL))),
+		"team": int(attacker.get("team", TEAM_NEUTRAL)),
+		"attacker_kind": attacker.get("kind", &""),
+		"attacker_category": attacker.get("category", &"unit"),
+		"target_kind": target.get("kind", &""),
+		"target_category": target.get("category", &""),
 	})
 	if float(target["hp"]) <= 0.0:
 		_kill(target, attacker)
@@ -1584,7 +1648,16 @@ func _kill(target: Dictionary, killer: Dictionary) -> void:
 	if int(killer.get("team", TEAM_NEUTRAL)) >= 0 and killer.get("faction") == &"demon":
 		killer["hp"] = minf(float(killer["max_hp"]), float(killer["hp"]) + 12.0)
 		players[int(killer["team"])]["essence"] = int(players[int(killer["team"])]["essence"]) + 3
-	_events.append({"type": &"death", "position": _entity_center(target), "color": Color("ff735d")})
+	_events.append({
+		"type": &"death",
+		"position": _entity_center(target),
+		"color": Color("ff735d"),
+		"team": int(target.get("team", TEAM_NEUTRAL)),
+		"category": target.get("category", &""),
+		"kind": target.get("kind", &""),
+		"killer_team": int(killer.get("team", TEAM_NEUTRAL)),
+		"killer_kind": killer.get("kind", &""),
+	})
 	if target.get("category") in [&"structure", &"resource"]:
 		_rebuild_pathfinding()
 	if target.get("kind") == &"stronghold":
@@ -1597,14 +1670,19 @@ func _award_guardian_bounty(team: int, guardian: Dictionary) -> void:
 		return
 	for resource_kind in MONSTER_BOUNTY:
 		players[team][resource_kind] = int(players[team][resource_kind]) + int(MONSTER_BOUNTY[resource_kind])
-	_add_event(&"bounty", _entity_center(guardian), Color("e4c66d"))
+	_add_event(&"bounty", _entity_center(guardian), Color("e4c66d"), {"team": team, "kind": &"jadeclaw"})
 	battle_notice.emit("Jadeclaw hunted: +45 Jade · +30 Lumber · +25 Essence.", team)
 	var cave := entity(int(guardian.get("home_cave_id", -1)))
 	if cave.is_empty() or cave_guardian_count(int(cave["id"])) > 0:
 		return
 	cave["capture_unlocked"] = true
 	cave["order"] = &"claimable"
-	_add_event(&"cave_cleared", _entity_center(cave), Color("e4c66d"))
+	_add_event(
+		&"cave_cleared",
+		_entity_center(cave),
+		Color("e4c66d"),
+		{"team": team, "category": &"structure", "kind": &"yaoguai_den"},
+	)
 	battle_notice.emit("Yaoguai Den cleared. Hold its ring for 6 seconds to capture it.", team)
 
 
@@ -1616,7 +1694,12 @@ func _award_wildlife_bounty(team: int, wildlife: Dictionary) -> void:
 		return
 	var bounty := int(wildlife.get("food_bounty", 0))
 	players[team]["food"] = int(players[team]["food"]) + bounty
-	_add_event(&"bounty", _entity_center(wildlife), Color("f1c96b"))
+	_add_event(
+		&"bounty",
+		_entity_center(wildlife),
+		Color("f1c96b"),
+		{"team": team, "category": &"wildlife", "kind": wildlife["kind"]},
+	)
 	var stats := FactionCatalog.stats(wildlife["kind"] as StringName, &"neutral")
 	battle_notice.emit("%s hunted: +%d Food." % [String(stats["name"]), bounty], team)
 
@@ -2373,8 +2456,15 @@ func drain_events() -> Array[Dictionary]:
 	return result
 
 
-func _add_event(event_type: StringName, position: Vector2, color: Color) -> void:
-	_events.append({"type": event_type, "position": position, "color": color})
+func _add_event(
+	event_type: StringName,
+	position: Vector2,
+	color: Color,
+	metadata: Dictionary = {},
+) -> void:
+	var event := {"type": event_type, "position": position, "color": color}
+	event.merge(metadata, true)
+	_events.append(event)
 
 
 func _team_color(team: int) -> Color:
