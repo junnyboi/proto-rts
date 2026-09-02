@@ -45,21 +45,25 @@ func _run() -> void:
 		failures.append("painted forest still creates permanent unclearable blockers")
 	if int(terrain_counts[&"water"]) < 280:
 		failures.append("river does not form a substantial player separator")
-	if int(terrain_counts[&"bridge"]) != 72:
-		failures.append("expected 72 bridge cells across three scaled crossings")
-	for expected_row in [10, 11, 12, 13, 30, 31, 32, 33, 50, 51, 52, 53]:
+	if int(terrain_counts[&"bridge"]) != 48:
+		failures.append("expected 48 bridge cells across two scaled outer crossings")
+	for expected_row in [10, 11, 12, 13, 50, 51, 52, 53]:
 		if not bridge_rows.has(expected_row):
 			failures.append("crossing is missing bridge row %d" % expected_row)
+	for removed_row in [30, 31, 32, 33]:
+		if bridge_rows.has(removed_row):
+			failures.append("removed central crossing still has a bridge on row %d" % removed_row)
 
 	var trees := MapCatalog.tree_definitions()
 	var tree_cells: Dictionary = {}
 	var expected_tree_variants := {
-		&"lumber_pine": 320,
-		&"lumber_cedar": 224,
-		&"lumber_fir": 224,
-		&"lumber_juniper": 248,
+		&"lumber_pine": 688,
+		&"lumber_cedar": 496,
+		&"lumber_fir": 520,
+		&"lumber_juniper": 520,
 	}
 	var tree_variant_counts: Dictionary = {}
+	var perimeter_tree_counts := {"top": 0, "bottom": 0, "left": 0, "right": 0}
 	for tree in trees:
 		var tree_cell := tree["cell"] as Vector2i
 		var tree_variant := tree.get("variant", &"") as StringName
@@ -73,8 +77,20 @@ func _run() -> void:
 			failures.append("tree at %s has invalid Lumber data" % tree_cell)
 		if not MapCatalog.is_buildable(tree_cell):
 			failures.append("harvestable tree is not rooted in meadow at %s" % tree_cell)
-	if trees.size() != 1016:
-		failures.append("expected 1,016 trees across the scaled clearable groves")
+		if tree_cell.y < 6:
+			perimeter_tree_counts["top"] += 1
+		if tree_cell.y >= MapCatalog.SIZE.y - 6:
+			perimeter_tree_counts["bottom"] += 1
+		if tree_cell.x < 6:
+			perimeter_tree_counts["left"] += 1
+		if tree_cell.x >= MapCatalog.SIZE.x - 6:
+			perimeter_tree_counts["right"] += 1
+	if trees.size() != 2224:
+		failures.append("expected 2,224 trees across the groves and organic perimeter woodland")
+	for side in perimeter_tree_counts:
+		var minimum := 300 if side in ["top", "bottom"] else 250
+		if int(perimeter_tree_counts[side]) < minimum:
+			failures.append("%s map side does not have a dense tree perimeter" % side)
 	for variant in expected_tree_variants:
 		if int(tree_variant_counts.get(variant, 0)) != int(expected_tree_variants[variant]):
 			failures.append(
@@ -125,7 +141,9 @@ func _run() -> void:
 	if MapCatalog.is_buildable(Vector2i(8, 58)):
 		failures.append("Meridian roads must remain non-buildable")
 	if not MapCatalog.is_static_walkable(Vector2i(16, 10)) or MapCatalog.is_buildable(Vector2i(16, 10)):
-		failures.append("Moon Gate bridge must be walkable but non-buildable")
+		failures.append("outer bridge must be walkable but non-buildable")
+	if MapCatalog.terrain_at(Vector2i(38, 30)) != &"water":
+		failures.append("central Moon Gate must be water after bridge removal")
 
 	var start := MapCatalog.PLAYER_WORKERS[0]
 	var destination := MapCatalog.ENEMY_WORKERS[0]

@@ -14,6 +14,15 @@ const GATHER_CYCLE := 0.8
 const CARGO_CAPACITY := 50.0
 const GATHER_AMOUNT := 10.0
 const WORKER_INTERACTION_RANGE := 1.25
+const REPAIR_CYCLE := 0.5
+const REPAIR_AMOUNT := 15.0
+const REPAIR_LUMBER_COST := 1
+const REPAIR_NOTICE_SECONDS := 2.0
+const UNIT_SEPARATION_DISTANCE := 0.62
+const UNIT_SEPARATION_ITERATIONS := 2
+const STRUCTURE_VISION_RADIUS := 6
+const MYSTIC_VISION_RADIUS := 5
+const DEFAULT_VISION_RADIUS := 4
 const CAVE_CAPTURE_SECONDS := 6.0
 const CAVE_CAPTURE_RADIUS := 2.8
 const GUARDIAN_LEASH_RADIUS := 5.5
@@ -21,6 +30,19 @@ const GUARDIAN_WANDER_RADIUS := 3.0
 const GUARDIAN_WANDER_MIN_DELAY := 1.4
 const GUARDIAN_WANDER_MAX_DELAY := 3.2
 const GUARDIAN_WANDER_SEED := 0x4D595448
+const WILDLIFE_WANDER_MIN_DELAY := 1.8
+const WILDLIFE_WANDER_MAX_DELAY := 4.5
+const WILDLIFE_WANDER_SEED := 0x57494C44
+const WILDLIFE_FLEE_DISTANCE := 4.5
+const WILDLIFE_RETALIATION_LEASH_BONUS := 3.0
+const HUNTER_WILDLIFE_DAMAGE_MULTIPLIER := 3.0
+const HERD_SPAWN_OFFSETS: Array[Vector2i] = [
+	Vector2i.ZERO,
+	Vector2i(1, 0),
+	Vector2i(-1, 0),
+	Vector2i(0, 1),
+	Vector2i(0, -1),
+]
 const BUILDABLE_STRUCTURE_KINDS: Array[StringName] = [&"war_camp", &"rice_farm", &"hunters_lodge"]
 const FOOD_PRODUCER_KINDS: Array[StringName] = [&"rice_farm", &"hunters_lodge"]
 const MONSTER_BOUNTY := {
@@ -38,12 +60,16 @@ var _next_entity_id := 1
 var _accumulator := 0.0
 var _astar := AStarGrid2D.new()
 var _wander_rng := RandomNumberGenerator.new()
+var _wildlife_rng := RandomNumberGenerator.new()
 var _events: Array[Dictionary] = []
 var _ai_strategy_timer := 0.5
 var _ai_income_timer := 2.0
 var _ai_attack_timer := 14.0
 var _ai_cave_timer := 3.0
+var _ai_hunt_timer := 4.0
 var _ai_training_flip := false
+var _visible_cells_by_team: Array[Dictionary] = []
+var _explored_cells_by_team: Array[Dictionary] = []
 
 
 func setup(player_faction: StringName) -> void:
@@ -57,8 +83,10 @@ func setup(player_faction: StringName) -> void:
 	_ai_income_timer = 2.0
 	_ai_attack_timer = 14.0
 	_ai_cave_timer = 3.0
+	_ai_hunt_timer = 4.0
 	_ai_training_flip = false
 	_wander_rng.seed = GUARDIAN_WANDER_SEED
+	_wildlife_rng.seed = WILDLIFE_WANDER_SEED
 	players = [
 		_player_state(player_faction, false),
 		_player_state(FactionCatalog.opposing_faction(player_faction), true),
@@ -78,6 +106,10 @@ func setup(player_faction: StringName) -> void:
 	for cave in MapCatalog.CAVES:
 		_spawn_cave(cave)
 	_rebuild_pathfinding()
+	for herd_index in range(MapCatalog.WILDLIFE_HERDS.size()):
+		_spawn_wildlife_herd(herd_index, MapCatalog.WILDLIFE_HERDS[herd_index])
+	_reset_visibility()
+	_refresh_visibility()
 	_auto_assign_workers(TEAM_ENEMY)
 	state_changed.emit()
 
@@ -98,6 +130,8 @@ func _tick(delta: float) -> void:
 	_advance_production(delta)
 	_advance_worker_orders(delta)
 	_advance_combat_and_movement(delta)
+	_resolve_unit_separation()
+	_refresh_visibility()
 	_advance_cave_capture(delta)
 	_advance_ai(delta)
 	state_changed.emit()
@@ -142,12 +176,20 @@ func _spawn_unit(team: int, kind: StringName, cell: Vector2i, home_cave_id: int 
 		"target_id": -1,
 		"path": [],
 		"path_index": 0,
+		"command_queue": [],
 		"attack_move": false,
+		"attack_move_destination": Vector2i(-1, -1),
+		"patrol_origin": Vector2i(-1, -1),
+		"patrol_destination": Vector2i(-1, -1),
+		"patrol_target": Vector2i(-1, -1),
 		"repath_timer": 0.0,
 		"cargo_kind": &"",
 		"cargo_amount": 0.0,
 		"gather_source_id": -1,
 		"gather_timer": 0.0,
+		"repair_timer": 0.0,
+		"repair_notice_cooldown": 0.0,
+		"return_resume_gather": true,
 		"population": int(stats["population"]),
 		"flash_timer": 0.0,
 		"home_cave_id": home_cave_id,
@@ -268,49 +310,132 @@ func _spawn_resource(definition: Dictionary) -> int:
 	return int(entity_state["id"])
 
 
-func command_move(ids: Array[int], destination: Vector2i, attack_move: bool = false) -> void:
-	var formation := _formation_cells(destination, ids.size())
-	var index := 0
+func _spawn_wildlife_herd(herd_id: int, definition: Dictionary) -> void:
+	var center := definition["center"] as Vector2i
+	var kind := definition["kind"] as StringName
+	var count := int(definition.get("count", 1))
+	var radius := float(definition.get("radius", 3.0))
+	for member_index in range(count):
+		var desired := center + HERD_SPAWN_OFFSETS[member_index % HERD_SPAWN_OFFSETS.size()]
+		var spawn_cell := desired if not _astar.is_point_solid(desired) else _nearest_walkable_around(desired, 5)
+		_spawn_wildlife(kind, spawn_cell, herd_id, center, radius)
+
+
+func _spawn_wildlife(
+	kind: StringName,
+	cell: Vector2i,
+	herd_id: int,
+	herd_origin: Vector2i,
+	herd_radius: float,
+) -> int:
+	var stats := FactionCatalog.stats(kind, &"neutral")
+	var entity_state := {
+		"id": _next_entity_id,
+		"team": TEAM_NEUTRAL,
+		"faction": &"neutral",
+		"kind": kind,
+		"category": &"wildlife",
+		"position": Vector2(cell),
+		"cell": cell,
+		"footprint": Vector2i.ONE,
+		"hp": float(stats["max_hp"]),
+		"max_hp": float(stats["max_hp"]),
+		"alive": true,
+		"complete": 1.0,
+		"speed": float(stats["speed"]),
+		"damage": float(stats["damage"]),
+		"range": float(stats["range"]),
+		"attack_period": float(stats["attack_period"]),
+		"attack_cooldown": 0.0,
+		"acquire_range": 0.0,
+		"order": &"idle",
+		"target_id": -1,
+		"path": [],
+		"path_index": 0,
+		"attack_move": false,
+		"attack_move_destination": Vector2i(-1, -1),
+		"repath_timer": 0.0,
+		"population": 0,
+		"flash_timer": 0.0,
+		"herd_id": herd_id,
+		"herd_origin": Vector2(herd_origin),
+		"herd_radius": herd_radius,
+		"wander_timer": _next_wildlife_wander_delay(),
+		"retaliates": bool(stats.get("retaliates", false)),
+		"food_bounty": int(stats.get("food_bounty", 0)),
+	}
+	entities[_next_entity_id] = entity_state
+	_next_entity_id += 1
+	return int(entity_state["id"])
+
+
+func command_move(
+	ids: Array[int],
+	destination: Vector2i,
+	attack_move: bool = false,
+	append: bool = false,
+) -> void:
+	var units: Array[Dictionary] = []
 	for id in ids:
 		var unit := entity(id)
-		if not _is_commandable_unit(unit):
-			continue
-		unit["order"] = &"attack_move" if attack_move else &"move"
-		unit["target_id"] = -1
-		unit["attack_move"] = attack_move
-		_set_path(unit, formation[min(index, formation.size() - 1)])
-		index += 1
+		if _is_commandable_unit(unit):
+			units.append(unit)
+	var formation := _formation_cells(destination, units.size())
+	for index in range(units.size()):
+		_issue_unit_order(
+			units[index],
+			{
+				"type": &"attack_move" if attack_move else &"move",
+				"destination": formation[index],
+			},
+			append,
+		)
 	_add_event(&"command", Vector2(destination), Color("8de8c0"))
 
 
-func command_attack(ids: Array[int], target_id: int) -> void:
+func command_attack(ids: Array[int], target_id: int, append: bool = false) -> void:
 	var target := entity(target_id)
 	if target.is_empty() or not bool(target.get("alive", false)):
 		return
+	var issued := false
 	for id in ids:
 		var attacker := entity(id)
-		if not _is_commandable_unit(attacker) or not are_hostile(attacker, target):
+		if (
+			not _is_commandable_unit(attacker)
+			or not are_hostile(attacker, target)
+			or not is_entity_visible_to_team(int(attacker["team"]), target)
+		):
 			continue
-		attacker["order"] = &"attack"
-		attacker["target_id"] = target_id
-		attacker["attack_move"] = false
-		attacker["path"] = []
-	_add_event(&"command", _entity_center(target), Color("f16a57"))
+		issued = _issue_unit_order(
+			attacker,
+			{"type": &"attack", "target_id": target_id},
+			append,
+		) or issued
+	if issued:
+		_add_event(&"command", _entity_center(target), Color("f16a57"))
 
 
-func command_gather(ids: Array[int], resource_id: int) -> void:
+func command_gather(ids: Array[int], resource_id: int, append: bool = false) -> void:
 	var resource := entity(resource_id)
-	if resource.is_empty() or resource.get("category") != &"resource":
+	if (
+		resource.is_empty()
+		or not bool(resource.get("alive", false))
+		or resource.get("category") != &"resource"
+	):
 		return
 	for id in ids:
 		var worker := entity(id)
-		if not _is_commandable_unit(worker) or worker.get("kind") != &"worker":
+		if (
+			not _is_commandable_unit(worker)
+			or worker.get("kind") != &"worker"
+			or not is_entity_explored_by_team(int(worker["team"]), resource)
+		):
 			continue
-		_set_gather_source(worker, resource)
+		_issue_unit_order(worker, {"type": &"gather", "target_id": resource_id}, append)
 	_add_event(&"command", _entity_center(resource), Color("73e6bc"))
 
 
-func command_deposit(ids: Array[int], stronghold_id: int) -> int:
+func command_deposit(ids: Array[int], stronghold_id: int, append: bool = false) -> int:
 	var stronghold := entity(stronghold_id)
 	if (
 		stronghold.is_empty()
@@ -332,6 +457,21 @@ func command_deposit(ids: Array[int], stronghold_id: int) -> int:
 		var cargo_amount := float(worker.get("cargo_amount", 0.0))
 		if cargo_kind.is_empty() or cargo_amount <= 0.0:
 			continue
+		if append:
+			_issue_unit_order(
+				worker,
+				{"type": &"deposit", "target_id": stronghold_id},
+				true,
+			)
+			continue
+		if _entity_footprint_distance(worker, stronghold) > WORKER_INTERACTION_RANGE:
+			_issue_unit_order(
+				worker,
+				{"type": &"deposit", "target_id": stronghold_id},
+				false,
+			)
+			continue
+		_cancel_all_unit_orders(worker)
 		_deposit(stronghold_team, cargo_kind, cargo_amount)
 		worker["cargo_amount"] = 0.0
 		worker["cargo_kind"] = &""
@@ -346,10 +486,191 @@ func command_stop(ids: Array[int]) -> void:
 		var unit := entity(id)
 		if not _is_commandable_unit(unit):
 			continue
-		unit["order"] = &"idle"
-		unit["target_id"] = -1
-		unit["path"] = []
-		unit["attack_move"] = false
+		_cancel_all_unit_orders(unit)
+
+
+func command_repair(ids: Array[int], target_id: int, append: bool = false) -> bool:
+	var target := entity(target_id)
+	var issued := false
+	for id in ids:
+		var worker := entity(id)
+		if not _can_worker_repair(worker, target):
+			continue
+		issued = _issue_unit_order(
+			worker,
+			{"type": &"repair", "target_id": target_id},
+			append,
+		) or issued
+	if issued:
+		_add_event(&"command", _entity_center(target), Color("e4c66d"))
+	return issued
+
+
+func command_patrol(ids: Array[int], destination: Vector2i, append: bool = false) -> bool:
+	var units: Array[Dictionary] = []
+	for id in ids:
+		var unit := entity(id)
+		if _is_commandable_unit(unit) and _is_military_unit(unit):
+			units.append(unit)
+	if units.is_empty():
+		return false
+	var formation := _formation_cells(destination, units.size())
+	var issued := false
+	for index in range(units.size()):
+		issued = _issue_unit_order(
+			units[index],
+			{"type": &"patrol", "destination": formation[index]},
+			append,
+		) or issued
+	if issued:
+		_add_event(&"command", Vector2(destination), Color("79c9ee"))
+	return issued
+
+
+func _issue_unit_order(unit: Dictionary, order_data: Dictionary, append: bool) -> bool:
+	var queue := unit.get("command_queue", []) as Array
+	if append and (unit.get("order", &"idle") != &"idle" or not queue.is_empty()):
+		queue.append(order_data.duplicate(true))
+		unit["command_queue"] = queue
+		if unit.get("order", &"idle") == &"idle":
+			_activate_next_queued_order(unit)
+		return true
+	if not append:
+		queue.clear()
+		unit["command_queue"] = queue
+	_clear_active_order_state(unit)
+	if _activate_unit_order(unit, order_data):
+		return true
+	return _activate_next_queued_order(unit)
+
+
+func _activate_unit_order(unit: Dictionary, order_data: Dictionary) -> bool:
+	var order_type := order_data.get("type", &"") as StringName
+	match order_type:
+		&"move", &"attack_move":
+			var destination := order_data.get("destination", Vector2i(-1, -1)) as Vector2i
+			if not MapCatalog.in_bounds(destination):
+				return false
+			unit["order"] = order_type
+			unit["attack_move"] = order_type == &"attack_move"
+			unit["attack_move_destination"] = destination if order_type == &"attack_move" else Vector2i(-1, -1)
+			_set_path(unit, destination)
+			return true
+		&"attack":
+			var attack_target := entity(int(order_data.get("target_id", -1)))
+			if (
+				attack_target.is_empty()
+				or not are_hostile(unit, attack_target)
+				or not is_entity_visible_to_team(int(unit["team"]), attack_target)
+			):
+				return false
+			unit["order"] = &"attack"
+			unit["target_id"] = int(attack_target["id"])
+			return true
+		&"gather":
+			var resource := entity(int(order_data.get("target_id", -1)))
+			if (
+				unit.get("kind") != &"worker"
+				or resource.is_empty()
+				or not bool(resource.get("alive", false))
+				or resource.get("category") != &"resource"
+				or not is_entity_explored_by_team(int(unit["team"]), resource)
+			):
+				return false
+			_set_gather_source(unit, resource)
+			return true
+		&"deposit":
+			var stronghold := entity(int(order_data.get("target_id", -1)))
+			if (
+				unit.get("kind") != &"worker"
+				or stronghold.is_empty()
+				or not bool(stronghold.get("alive", false))
+				or stronghold.get("kind") != &"stronghold"
+				or int(stronghold.get("team", TEAM_NEUTRAL)) != int(unit["team"])
+				or float(unit.get("cargo_amount", 0.0)) <= 0.0
+			):
+				return false
+			unit["order"] = &"return"
+			unit["target_id"] = int(stronghold["id"])
+			unit["return_resume_gather"] = false
+			_set_path(unit, stronghold["cell"] as Vector2i)
+			return true
+		&"repair":
+			var repair_target := entity(int(order_data.get("target_id", -1)))
+			if not _can_worker_repair(unit, repair_target):
+				return false
+			unit["order"] = &"repair"
+			unit["target_id"] = int(repair_target["id"])
+			unit["repair_timer"] = 0.0
+			_set_path(unit, repair_target["cell"] as Vector2i)
+			return true
+		&"patrol":
+			if not _is_military_unit(unit):
+				return false
+			var patrol_destination := order_data.get("destination", Vector2i(-1, -1)) as Vector2i
+			if not MapCatalog.in_bounds(patrol_destination):
+				return false
+			unit["order"] = &"patrol"
+			unit["patrol_origin"] = Vector2i((unit["position"] as Vector2).round())
+			unit["patrol_destination"] = patrol_destination
+			unit["patrol_target"] = patrol_destination
+			_set_path(unit, patrol_destination)
+			return true
+	return false
+
+
+func _activate_next_queued_order(unit: Dictionary) -> bool:
+	var queue := unit.get("command_queue", []) as Array
+	while not queue.is_empty():
+		var next_order := queue.pop_front() as Dictionary
+		unit["command_queue"] = queue
+		_clear_active_order_state(unit)
+		if _activate_unit_order(unit, next_order):
+			return true
+	_clear_active_order_state(unit)
+	return false
+
+
+func _finish_unit_order(unit: Dictionary) -> void:
+	_clear_active_order_state(unit)
+	_activate_next_queued_order(unit)
+
+
+func _cancel_all_unit_orders(unit: Dictionary) -> void:
+	var queue := unit.get("command_queue", []) as Array
+	queue.clear()
+	unit["command_queue"] = queue
+	_clear_active_order_state(unit)
+
+
+func _clear_active_order_state(unit: Dictionary) -> void:
+	unit["order"] = &"idle"
+	unit["target_id"] = -1
+	unit["path"] = []
+	unit["path_index"] = 0
+	unit["repair_timer"] = 0.0
+	unit["return_resume_gather"] = true
+	_clear_attack_move(unit)
+	_clear_patrol(unit)
+
+
+func _clear_patrol(unit: Dictionary) -> void:
+	unit["patrol_origin"] = Vector2i(-1, -1)
+	unit["patrol_destination"] = Vector2i(-1, -1)
+	unit["patrol_target"] = Vector2i(-1, -1)
+
+
+func _can_worker_repair(worker: Dictionary, target: Dictionary) -> bool:
+	return (
+		_is_commandable_unit(worker)
+		and worker.get("kind") == &"worker"
+		and not target.is_empty()
+		and bool(target.get("alive", false))
+		and target.get("category") == &"structure"
+		and int(target.get("team", TEAM_NEUTRAL)) == int(worker.get("team", TEAM_NEUTRAL))
+		and float(target.get("complete", 0.0)) >= 1.0
+		and float(target.get("hp", 0.0)) < float(target.get("max_hp", 0.0))
+	)
 
 
 func command_build(worker_id: int, structure_kind: StringName, cell: Vector2i) -> bool:
@@ -360,14 +681,18 @@ func command_build(worker_id: int, structure_kind: StringName, cell: Vector2i) -
 		return false
 	var team := int(worker["team"])
 	var faction := players[team]["faction"] as StringName
+	if not FactionCatalog.can_build_structure(faction, structure_kind):
+		return false
 	var stats := FactionCatalog.stats(structure_kind, faction)
 	if not can_place_structure(team, structure_kind, cell) or not _can_afford(team, stats):
 		return false
 	_pay(team, stats)
 	var structure_id := _spawn_structure(team, structure_kind, cell, false)
+	_cancel_all_unit_orders(worker)
 	worker["order"] = &"build"
 	worker["target_id"] = structure_id
 	worker["path"] = []
+	_clear_attack_move(worker)
 	_rebuild_pathfinding()
 	_add_event(&"build", Vector2(cell), FactionCatalog.definition(faction)["accent"] as Color)
 	return true
@@ -381,6 +706,8 @@ func can_place_structure(team: int, structure_kind: StringName, cell: Vector2i) 
 	if team < 0 or team >= players.size() or structure_kind not in BUILDABLE_STRUCTURE_KINDS:
 		return false
 	var faction := players[team]["faction"] as StringName
+	if not FactionCatalog.can_build_structure(faction, structure_kind):
+		return false
 	var stats := FactionCatalog.stats(structure_kind, faction)
 	var footprint := stats.get("footprint", Vector2i.ONE) as Vector2i
 	for footprint_cell in MapCatalog.footprint_cells(cell, footprint):
@@ -405,14 +732,18 @@ func command_train(structure_id: int, unit_kind: StringName) -> bool:
 		return false
 	if unit_kind in [&"vanguard", &"mystic"] and structure.get("kind") != &"war_camp":
 		return false
+	if unit_kind == &"hunter" and structure.get("kind") != &"hunters_lodge":
+		return false
 	if unit_kind == &"jadeclaw" and structure.get("kind") != &"yaoguai_den":
 		return false
-	if unit_kind not in [&"worker", &"vanguard", &"mystic", &"jadeclaw"]:
+	if unit_kind not in [&"worker", &"hunter", &"vanguard", &"mystic", &"jadeclaw"]:
 		return false
 	var team := int(structure["team"])
 	if team < 0:
 		return false
 	var faction := players[team]["faction"] as StringName
+	if not FactionCatalog.can_train_unit(faction, unit_kind):
+		return false
 	var stats := FactionCatalog.stats(unit_kind, faction)
 	if not _can_afford(team, stats) or not _has_population_room(team, int(stats["population"])):
 		return false
@@ -424,9 +755,46 @@ func command_train(structure_id: int, unit_kind: StringName) -> bool:
 		"remaining": float(stats["train_time"]),
 		"total": float(stats["train_time"]),
 		"reserved_population": int(stats["population"]),
+		"costs": {
+			"jade": int(stats.get("jade_cost", 0)),
+			"lumber": int(stats.get("lumber_cost", 0)),
+			"essence": int(stats.get("essence_cost", 0)),
+			"food": int(stats.get("food_cost", 0)),
+		},
 	})
 	structure["queue"] = queue
 	return true
+
+
+func command_cancel_training(structure_id: int, requesting_team: int) -> Dictionary:
+	var structure := entity(structure_id)
+	if (
+		structure.is_empty()
+		or not bool(structure.get("alive", false))
+		or structure.get("category") != &"structure"
+		or float(structure.get("complete", 0.0)) < 1.0
+		or int(structure.get("team", TEAM_NEUTRAL)) != requesting_team
+	):
+		return {}
+	var queue := structure.get("queue", []) as Array
+	if queue.is_empty():
+		return {}
+	var cancelled := queue.pop_back() as Dictionary
+	structure["queue"] = queue
+	players[requesting_team]["population"] = maxi(
+		0,
+		int(players[requesting_team]["population"])
+		- int(cancelled.get("reserved_population", 0)),
+	)
+	var costs := cancelled.get("costs", {}) as Dictionary
+	for resource_kind in [&"jade", &"lumber", &"essence", &"food"]:
+		var resource_key := String(resource_kind)
+		players[requesting_team][resource_key] = (
+			int(players[requesting_team][resource_key])
+			+ int(costs.get(resource_key, 0))
+		)
+	_add_event(&"cancel", _entity_center(structure), Color("f0d278"))
+	return cancelled.duplicate(true)
 
 
 func set_rally(structure_id: int, cell: Vector2i) -> void:
@@ -519,11 +887,10 @@ func _advance_construction(delta: float) -> void:
 			continue
 		var target := entity(int(worker.get("target_id", -1)))
 		if target.is_empty() or not bool(target.get("alive", false)):
-			worker["order"] = &"idle"
+			_finish_unit_order(worker)
 			continue
 		if float(target.get("complete", 1.0)) >= 1.0:
-			worker["order"] = &"idle"
-			worker["target_id"] = -1
+			_finish_unit_order(worker)
 			continue
 		if _entity_footprint_distance(worker, target) > 1.35:
 			if (worker["path"] as Array).is_empty():
@@ -535,8 +902,7 @@ func _advance_construction(delta: float) -> void:
 		target["hp"] = maxf(float(target["hp"]), float(target["max_hp"]) * progress)
 		if progress >= 1.0:
 			target["order"] = &"idle"
-			worker["order"] = &"idle"
-			worker["target_id"] = -1
+			_finish_unit_order(worker)
 			_add_event(&"complete", _entity_center(target), Color("f3d47b"))
 
 
@@ -681,16 +1047,30 @@ func _advance_worker_orders(delta: float) -> void:
 				_advance_gather(worker, delta)
 			&"return":
 				_advance_return(worker)
+			&"repair":
+				_advance_repair(worker, delta)
 
 
 func _advance_gather(worker: Dictionary, delta: float) -> void:
 	var resource := entity(int(worker.get("gather_source_id", -1)))
 	if resource.is_empty() or not bool(resource.get("alive", false)) or float(resource.get("amount", 0.0)) <= 0.0:
-		var found_next_tree := _retarget_after_tree_depletion(worker, resource)
+		var has_queued_order := not (worker.get("command_queue", []) as Array).is_empty()
+		var found_next_tree := false if has_queued_order else _retarget_after_tree_depletion(worker, resource)
 		if float(worker.get("cargo_amount", 0.0)) > 0.0:
-			_start_return(worker)
+			_start_return(worker, found_next_tree)
+		elif has_queued_order:
+			_finish_unit_order(worker)
 		elif not found_next_tree:
-			worker["order"] = &"idle"
+			_finish_unit_order(worker)
+		return
+	var resource_kind := resource.get("resource_kind", &"") as StringName
+	var cargo_kind := worker.get("cargo_kind", &"") as StringName
+	var cargo_amount := float(worker.get("cargo_amount", 0.0))
+	if cargo_amount > 0.0 and cargo_kind != resource_kind:
+		_start_return(worker)
+		return
+	if cargo_amount >= CARGO_CAPACITY:
+		_start_return(worker)
 		return
 	if _entity_distance(worker, resource) > WORKER_INTERACTION_RANGE:
 		if (worker["path"] as Array).is_empty():
@@ -703,28 +1083,34 @@ func _advance_gather(worker: Dictionary, delta: float) -> void:
 	worker["gather_timer"] = 0.0
 	var gathered := minf(
 		minf(GATHER_AMOUNT, float(resource["amount"])),
-		CARGO_CAPACITY - float(worker["cargo_amount"]),
+		CARGO_CAPACITY - cargo_amount,
 	)
 	resource["amount"] = float(resource["amount"]) - gathered
-	worker["cargo_kind"] = resource["resource_kind"]
-	worker["cargo_amount"] = float(worker["cargo_amount"]) + gathered
+	if cargo_amount <= 0.0:
+		worker["cargo_kind"] = resource_kind
+	worker["cargo_amount"] = cargo_amount + gathered
 	_add_event(
 		&"gather",
 		_entity_center(resource),
-		_resource_event_color(resource["resource_kind"] as StringName),
+		_resource_event_color(resource_kind),
 	)
 	if float(resource["amount"]) <= 0.0:
 		resource["alive"] = false
 		_rebuild_pathfinding()
-		_retarget_after_tree_depletion(worker, resource)
+		if (worker.get("command_queue", []) as Array).is_empty():
+			_retarget_after_tree_depletion(worker, resource)
 	if float(worker["cargo_amount"]) >= CARGO_CAPACITY or not bool(resource["alive"]):
-		_start_return(worker)
+		var resume_gather := (
+			(worker.get("command_queue", []) as Array).is_empty()
+			and bool(entity(int(worker.get("gather_source_id", -1))).get("alive", false))
+		)
+		_start_return(worker, resume_gather)
 
 
 func _advance_return(worker: Dictionary) -> void:
 	var stronghold := _stronghold_for_team(int(worker["team"]))
 	if stronghold.is_empty():
-		worker["order"] = &"idle"
+		_finish_unit_order(worker)
 		return
 	if _entity_footprint_distance(worker, stronghold) > WORKER_INTERACTION_RANGE:
 		if (worker["path"] as Array).is_empty():
@@ -738,20 +1124,23 @@ func _advance_return(worker: Dictionary) -> void:
 	)
 	worker["cargo_amount"] = 0.0
 	worker["cargo_kind"] = &""
+	var should_resume_gather := bool(worker.get("return_resume_gather", true))
 	var source := entity(int(worker.get("gather_source_id", -1)))
-	if not source.is_empty() and bool(source.get("alive", false)):
+	if should_resume_gather and not source.is_empty() and bool(source.get("alive", false)):
 		worker["order"] = &"gather"
 		worker["target_id"] = int(source["id"])
 		_set_path(worker, source["cell"] as Vector2i)
 	else:
-		worker["order"] = &"idle"
+		_finish_unit_order(worker)
 	_add_event(&"deposit", _entity_center(stronghold), Color("f1d477"))
 
 
-func _start_return(worker: Dictionary) -> void:
+func _start_return(worker: Dictionary, resume_gather: bool = true) -> void:
 	worker["order"] = &"return"
 	worker["target_id"] = -1
 	worker["path"] = []
+	worker["return_resume_gather"] = resume_gather
+	_clear_attack_move(worker)
 
 
 func _retarget_after_tree_depletion(worker: Dictionary, resource: Dictionary) -> bool:
@@ -765,11 +1154,52 @@ func _retarget_after_tree_depletion(worker: Dictionary, resource: Dictionary) ->
 
 
 func _set_gather_source(worker: Dictionary, resource: Dictionary) -> void:
-	worker["order"] = &"gather"
 	worker["gather_source_id"] = int(resource["id"])
 	worker["target_id"] = int(resource["id"])
 	worker["gather_timer"] = 0.0
+	worker["return_resume_gather"] = true
+	_clear_attack_move(worker)
+	var cargo_kind := worker.get("cargo_kind", &"") as StringName
+	var cargo_amount := float(worker.get("cargo_amount", 0.0))
+	var resource_kind := resource.get("resource_kind", &"") as StringName
+	if cargo_amount > 0.0 and cargo_kind != resource_kind:
+		_start_return(worker)
+		return
+	worker["order"] = &"gather"
 	_set_path(worker, resource["cell"] as Vector2i)
+
+
+func _advance_repair(worker: Dictionary, delta: float) -> void:
+	var target := entity(int(worker.get("target_id", -1)))
+	if not _can_worker_repair(worker, target):
+		_finish_unit_order(worker)
+		return
+	if _entity_footprint_distance(worker, target) > WORKER_INTERACTION_RANGE:
+		if (worker.get("path", []) as Array).is_empty():
+			_set_path(worker, target["cell"] as Vector2i)
+		return
+	worker["path"] = []
+	worker["repair_notice_cooldown"] = maxf(
+		0.0,
+		float(worker.get("repair_notice_cooldown", 0.0)) - delta,
+	)
+	worker["repair_timer"] = float(worker.get("repair_timer", 0.0)) + delta
+	if float(worker["repair_timer"]) < REPAIR_CYCLE:
+		return
+	worker["repair_timer"] = float(worker["repair_timer"]) - REPAIR_CYCLE
+	var team := int(worker["team"])
+	if int(players[team]["lumber"]) < REPAIR_LUMBER_COST:
+		worker["repair_timer"] = minf(float(worker["repair_timer"]), REPAIR_CYCLE)
+		if float(worker["repair_notice_cooldown"]) <= 0.0:
+			battle_notice.emit("Repairs paused: gather more Lumber.", team)
+			worker["repair_notice_cooldown"] = REPAIR_NOTICE_SECONDS
+		return
+	players[team]["lumber"] = int(players[team]["lumber"]) - REPAIR_LUMBER_COST
+	var restored := minf(REPAIR_AMOUNT, float(target["max_hp"]) - float(target["hp"]))
+	target["hp"] = float(target["hp"]) + restored
+	_add_event(&"repair", _entity_center(target), Color("e4c66d"))
+	if float(target["hp"]) >= float(target["max_hp"]):
+		_finish_unit_order(worker)
 
 
 func _deposit(team: int, resource_kind: StringName, amount: float) -> void:
@@ -799,16 +1229,19 @@ func _advance_combat_and_movement(delta: float) -> void:
 		if current.is_empty() or not bool(current.get("alive", false)):
 			continue
 		current["flash_timer"] = maxf(0.0, float(current.get("flash_timer", 0.0)) - delta)
-		if current.get("category") != &"unit":
+		if current.get("category") not in [&"unit", &"wildlife"]:
 			continue
 		current["attack_cooldown"] = maxf(0.0, float(current.get("attack_cooldown", 0.0)) - delta)
 		current["repath_timer"] = maxf(0.0, float(current.get("repath_timer", 0.0)) - delta)
+		if current.get("category") == &"wildlife":
+			_advance_wildlife(current, delta)
+			continue
 		if _is_neutral_guardian(current):
 			_advance_guardian_wander(current, delta)
-		if current.get("order") in [&"gather", &"return", &"build"]:
+		if current.get("order") in [&"gather", &"return", &"build", &"repair"]:
 			_advance_path(current, delta)
 			continue
-		if current.get("order") in [&"attack", &"attack_move"]:
+		if current.get("order") in [&"attack", &"attack_move", &"patrol"]:
 			if _advance_attack_order(current, delta):
 				continue
 		elif current.get("order") in [&"idle", &"wander"] and current.get("kind") != &"worker":
@@ -816,13 +1249,16 @@ func _advance_combat_and_movement(delta: float) -> void:
 			if nearby >= 0:
 				current["order"] = &"attack"
 				current["target_id"] = nearby
+				_clear_attack_move(current)
 				if _advance_attack_order(current, delta):
 					continue
 		_advance_path(current, delta)
 
 
 func _advance_attack_order(attacker: Dictionary, delta: float) -> bool:
-	var target := entity(int(attacker.get("target_id", -1)))
+	var target_id := int(attacker.get("target_id", -1))
+	var had_target := target_id >= 0
+	var target := entity(target_id)
 	if _is_neutral_guardian(attacker) and not target.is_empty():
 		var leash_origin := attacker["leash_origin"] as Vector2
 		var leash_radius := float(attacker.get("leash_radius", GUARDIAN_LEASH_RADIUS))
@@ -833,18 +1269,35 @@ func _advance_attack_order(attacker: Dictionary, delta: float) -> bool:
 			_return_guardian_home(attacker)
 			_advance_path(attacker, delta)
 			return true
-	if target.is_empty() or not bool(target.get("alive", false)):
+	var target_is_visible: bool = (
+		_is_neutral_guardian(attacker)
+		or attacker.get("category") == &"wildlife"
+		or is_entity_visible_to_team(int(attacker.get("team", TEAM_NEUTRAL)), target)
+	)
+	if target.is_empty() or not bool(target.get("alive", false)) or not target_is_visible:
 		attacker["target_id"] = -1
-		if bool(attacker.get("attack_move", false)):
+		if attacker.get("order") == &"patrol":
+			var patrol_acquired := _nearest_enemy(attacker, float(attacker["acquire_range"]))
+			if patrol_acquired >= 0:
+				attacker["target_id"] = patrol_acquired
+				target = entity(patrol_acquired)
+			else:
+				if had_target:
+					attacker["path"] = []
+				_resume_patrol(attacker)
+				return false
+		elif bool(attacker.get("attack_move", false)):
 			var acquired := _nearest_enemy(attacker, float(attacker["acquire_range"]))
 			if acquired >= 0:
 				attacker["target_id"] = acquired
 				target = entity(acquired)
 			else:
+				if had_target:
+					attacker["path"] = []
+				_resume_attack_move(attacker)
 				return false
 		else:
-			attacker["order"] = &"idle"
-			attacker["path"] = []
+			_finish_unit_order(attacker)
 			return false
 	var distance := _combat_distance(attacker, target)
 	if distance <= float(attacker["range"]):
@@ -857,6 +1310,47 @@ func _advance_attack_order(attacker: Dictionary, delta: float) -> bool:
 		attacker["repath_timer"] = 0.55
 	_advance_path(attacker, delta)
 	return true
+
+
+func _resume_attack_move(unit: Dictionary) -> void:
+	var destination := unit.get("attack_move_destination", Vector2i(-1, -1)) as Vector2i
+	if not MapCatalog.in_bounds(destination):
+		_finish_unit_order(unit)
+		return
+	if (unit["position"] as Vector2).distance_to(Vector2(destination)) <= 0.1:
+		_finish_unit_order(unit)
+		return
+	if (unit.get("path", []) as Array).is_empty():
+		_set_path(unit, destination)
+
+
+func _clear_attack_move(unit: Dictionary) -> void:
+	unit["attack_move"] = false
+	unit["attack_move_destination"] = Vector2i(-1, -1)
+
+
+func _resume_patrol(unit: Dictionary) -> void:
+	var destination := unit.get("patrol_target", Vector2i(-1, -1)) as Vector2i
+	if not MapCatalog.in_bounds(destination):
+		_finish_unit_order(unit)
+		return
+	if (unit["position"] as Vector2).distance_to(Vector2(destination)) <= 0.1:
+		_advance_patrol_leg(unit)
+	elif (unit.get("path", []) as Array).is_empty():
+		_set_path(unit, destination)
+
+
+func _advance_patrol_leg(unit: Dictionary) -> void:
+	var origin := unit.get("patrol_origin", Vector2i(-1, -1)) as Vector2i
+	var destination := unit.get("patrol_destination", Vector2i(-1, -1)) as Vector2i
+	if not MapCatalog.in_bounds(origin) or not MapCatalog.in_bounds(destination):
+		_finish_unit_order(unit)
+		return
+	var previous_target := unit.get("patrol_target", destination) as Vector2i
+	var next_target := origin if previous_target == destination else destination
+	unit["patrol_target"] = next_target
+	unit["target_id"] = -1
+	_set_path(unit, next_target)
 
 
 func _advance_guardian_wander(guardian: Dictionary, delta: float) -> void:
@@ -914,7 +1408,7 @@ func _guardian_path_stays_near_cave(cell_path: Array[Vector2i], leash_origin: Ve
 
 func _return_guardian_home(guardian: Dictionary) -> void:
 	guardian["target_id"] = -1
-	guardian["attack_move"] = false
+	_clear_attack_move(guardian)
 	guardian["order"] = &"return_home"
 	guardian["wander_timer"] = _next_guardian_wander_delay()
 	_set_path(guardian, Vector2i((guardian["leash_origin"] as Vector2).round()))
@@ -924,11 +1418,111 @@ func _next_guardian_wander_delay() -> float:
 	return _wander_rng.randf_range(GUARDIAN_WANDER_MIN_DELAY, GUARDIAN_WANDER_MAX_DELAY)
 
 
+func _advance_wildlife(wildlife: Dictionary, delta: float) -> void:
+	var order := wildlife.get("order", &"idle") as StringName
+	if order == &"attack":
+		var target := entity(int(wildlife.get("target_id", -1)))
+		var herd_origin := wildlife["herd_origin"] as Vector2
+		var leash := float(wildlife["herd_radius"]) + WILDLIFE_RETALIATION_LEASH_BONUS
+		if (
+			target.is_empty()
+			or not bool(target.get("alive", false))
+			or (target["position"] as Vector2).distance_to(herd_origin) > leash
+		):
+			wildlife["order"] = &"idle"
+			wildlife["target_id"] = -1
+			wildlife["path"] = []
+			wildlife["wander_timer"] = _next_wildlife_wander_delay()
+			return
+		_advance_attack_order(wildlife, delta)
+		return
+	if order in [&"wander", &"flee"]:
+		_advance_path(wildlife, delta)
+		if wildlife.get("order") == &"idle":
+			wildlife["wander_timer"] = _next_wildlife_wander_delay()
+		return
+	if order != &"idle":
+		wildlife["order"] = &"idle"
+		wildlife["path"] = []
+	wildlife["wander_timer"] = float(wildlife.get("wander_timer", 0.0)) - delta
+	if float(wildlife["wander_timer"]) <= 0.0:
+		_start_wildlife_wander(wildlife)
+
+
+func _start_wildlife_wander(wildlife: Dictionary) -> void:
+	var herd_origin := wildlife["herd_origin"] as Vector2
+	var herd_radius := float(wildlife["herd_radius"])
+	var start := Vector2i((wildlife["position"] as Vector2).round())
+	wildlife["wander_timer"] = _next_wildlife_wander_delay()
+	for _attempt in range(8):
+		var angle := _wildlife_rng.randf_range(0.0, TAU)
+		var distance := _wildlife_rng.randf_range(1.0, herd_radius)
+		var candidate := Vector2i((herd_origin + Vector2.RIGHT.rotated(angle) * distance).round())
+		if candidate == start or not MapCatalog.in_bounds(candidate) or _astar.is_point_solid(candidate):
+			continue
+		var cell_path := _astar.get_id_path(start, candidate, true)
+		if not _wildlife_path_stays_near_herd(cell_path, herd_origin, herd_radius):
+			continue
+		wildlife["order"] = &"wander"
+		_set_path(wildlife, candidate)
+		if (wildlife.get("path", []) as Array).is_empty():
+			wildlife["order"] = &"idle"
+		return
+
+
+func _wildlife_path_stays_near_herd(
+	cell_path: Array[Vector2i],
+	herd_origin: Vector2,
+	herd_radius: float,
+) -> bool:
+	if cell_path.size() <= 1:
+		return false
+	for cell in cell_path:
+		if Vector2(cell).distance_to(herd_origin) > herd_radius:
+			return false
+	return true
+
+
+func _next_wildlife_wander_delay() -> float:
+	return _wildlife_rng.randf_range(WILDLIFE_WANDER_MIN_DELAY, WILDLIFE_WANDER_MAX_DELAY)
+
+
+func _react_to_hunt(wildlife: Dictionary, hunter: Dictionary) -> void:
+	if bool(wildlife.get("retaliates", false)):
+		wildlife["order"] = &"attack"
+		wildlife["target_id"] = int(hunter["id"])
+		wildlife["path"] = []
+		return
+	var position := wildlife["position"] as Vector2
+	var away := position - (hunter["position"] as Vector2)
+	if away.length_squared() <= 0.001:
+		var angle := deg_to_rad(float(posmod(int(wildlife["id"]) * 71, 360)))
+		away = Vector2.RIGHT.rotated(angle)
+	else:
+		away = away.normalized()
+	var herd_origin := wildlife["herd_origin"] as Vector2
+	var flee_limit := float(wildlife["herd_radius"]) + 2.0
+	var desired := position + away * WILDLIFE_FLEE_DISTANCE
+	if desired.distance_to(herd_origin) > flee_limit:
+		desired = herd_origin + (desired - herd_origin).normalized() * flee_limit
+	var destination := _nearest_walkable(Vector2i(desired.round()))
+	if Vector2(destination).distance_to(herd_origin) > flee_limit:
+		destination = _nearest_walkable(Vector2i(herd_origin.round()))
+	wildlife["order"] = &"flee"
+	wildlife["target_id"] = -1
+	_set_path(wildlife, destination)
+	if (wildlife.get("path", []) as Array).is_empty():
+		wildlife["order"] = &"idle"
+
+
 func _apply_attack(attacker: Dictionary, target: Dictionary) -> void:
 	if bool(target.get("indestructible", false)):
 		return
 	attacker["attack_cooldown"] = float(attacker["attack_period"])
-	target["hp"] = float(target["hp"]) - float(attacker["damage"])
+	var damage := float(attacker["damage"])
+	if attacker.get("kind") == &"hunter" and target.get("category") == &"wildlife":
+		damage *= HUNTER_WILDLIFE_DAMAGE_MULTIPLIER
+	target["hp"] = float(target["hp"]) - damage
 	target["flash_timer"] = 0.16
 	_events.append({
 		"type": &"attack",
@@ -938,6 +1532,8 @@ func _apply_attack(attacker: Dictionary, target: Dictionary) -> void:
 	})
 	if float(target["hp"]) <= 0.0:
 		_kill(target, attacker)
+	elif target.get("category") == &"wildlife":
+		_react_to_hunt(target, attacker)
 
 
 func _kill(target: Dictionary, killer: Dictionary) -> void:
@@ -958,6 +1554,8 @@ func _kill(target: Dictionary, killer: Dictionary) -> void:
 		and int(target.get("home_cave_id", -1)) >= 0
 	):
 		_award_guardian_bounty(int(killer.get("team", TEAM_NEUTRAL)), target)
+	if target.get("category") == &"wildlife" and killer.get("kind") == &"hunter":
+		_award_wildlife_bounty(int(killer.get("team", TEAM_NEUTRAL)), target)
 	if int(killer.get("team", TEAM_NEUTRAL)) >= 0 and killer.get("faction") == &"demon":
 		killer["hp"] = minf(float(killer["max_hp"]), float(killer["hp"]) + 12.0)
 		players[int(killer["team"])]["essence"] = int(players[int(killer["team"])]["essence"]) + 3
@@ -985,12 +1583,31 @@ func _award_guardian_bounty(team: int, guardian: Dictionary) -> void:
 	battle_notice.emit("Yaoguai Den cleared. Hold its ring for 6 seconds to capture it.", team)
 
 
+func _award_wildlife_bounty(team: int, wildlife: Dictionary) -> void:
+	if team < 0:
+		return
+	var faction := players[team]["faction"] as StringName
+	if not FactionCatalog.can_hunt(faction):
+		return
+	var bounty := int(wildlife.get("food_bounty", 0))
+	players[team]["food"] = int(players[team]["food"]) + bounty
+	_add_event(&"bounty", _entity_center(wildlife), Color("f1c96b"))
+	var stats := FactionCatalog.stats(wildlife["kind"] as StringName, &"neutral")
+	battle_notice.emit("%s hunted: +%d Food." % [String(stats["name"]), bounty], team)
+
+
 func _advance_path(entity_state: Dictionary, delta: float) -> void:
 	var path := entity_state.get("path", []) as Array
 	var path_index := int(entity_state.get("path_index", 0))
 	if path.is_empty() or path_index >= path.size():
-		if entity_state.get("order") in [&"move", &"wander", &"return_home"]:
+		if entity_state.get("order") == &"move":
+			_finish_unit_order(entity_state)
+		elif entity_state.get("order") in [&"wander", &"flee", &"return_home"]:
 			entity_state["order"] = &"idle"
+		elif entity_state.get("order") == &"attack_move" and int(entity_state.get("target_id", -1)) < 0:
+			_finish_unit_order(entity_state)
+		elif entity_state.get("order") == &"patrol" and int(entity_state.get("target_id", -1)) < 0:
+			_advance_patrol_leg(entity_state)
 		return
 	var target := path[path_index] as Vector2
 	var position := entity_state["position"] as Vector2
@@ -1005,8 +1622,14 @@ func _advance_path(entity_state: Dictionary, delta: float) -> void:
 		if path_index >= path.size():
 			entity_state["path"] = []
 			entity_state["path_index"] = 0
-			if entity_state.get("order") in [&"move", &"wander", &"return_home"]:
+			if entity_state.get("order") == &"move":
+				_finish_unit_order(entity_state)
+			elif entity_state.get("order") in [&"wander", &"flee", &"return_home"]:
 				entity_state["order"] = &"idle"
+			elif entity_state.get("order") == &"attack_move" and int(entity_state.get("target_id", -1)) < 0:
+				_finish_unit_order(entity_state)
+			elif entity_state.get("order") == &"patrol" and int(entity_state.get("target_id", -1)) < 0:
+				_advance_patrol_leg(entity_state)
 
 
 func _advance_ai(delta: float) -> void:
@@ -1019,6 +1642,7 @@ func _advance_ai(delta: float) -> void:
 	_ai_strategy_timer -= delta
 	_ai_attack_timer -= delta
 	_ai_cave_timer -= delta
+	_ai_hunt_timer -= delta
 	if _ai_strategy_timer > 0.0:
 		return
 	_ai_strategy_timer = 1.4
@@ -1028,6 +1652,10 @@ func _advance_ai(delta: float) -> void:
 			command_train(int(stronghold["id"]), &"worker")
 	_try_rebuild_ai_war_camp()
 	_try_expand_ai_food_economy()
+	_try_train_ai_hunters()
+	if _ai_hunt_timer <= 0.0:
+		_ai_hunt_timer = 5.0
+		_issue_ai_hunt_orders()
 	for camp in _team_structures_of_kind(TEAM_ENEMY, &"war_camp"):
 		if (camp.get("queue", []) as Array).size() >= 2:
 			continue
@@ -1049,7 +1677,10 @@ func _advance_ai(delta: float) -> void:
 			var ids: Array[int] = []
 			for unit in army:
 				ids.append(int(unit["id"]))
-			command_attack(ids, int(player_hold["id"]))
+			if is_entity_visible_to_team(TEAM_ENEMY, player_hold):
+				command_attack(ids, int(player_hold["id"]))
+			else:
+				command_move(ids, player_hold["cell"] as Vector2i, true)
 			_ai_attack_timer = 22.0
 	_auto_assign_idle_worker(TEAM_ENEMY)
 
@@ -1073,12 +1704,18 @@ func _issue_ai_cave_order(army: Array[Dictionary]) -> void:
 	var ids: Array[int] = []
 	for unit in army:
 		ids.append(int(unit["id"]))
-	if cave_guardian_count(int(best_cave["id"])) > 0:
+	if (
+		is_entity_explored_by_team(TEAM_ENEMY, best_cave)
+		and cave_guardian_count(int(best_cave["id"])) > 0
+	):
 		var target_id := -1
 		var target_distance := INF
 		for raw_guardian_id in best_cave.get("guardian_ids", []) as Array:
 			var guardian := entity(int(raw_guardian_id))
-			if not bool(guardian.get("alive", false)):
+			if (
+				not bool(guardian.get("alive", false))
+				or not is_entity_visible_to_team(TEAM_ENEMY, guardian)
+			):
 				continue
 			var distance := _entity_distance(stronghold, guardian)
 			if distance < target_distance:
@@ -1111,10 +1748,15 @@ func _try_rebuild_ai_war_camp() -> void:
 func _try_expand_ai_food_economy() -> void:
 	var farms := _team_structures_of_kind(TEAM_ENEMY, &"rice_farm")
 	var lodges := _team_structures_of_kind(TEAM_ENEMY, &"hunters_lodge")
+	var faction := players[TEAM_ENEMY]["faction"] as StringName
 	var structure_kind := &"" as StringName
-	if farms.is_empty():
+	if FactionCatalog.can_farm(faction) and farms.is_empty():
 		structure_kind = &"rice_farm"
-	elif int(players[TEAM_ENEMY]["food"]) < 100 and lodges.is_empty():
+	elif (
+		FactionCatalog.can_hunt(faction)
+		and lodges.is_empty()
+		and (not FactionCatalog.can_farm(faction) or int(players[TEAM_ENEMY]["food"]) < 100)
+	):
 		structure_kind = &"hunters_lodge"
 	if structure_kind.is_empty() or not can_afford_kind(TEAM_ENEMY, structure_kind):
 		return
@@ -1125,6 +1767,70 @@ func _try_expand_ai_food_economy() -> void:
 	var site := _find_build_site(TEAM_ENEMY, structure_kind, stronghold["cell"] as Vector2i)
 	if site.x >= 0:
 		command_build(int(builder["id"]), structure_kind, site)
+
+
+func _try_train_ai_hunters() -> void:
+	var faction := players[TEAM_ENEMY]["faction"] as StringName
+	if not FactionCatalog.can_hunt(faction):
+		return
+	var hunter_total := _team_units_of_kind(TEAM_ENEMY, &"hunter").size()
+	for lodge in _team_structures_of_kind(TEAM_ENEMY, &"hunters_lodge"):
+		if float(lodge.get("complete", 0.0)) < 1.0:
+			continue
+		for raw_item in lodge.get("queue", []) as Array:
+			if (raw_item as Dictionary).get("kind") == &"hunter":
+				hunter_total += 1
+		if hunter_total >= 2:
+			return
+		if command_train(int(lodge["id"]), &"hunter"):
+			hunter_total += 1
+
+
+func _issue_ai_hunt_orders() -> void:
+	var wildlife := wildlife_ids()
+	if wildlife.is_empty():
+		return
+	for hunter in _team_units_of_kind(TEAM_ENEMY, &"hunter"):
+		if hunter.get("order") != &"idle":
+			continue
+		var target: Dictionary = {}
+		var best_distance := INF
+		for wildlife_id in wildlife:
+			var candidate := entity(wildlife_id)
+			if not is_entity_visible_to_team(TEAM_ENEMY, candidate):
+				continue
+			var distance := _entity_distance(hunter, candidate)
+			if distance < best_distance:
+				best_distance = distance
+				target = candidate
+		if not target.is_empty():
+			command_attack([int(hunter["id"])], int(target["id"]))
+			continue
+		var scout_cell := _nearest_wildlife_herd_center(hunter["position"] as Vector2)
+		if MapCatalog.in_bounds(scout_cell):
+			command_move([int(hunter["id"])], scout_cell, true)
+
+
+func _nearest_wildlife_herd_center(origin: Vector2) -> Vector2i:
+	var best_cell := Vector2i(-1, -1)
+	var best_distance := INF
+	for definition in MapCatalog.WILDLIFE_HERDS:
+		var center := definition["center"] as Vector2i
+		if is_cell_explored_by_team(TEAM_ENEMY, center):
+			continue
+		var distance := origin.distance_to(Vector2(center))
+		if distance < best_distance:
+			best_distance = distance
+			best_cell = center
+	if MapCatalog.in_bounds(best_cell):
+		return best_cell
+	for definition in MapCatalog.WILDLIFE_HERDS:
+		var center := definition["center"] as Vector2i
+		var distance := origin.distance_to(Vector2(center))
+		if distance < best_distance:
+			best_distance = distance
+			best_cell = center
+	return best_cell
 
 
 func _available_builder(team: int) -> Dictionary:
@@ -1172,11 +1878,14 @@ func _assign_nearest_resource(worker: Dictionary) -> void:
 func _nearest_resource(worker: Dictionary, resource_kind: StringName = &"") -> Dictionary:
 	var best_resource: Dictionary = {}
 	var best_distance := INF
+	var team := int(worker.get("team", TEAM_NEUTRAL))
 	for raw_resource in entities.values():
 		var resource := raw_resource as Dictionary
 		if not bool(resource.get("alive", false)) or resource.get("category") != &"resource":
 			continue
 		if not resource_kind.is_empty() and resource.get("resource_kind") != resource_kind:
+			continue
+		if team >= 0 and not is_entity_explored_by_team(team, resource):
 			continue
 		var distance := _entity_distance(worker, resource)
 		if distance < best_distance:
@@ -1185,23 +1894,182 @@ func _nearest_resource(worker: Dictionary, resource_kind: StringName = &"") -> D
 	return best_resource
 
 
+func _reset_visibility() -> void:
+	_visible_cells_by_team.clear()
+	_explored_cells_by_team.clear()
+	for _team in range(players.size()):
+		_visible_cells_by_team.append({})
+		_explored_cells_by_team.append({})
+
+
+func _refresh_visibility() -> void:
+	if _visible_cells_by_team.size() != players.size():
+		_reset_visibility()
+	var next_visible_by_team: Array[Dictionary] = []
+	for _team in range(players.size()):
+		next_visible_by_team.append({})
+	for raw_entity in entities.values():
+		var entity_state := raw_entity as Dictionary
+		var team := int(entity_state.get("team", TEAM_NEUTRAL))
+		if (
+			not bool(entity_state.get("alive", false))
+			or team < 0
+			or team >= players.size()
+			or entity_state.get("category") not in [&"unit", &"structure"]
+		):
+			continue
+		var radius := _vision_radius(entity_state)
+		var origin := Vector2i(_entity_center(entity_state).floor())
+		var team_visibility := next_visible_by_team[team]
+		for y in range(origin.y - radius, origin.y + radius + 1):
+			for x in range(origin.x - radius, origin.x + radius + 1):
+				var cell := Vector2i(x, y)
+				if not MapCatalog.in_bounds(cell):
+					continue
+				var offset := cell - origin
+				if offset.length_squared() <= radius * radius:
+					team_visibility[cell] = true
+		next_visible_by_team[team] = team_visibility
+	for team in range(players.size()):
+		var next_visible := next_visible_by_team[team]
+		_visible_cells_by_team[team] = next_visible
+		var explored: Dictionary = _explored_cells_by_team[team]
+		for cell in next_visible:
+			explored[cell] = true
+		_explored_cells_by_team[team] = explored
+
+
+func _vision_radius(entity_state: Dictionary) -> int:
+	if entity_state.get("category") == &"structure":
+		return STRUCTURE_VISION_RADIUS
+	if entity_state.get("kind") == &"mystic":
+		return MYSTIC_VISION_RADIUS
+	return DEFAULT_VISION_RADIUS
+
+
+func visible_cells_for_team(team: int) -> Dictionary:
+	if team < 0 or team >= _visible_cells_by_team.size():
+		return {}
+	return _visible_cells_by_team[team].duplicate()
+
+
+func explored_cells_for_team(team: int) -> Dictionary:
+	if team < 0 or team >= _explored_cells_by_team.size():
+		return {}
+	return _explored_cells_by_team[team].duplicate()
+
+
+func is_cell_visible_to_team(team: int, cell: Vector2i) -> bool:
+	return (
+		team >= 0
+		and team < _visible_cells_by_team.size()
+		and _visible_cells_by_team[team].has(cell)
+	)
+
+
+func is_cell_explored_by_team(team: int, cell: Vector2i) -> bool:
+	return (
+		team >= 0
+		and team < _explored_cells_by_team.size()
+		and _explored_cells_by_team[team].has(cell)
+	)
+
+
+func is_entity_visible_to_team(team: int, target: Dictionary) -> bool:
+	if target.is_empty() or not bool(target.get("alive", false)):
+		return false
+	if int(target.get("team", TEAM_NEUTRAL)) == team:
+		return true
+	return is_cell_visible_to_team(team, Vector2i(_entity_center(target).floor()))
+
+
+func is_entity_explored_by_team(team: int, target: Dictionary) -> bool:
+	if target.is_empty() or not bool(target.get("alive", false)):
+		return false
+	if int(target.get("team", TEAM_NEUTRAL)) == team:
+		return true
+	return is_cell_explored_by_team(team, Vector2i(_entity_center(target).floor()))
+
+
 func _formation_cells(center: Vector2i, count: int) -> Array[Vector2i]:
-	var result: Array[Vector2i] = [center]
-	var offsets: Array[Vector2i] = [
-		Vector2i(1, 0),
-		Vector2i(0, 1),
-		Vector2i(-1, 0),
-		Vector2i(0, -1),
-		Vector2i(1, 1),
-		Vector2i(-1, 1),
-		Vector2i(-1, -1),
-		Vector2i(1, -1),
-	]
-	for offset in offsets:
-		if result.size() >= count:
-			break
-		result.append(center + offset)
+	var result: Array[Vector2i] = []
+	if count <= 0:
+		return result
+	var used: Dictionary = {}
+	var maximum_radius := maxi(MapCatalog.SIZE.x, MapCatalog.SIZE.y)
+	for radius in range(maximum_radius + 1):
+		for y in range(-radius, radius + 1):
+			for x in range(-radius, radius + 1):
+				if maxi(abs(x), abs(y)) != radius:
+					continue
+				var candidate := center + Vector2i(x, y)
+				if (
+					not MapCatalog.in_bounds(candidate)
+					or _astar.is_point_solid(candidate)
+					or used.has(candidate)
+				):
+					continue
+				result.append(candidate)
+				used[candidate] = true
+				if result.size() >= count:
+					return result
 	return result
+
+
+func _resolve_unit_separation() -> void:
+	var unit_ids: Array[int] = []
+	for raw_id in entities.keys():
+		var entity_state := entity(int(raw_id))
+		if (
+			bool(entity_state.get("alive", false))
+			and entity_state.get("category") in [&"unit", &"wildlife"]
+		):
+			unit_ids.append(int(raw_id))
+	unit_ids.sort()
+	for _iteration in range(UNIT_SEPARATION_ITERATIONS):
+		var displacements: Dictionary = {}
+		for unit_id in unit_ids:
+			displacements[unit_id] = Vector2.ZERO
+		for first_index in range(unit_ids.size()):
+			var first_id := unit_ids[first_index]
+			var first := entity(first_id)
+			for second_index in range(first_index + 1, unit_ids.size()):
+				var second_id := unit_ids[second_index]
+				var second := entity(second_id)
+				var delta := (second["position"] as Vector2) - (first["position"] as Vector2)
+				var distance := delta.length()
+				if distance >= UNIT_SEPARATION_DISTANCE:
+					continue
+				var direction: Vector2
+				if distance <= 0.0001:
+					var angle_degrees := float(posmod(first_id * 97 + second_id * 53, 360))
+					direction = Vector2.RIGHT.rotated(deg_to_rad(angle_degrees))
+				else:
+					direction = delta / distance
+				var correction := direction * (UNIT_SEPARATION_DISTANCE - distance) * 0.5
+				displacements[first_id] = displacements[first_id] as Vector2 - correction
+				displacements[second_id] = displacements[second_id] as Vector2 + correction
+		for unit_id in unit_ids:
+			var unit := entity(unit_id)
+			var displacement := displacements[unit_id] as Vector2
+			if displacement.length() > UNIT_SEPARATION_DISTANCE * 0.5:
+				displacement = displacement.normalized() * UNIT_SEPARATION_DISTANCE * 0.5
+			var proposed := (unit["position"] as Vector2) + displacement
+			if _is_walkable_unit_position(proposed):
+				unit["position"] = proposed
+				unit["cell"] = Vector2i(proposed.round())
+
+
+func _is_walkable_unit_position(position: Vector2) -> bool:
+	if (
+		position.x < 0.0
+		or position.y < 0.0
+		or position.x > float(MapCatalog.SIZE.x - 1)
+		or position.y > float(MapCatalog.SIZE.y - 1)
+	):
+		return false
+	var cell := Vector2i(position.round())
+	return MapCatalog.in_bounds(cell) and not _astar.is_point_solid(cell)
 
 
 func _cell_occupied_by_static_entity(cell: Vector2i) -> bool:
@@ -1307,6 +2175,17 @@ func are_hostile(first: Dictionary, second: Dictionary) -> bool:
 		return false
 	if second.get("category") == &"resource" or second.get("kind") == &"yaoguai_den":
 		return false
+	if second.get("category") == &"wildlife":
+		return (
+			int(first.get("team", TEAM_NEUTRAL)) >= 0
+			and first.get("kind") == &"hunter"
+			and FactionCatalog.can_hunt(first.get("faction", &"neutral") as StringName)
+		)
+	if first.get("category") == &"wildlife":
+		return (
+			bool(first.get("retaliates", false))
+			and int(first.get("target_id", -1)) == int(second.get("id", -2))
+		)
 	var first_team := int(first.get("team", TEAM_NEUTRAL))
 	var second_team := int(second.get("team", TEAM_NEUTRAL))
 	if first_team == second_team:
@@ -1321,9 +2200,12 @@ func are_hostile(first: Dictionary, second: Dictionary) -> bool:
 func _nearest_enemy(source: Dictionary, maximum_distance: float) -> int:
 	var best_id := -1
 	var best_distance := maximum_distance
+	var source_team := int(source.get("team", TEAM_NEUTRAL))
 	for raw_target in entities.values():
 		var target := raw_target as Dictionary
 		if not are_hostile(source, target):
+			continue
+		if source_team >= 0 and not is_entity_visible_to_team(source_team, target):
 			continue
 		var distance := _entity_distance(source, target)
 		if distance < best_distance:
@@ -1397,6 +2279,18 @@ func cave_ids() -> Array[int]:
 	return result
 
 
+func wildlife_ids(kind: StringName = &"") -> Array[int]:
+	var result: Array[int] = []
+	for raw_entity in entities.values():
+		var entity_state := raw_entity as Dictionary
+		if not bool(entity_state.get("alive", false)) or entity_state.get("category") != &"wildlife":
+			continue
+		if not kind.is_empty() and entity_state.get("kind") != kind:
+			continue
+		result.append(int(entity_state["id"]))
+	return result
+
+
 func cave_guardian_count(cave_id: int) -> int:
 	var cave := entity(cave_id)
 	if cave.is_empty() or cave.get("kind") != &"yaoguai_den":
@@ -1414,8 +2308,19 @@ func captured_cave_count(team: int) -> int:
 
 
 func can_afford_kind(team: int, kind: StringName) -> bool:
+	if not is_kind_available(team, kind):
+		return false
 	var faction := players[team]["faction"] as StringName
 	return _can_afford(team, FactionCatalog.stats(kind, faction))
+
+
+func is_kind_available(team: int, kind: StringName) -> bool:
+	if team < 0 or team >= players.size():
+		return false
+	var faction := players[team]["faction"] as StringName
+	if kind in BUILDABLE_STRUCTURE_KINDS:
+		return FactionCatalog.can_build_structure(faction, kind)
+	return FactionCatalog.can_train_unit(faction, kind)
 
 
 func has_population_for(team: int, kind: StringName) -> bool:

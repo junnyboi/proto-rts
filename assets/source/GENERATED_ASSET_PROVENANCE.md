@@ -17,6 +17,8 @@ The monster-cave expansion adds a neutral Yaoguai Den structure and Jadeclaw cre
 
 The idle-worker alert uses the built-in GPT Image 2 workflow and the same magenta isolation contract. Its exact prompt is recorded in `IDLE_WORKER_ALERT_GENERATION_PROMPT.md`.
 
+The wildlife-hunting expansion adds Demon, Beast, and Human Hunter units plus deer, bison, chicken, boar, and bear wildlife. The built-in GPT Image 2 workflow used existing faction units and the Jadeclaw only as style references. Exact prompts are recorded in `WILDLIFE_HUNTING_GENERATION_PROMPTS.md`.
+
 ## Source inventory
 
 | Category | Files | Generation intent |
@@ -27,6 +29,8 @@ The idle-worker alert uses the built-in GPT Image 2 workflow and the same magent
 | Workers | `units/*_worker.png` | Practical gathering and construction silhouettes |
 | Vanguards | `units/*_vanguard.png` | Durable faction-specific melee silhouettes |
 | Mystics | `units/*_mystic.png` | Faction-specific ranged or spiritual silhouettes |
+| Hunters | `units/demon_hunter.png`, `units/beast_hunter.png`, `units/human_hunter.png` | Faction-specific economic ranged units for hunting wildlife |
+| Wildlife | `wildlife/deer.png`, `bison.png`, `chicken.png`, `boar.png`, `bear.png` | Neutral herd animals with passive or retaliatory silhouettes |
 | Strongholds | `buildings/*_stronghold.png` | Primary base structures and match objectives |
 | War Camps | `buildings/*_war_camp.png` | Compact military production structures |
 | Yaoguai Den | `buildings/neutral_yaoguai_den.png` | Capturable neutral monster objective and forward production structure |

@@ -25,7 +25,8 @@ const IDLE_WORKER_ALERT_TEXTURE := preload("res://assets/runtime/ui/idle_worker_
 const PLAYER_COLOR := Color("78dfb7")
 const ENEMY_COLOR := Color("f06656")
 const NEUTRAL_COLOR := Color("d7bd6c")
-const GRID_COLOR := Color(0.04, 0.12, 0.12, 0.52)
+const GRID_COLOR := Color(0.06, 0.16, 0.15, 0.24)
+const GRID_LINE_WIDTH := 0.65
 const JADE_RESOURCE_COLOR := Color("73dfab")
 const LUMBER_RESOURCE_COLOR := Color("d5a85d")
 const ESSENCE_RESOURCE_COLOR := Color("77c6ff")
@@ -38,16 +39,21 @@ const WATER_FLOW_SPEED := Vector2(-0.045, -0.045)
 const TREE_SWAY_BANDS := 12
 const TREE_SWAY_ANCHOR := 0.72
 const TREE_SWAY_STRENGTH := 0.052
+const TREE_SWAY_MIN_SCALE := 0.28
 const WHEEL_ZOOM_STEP := 1.12
 const MIN_CAMERA_SCALE := 0.14
 const MAX_CAMERA_SCALE := 1.05
+const CONTROL_GROUP_DOUBLE_TAP_MS := 450
 
 var simulation: RtsSimulation
 var selected_ids: Array[int] = []
 var attack_move_armed := false
+var patrol_armed := false
+var repair_armed := false
 var placement_worker_id := -1
 var placement_kind: StringName = &""
 var fog_enabled := true
+var control_groups: Dictionary = {}
 
 var camera_scale := 0.62
 var camera_offset := Vector2.ZERO
@@ -57,6 +63,10 @@ var _selection_pressed := false
 var _selection_dragging := false
 var _selection_start := Vector2.ZERO
 var _selection_current := Vector2.ZERO
+var _selection_additive := false
+var _armed_append := false
+var _last_control_group := -1
+var _last_control_group_recall_ms := -1000
 var _mouse_position := Vector2.ZERO
 var _texture_cache: Dictionary = {}
 var _effects: Array[Dictionary] = []
@@ -81,6 +91,10 @@ func _ready() -> void:
 func set_simulation(value: RtsSimulation) -> void:
 	simulation = value
 	selected_ids.clear()
+	control_groups.clear()
+	cancel_modes()
+	_last_control_group = -1
+	_last_control_group_recall_ms = -1000
 	_texture_cache.clear()
 	_visible_cells.clear()
 	_explored_cells.clear()
@@ -149,7 +163,7 @@ func should_render_entity(entity_state: Dictionary) -> bool:
 	var cell := _entity_center_cell(entity_state)
 	if team == RtsSimulation.TEAM_ENEMY:
 		return is_cell_visible(cell)
-	if entity_state.get("category") == &"unit":
+	if entity_state.get("category") in [&"unit", &"wildlife"]:
 		return is_cell_visible(cell)
 	return is_cell_explored(cell)
 
@@ -180,38 +194,13 @@ func _process(delta: float) -> void:
 func _refresh_visibility() -> void:
 	if simulation == null:
 		return
-	var next_visible: Dictionary = {}
-	for raw_entity in simulation.entities.values():
-		var entity_state := raw_entity as Dictionary
-		if not bool(entity_state.get("alive", false)):
-			continue
-		if int(entity_state.get("team", RtsSimulation.TEAM_NEUTRAL)) != RtsSimulation.TEAM_PLAYER:
-			continue
-		var radius := _vision_radius(entity_state)
-		var origin := _entity_center_cell(entity_state)
-		for y in range(origin.y - radius, origin.y + radius + 1):
-			for x in range(origin.x - radius, origin.x + radius + 1):
-				var cell := Vector2i(x, y)
-				if not MapCatalog.in_bounds(cell):
-					continue
-				var offset := cell - origin
-				if offset.length_squared() <= radius * radius:
-					next_visible[cell] = true
-	var changed := next_visible != _visible_cells
+	var next_visible := simulation.visible_cells_for_team(RtsSimulation.TEAM_PLAYER)
+	var next_explored := simulation.explored_cells_for_team(RtsSimulation.TEAM_PLAYER)
+	var changed := next_visible != _visible_cells or next_explored != _explored_cells
 	_visible_cells = next_visible
-	var explored_before := _explored_cells.size()
-	for cell in _visible_cells:
-		_explored_cells[cell] = true
-	if changed or _explored_cells.size() != explored_before:
+	_explored_cells = next_explored
+	if changed:
 		fog_visibility_changed.emit()
-
-
-func _vision_radius(entity_state: Dictionary) -> int:
-	if entity_state.get("category") == &"structure":
-		return 6
-	if entity_state.get("kind") == &"mystic":
-		return 5
-	return 4
 
 
 func _entity_center_cell(entity_state: Dictionary) -> Vector2i:
@@ -260,16 +249,16 @@ func _gui_input(event: InputEvent) -> void:
 			return
 		if button.button_index == MOUSE_BUTTON_LEFT:
 			if button.pressed:
-				_handle_left_press(button.position)
+				_handle_left_press(button.position, button.shift_pressed)
 			else:
 				_handle_left_release(button.position)
 			accept_event()
 		elif button.button_index == MOUSE_BUTTON_RIGHT and button.pressed:
-			_handle_right_click(button.position)
+			_handle_right_click(button.position, button.shift_pressed)
 			accept_event()
 
 
-func _handle_left_press(screen_position: Vector2) -> void:
+func _handle_left_press(screen_position: Vector2, append: bool = false) -> void:
 	if placement_worker_id >= 0:
 		var cell := screen_to_cell(screen_position)
 		var stats := FactionCatalog.stats(
@@ -284,16 +273,45 @@ func _handle_left_press(screen_position: Vector2) -> void:
 		else:
 			feedback.emit("That site cannot host a %s." % structure_name, true)
 		return
+	if repair_armed:
+		var repair_target_id := entity_at_screen(screen_position, false)
+		var workers := _selected_of_kind(&"worker")
+		if repair_target_id >= 0 and simulation.command_repair(
+			workers,
+			repair_target_id,
+			append or _armed_append,
+		):
+			feedback.emit("Repair order queued." if append or _armed_append else "Repair order issued.", false)
+		else:
+			feedback.emit("Choose a damaged allied structure to repair.", true)
+		repair_armed = false
+		_armed_append = false
+		return
 	if attack_move_armed:
 		var cell := screen_to_cell(screen_position)
 		var units := selected_commandable_units()
 		if not units.is_empty() and MapCatalog.in_bounds(cell):
-			simulation.command_move(units, cell, true)
-			feedback.emit("Attack-move order issued.", false)
+			simulation.command_move(units, cell, true, append or _armed_append)
+			feedback.emit("Attack-move queued." if append or _armed_append else "Attack-move order issued.", false)
 		attack_move_armed = false
+		_armed_append = false
+		return
+	if patrol_armed:
+		var patrol_cell := screen_to_cell(screen_position)
+		if simulation.command_patrol(
+			selected_military_units(),
+			patrol_cell,
+			append or _armed_append,
+		):
+			feedback.emit("Patrol queued." if append or _armed_append else "Patrol route established.", false)
+		else:
+			feedback.emit("Choose a valid patrol destination.", true)
+		patrol_armed = false
+		_armed_append = false
 		return
 	_selection_pressed = true
 	_selection_dragging = false
+	_selection_additive = append
 	_selection_start = screen_position
 	_selection_current = screen_position
 
@@ -304,17 +322,25 @@ func _handle_left_release(screen_position: Vector2) -> void:
 	_selection_pressed = false
 	_selection_current = screen_position
 	if _selection_dragging:
-		_select_in_rect(Rect2(_selection_start, _selection_current - _selection_start).abs())
+		_select_in_rect(
+			Rect2(_selection_start, _selection_current - _selection_start).abs(),
+			_selection_additive,
+		)
 	else:
 		var hit := entity_at_screen(screen_position, true)
 		var hit_ids: Array[int] = []
-		if hit >= 0:
+		if _selection_additive:
+			hit_ids.assign(selected_ids)
+		if hit >= 0 and _selection_additive and hit_ids.has(hit):
+			hit_ids.erase(hit)
+		elif hit >= 0:
 			hit_ids.append(hit)
 		select_entities(hit_ids)
 	_selection_dragging = false
+	_selection_additive = false
 
 
-func _handle_right_click(screen_position: Vector2) -> void:
+func _handle_right_click(screen_position: Vector2, append: bool = false) -> void:
 	cancel_modes()
 	if selected_ids.is_empty():
 		return
@@ -322,25 +348,59 @@ func _handle_right_click(screen_position: Vector2) -> void:
 	if target_id >= 0:
 		var target := simulation.entity(target_id)
 		var commandable_units := selected_commandable_units()
+		if target.get("category") == &"wildlife":
+			var hunters := _selected_of_kind(&"hunter")
+			if hunters.is_empty():
+				feedback.emit("Only Hunters can hunt wildlife.", true)
+			else:
+				simulation.command_attack(hunters, target_id, append)
+				feedback.emit("Hunt queued." if append else "Hunters pursuing %s." % _display_name(target), false)
+			return
 		if target.get("kind") == &"yaoguai_den" and not commandable_units.is_empty():
-			simulation.command_move(commandable_units, target["cell"] as Vector2i, true)
-			feedback.emit("Hunt the guardians, then hold the Den's capture ring.", false)
+			simulation.command_move(commandable_units, target["cell"] as Vector2i, true, append)
+			feedback.emit("Den hunt queued." if append else "Hunt the guardians, then hold the Den's capture ring.", false)
 			return
 		if not commandable_units.is_empty() and simulation.are_hostile(simulation.entity(commandable_units[0]), target):
-			simulation.command_attack(commandable_units, target_id)
-			feedback.emit("Focus-fire order issued.", false)
+			simulation.command_attack(commandable_units, target_id, append)
+			feedback.emit("Focus-fire queued." if append else "Focus-fire order issued.", false)
 			return
 		if target.get("kind") == &"stronghold":
 			var workers := _selected_of_kind(&"worker")
-			var deposited_workers := simulation.command_deposit(workers, target_id)
-			if deposited_workers > 0:
-				feedback.emit("Workers deposited all carried resources.", false)
+			var carrying_workers: Array[int] = []
+			for worker_id in workers:
+				if float(simulation.entity(worker_id).get("cargo_amount", 0.0)) > 0.0:
+					carrying_workers.append(worker_id)
+			if not carrying_workers.is_empty():
+				var deposited_workers := simulation.command_deposit(carrying_workers, target_id, append)
+				if append:
+					feedback.emit("Resource return queued.", false)
+					return
+				if deposited_workers == carrying_workers.size():
+					feedback.emit("Workers deposited all carried resources.", false)
+				elif deposited_workers > 0:
+					feedback.emit("Nearby workers deposited; the rest are returning cargo.", false)
+				else:
+					feedback.emit("Workers returning cargo to the Stronghold.", false)
 				return
+		var repair_workers := _selected_of_kind(&"worker")
+		if (
+			not repair_workers.is_empty()
+			and target.get("category") == &"structure"
+			and int(target.get("team", RtsSimulation.TEAM_NEUTRAL)) == RtsSimulation.TEAM_PLAYER
+			and float(target.get("hp", 0.0)) < float(target.get("max_hp", 0.0))
+			and simulation.command_repair(repair_workers, target_id, append)
+		):
+			feedback.emit("Repair queued." if append else "Workers assigned to repairs.", false)
+			return
 		if target.get("category") == &"resource":
 			var workers := _selected_of_kind(&"worker")
 			if not workers.is_empty():
-				simulation.command_gather(workers, target_id)
-				feedback.emit("Workers assigned to %s." % _display_name(target), false)
+				simulation.command_gather(workers, target_id, append)
+				feedback.emit(
+					"%s gathering queued." % _display_name(target) if append
+					else "Workers assigned to %s." % _display_name(target),
+					false,
+				)
 				return
 	var selected_structure := primary_selected_structure()
 	var cell := screen_to_cell(screen_position)
@@ -348,12 +408,12 @@ func _handle_right_click(screen_position: Vector2) -> void:
 		simulation.set_rally(selected_structure, cell)
 		feedback.emit("Rally point updated.", false)
 	else:
-		simulation.command_move(selected_commandable_units(), cell)
-		feedback.emit("Move order issued.", false)
+		simulation.command_move(selected_commandable_units(), cell, false, append)
+		feedback.emit("Move queued." if append else "Move order issued.", false)
 
 
-func _select_in_rect(rect: Rect2) -> void:
-	var ids: Array[int] = []
+func _select_in_rect(rect: Rect2, additive: bool = false) -> void:
+	var ids: Array[int] = selected_ids.duplicate() if additive else []
 	for raw_entity in simulation.entities.values():
 		var entity_state := raw_entity as Dictionary
 		if not bool(entity_state.get("alive", false)):
@@ -362,7 +422,7 @@ func _select_in_rect(rect: Rect2) -> void:
 			continue
 		if entity_state.get("category") != &"unit":
 			continue
-		if rect.has_point(entity_screen_position(entity_state)):
+		if rect.has_point(entity_screen_position(entity_state)) and not ids.has(int(entity_state["id"])):
 			ids.append(int(entity_state["id"]))
 	select_entities(ids)
 
@@ -371,7 +431,11 @@ func select_entities(ids: Array[int]) -> void:
 	selected_ids.clear()
 	for id in ids:
 		var entity_state := simulation.entity(id)
-		if not entity_state.is_empty() and bool(entity_state.get("alive", false)):
+		if (
+			not entity_state.is_empty()
+			and bool(entity_state.get("alive", false))
+			and not selected_ids.has(id)
+		):
 			selected_ids.append(id)
 	selection_changed.emit(selected_ids.duplicate())
 	queue_redraw()
@@ -392,14 +456,116 @@ func select_player_stronghold() -> void:
 		center_on_player_stronghold()
 
 
-func begin_attack_move() -> void:
+func assign_control_group(index: int, append: bool = false) -> void:
+	if index < 0 or index > 9:
+		return
+	var members := _valid_control_group_members(control_groups.get(index, []) as Array)
+	if not append:
+		members.clear()
+	for id in selected_ids:
+		var entity_state := simulation.entity(id)
+		if (
+			bool(entity_state.get("alive", false))
+			and int(entity_state.get("team", RtsSimulation.TEAM_NEUTRAL)) == RtsSimulation.TEAM_PLAYER
+			and entity_state.get("category") in [&"unit", &"structure"]
+			and not members.has(id)
+		):
+			members.append(id)
+	control_groups[index] = members
+	feedback.emit(
+		"Group %d updated · %d selected." % [index, members.size()]
+		if append
+		else "Group %d assigned · %d selected." % [index, members.size()],
+		false,
+	)
+
+
+func recall_control_group(index: int, additive: bool = false) -> void:
+	if index < 0 or index > 9:
+		return
+	var members := _valid_control_group_members(control_groups.get(index, []) as Array)
+	control_groups[index] = members
+	if members.is_empty():
+		if not additive:
+			select_entities([])
+		feedback.emit("Control group %d is empty." % index, true)
+		return
+	var next_selection: Array[int] = []
+	if additive:
+		next_selection.assign(selected_ids)
+	for id in members:
+		if not next_selection.has(id):
+			next_selection.append(id)
+	var now := Time.get_ticks_msec()
+	var should_center := (
+		not additive
+		and _last_control_group == index
+		and now - _last_control_group_recall_ms <= CONTROL_GROUP_DOUBLE_TAP_MS
+	)
+	select_entities(next_selection)
+	if should_center:
+		center_on_selection()
+	_last_control_group = index
+	_last_control_group_recall_ms = now
+
+
+func center_on_selection() -> void:
+	if selected_ids.is_empty():
+		return
+	var center := Vector2.ZERO
+	var count := 0
+	for id in selected_ids:
+		var entity_state := simulation.entity(id)
+		if not entity_state.is_empty() and bool(entity_state.get("alive", false)):
+			center += simulation.entity_center(id)
+			count += 1
+	if count > 0:
+		center_on_cell(Vector2i((center / float(count)).round()))
+
+
+func _valid_control_group_members(raw_members: Array) -> Array[int]:
+	var result: Array[int] = []
+	for raw_id in raw_members:
+		var id := int(raw_id)
+		var entity_state := simulation.entity(id)
+		if (
+			bool(entity_state.get("alive", false))
+			and int(entity_state.get("team", RtsSimulation.TEAM_NEUTRAL)) == RtsSimulation.TEAM_PLAYER
+			and entity_state.get("category") in [&"unit", &"structure"]
+			and not result.has(id)
+		):
+			result.append(id)
+	return result
+
+
+func begin_attack_move(append: bool = false) -> void:
 	if selected_commandable_units().is_empty():
 		feedback.emit("Select units before issuing attack-move.", true)
 		return
-	placement_worker_id = -1
-	placement_kind = &""
+	cancel_modes()
 	attack_move_armed = true
-	feedback.emit("Attack-move armed: choose a destination.", false)
+	_armed_append = append
+	feedback.emit("Queued attack-move: choose a destination." if append else "Attack-move armed: choose a destination.", false)
+
+
+func begin_patrol(append: bool = false) -> void:
+	if selected_military_units().is_empty():
+		feedback.emit("Select military units before setting a patrol.", true)
+		return
+	cancel_modes()
+	patrol_armed = true
+	_armed_append = append
+	feedback.emit("Queued patrol: choose a destination." if append else "Patrol armed: choose a destination.", false)
+
+
+func begin_repair(append: bool = false) -> void:
+	if _selected_of_kind(&"worker").is_empty():
+		feedback.emit("Select workers before issuing a repair order.", true)
+		return
+	cancel_modes()
+	repair_armed = true
+	_armed_append = append
+	feedback.emit("Queued repair: choose a structure." if append else "Repair armed: choose a damaged allied structure.", false)
 
 
 func begin_war_camp_placement() -> void:
@@ -414,7 +580,10 @@ func begin_structure_placement(structure_kind: StringName) -> void:
 	if structure_kind not in RtsSimulation.BUILDABLE_STRUCTURE_KINDS:
 		feedback.emit("That structure is not available for construction.", true)
 		return
-	attack_move_armed = false
+	if not simulation.is_kind_available(RtsSimulation.TEAM_PLAYER, structure_kind):
+		feedback.emit("Your faction cannot construct that food building.", true)
+		return
+	cancel_modes()
 	placement_worker_id = workers[0]
 	placement_kind = structure_kind
 	var faction := simulation.players[RtsSimulation.TEAM_PLAYER]["faction"] as StringName
@@ -424,8 +593,11 @@ func begin_structure_placement(structure_kind: StringName) -> void:
 
 func cancel_modes() -> void:
 	attack_move_armed = false
+	patrol_armed = false
+	repair_armed = false
 	placement_worker_id = -1
 	placement_kind = &""
+	_armed_append = false
 
 
 func selected_commandable_units() -> Array[int]:
@@ -433,6 +605,18 @@ func selected_commandable_units() -> Array[int]:
 	for id in selected_ids:
 		var entity_state := simulation.entity(id)
 		if entity_state.get("category") == &"unit" and int(entity_state.get("team", -1)) == RtsSimulation.TEAM_PLAYER:
+			result.append(id)
+	return result
+
+
+func selected_military_units() -> Array[int]:
+	var result: Array[int] = []
+	for id in selected_ids:
+		var entity_state := simulation.entity(id)
+		if (
+			entity_state.get("kind") in [&"vanguard", &"mystic", &"jadeclaw"]
+			and int(entity_state.get("team", RtsSimulation.TEAM_NEUTRAL)) == RtsSimulation.TEAM_PLAYER
+		):
 			result.append(id)
 	return result
 
@@ -478,6 +662,7 @@ func entity_at_screen(screen_position: Vector2, selectable_only: bool) -> int:
 			selectable_only
 			and int(entity_state.get("team", -1)) != RtsSimulation.TEAM_PLAYER
 			and entity_state.get("kind") != &"yaoguai_den"
+			and entity_state.get("category") != &"wildlife"
 		):
 			continue
 		var radius := 28.0 * camera_scale
@@ -489,6 +674,9 @@ func entity_at_screen(screen_position: Vector2, selectable_only: bool) -> int:
 			&"resource":
 				radius = 40.0 * camera_scale
 				priority = 0
+			&"wildlife":
+				radius = 38.0 * camera_scale
+				priority = 2
 		var distance := entity_screen_position(entity_state).distance_to(screen_position)
 		if distance <= maxf(radius, 16.0) and (priority > best_priority or (priority == best_priority and distance < best_distance)):
 			best_priority = priority
@@ -569,7 +757,7 @@ func _draw_terrain() -> void:
 			draw_polygon(points, colors, uvs, texture)
 			var closed := points.duplicate()
 			closed.append(points[0])
-			draw_polyline(closed, GRID_COLOR, 1.0, true)
+			draw_polyline(closed, GRID_COLOR, GRID_LINE_WIDTH, true)
 
 
 func _terrain_uvs(cell: Vector2i, offset: Vector2 = Vector2.ZERO) -> PackedVector2Array:
@@ -621,6 +809,12 @@ func _draw_hover_feedback() -> void:
 			_structure_display_size(placement_kind) * 0.78 * camera_scale,
 			Color(1, 1, 1, 0.58 if valid else 0.35),
 		)
+	elif repair_armed:
+		draw_colored_polygon(points, Color(Color("e4c66d"), 0.14))
+		draw_polyline(closed, Color("e4c66d"), 2.0, true)
+	elif patrol_armed:
+		draw_colored_polygon(points, Color(Color("79c9ee"), 0.12))
+		draw_polyline(closed, Color("79c9ee"), 2.0, true)
 	elif attack_move_armed:
 		draw_colored_polygon(points, Color(ENEMY_COLOR, 0.12))
 		draw_polyline(closed, ENEMY_COLOR, 2.0, true)
@@ -632,7 +826,7 @@ func _draw_entities() -> void:
 	var renderables: Array[Dictionary] = []
 	for raw_entity in simulation.entities.values():
 		var entity_state := raw_entity as Dictionary
-		if should_render_entity(entity_state):
+		if should_render_entity(entity_state) and _is_entity_on_screen(entity_state):
 			renderables.append(entity_state)
 	renderables.sort_custom(
 		_entity_draws_before
@@ -642,6 +836,15 @@ func _draw_entities() -> void:
 	for entity_state in renderables:
 		if entity_state.get("kind") == &"worker" and entity_state.get("order", &"idle") == &"idle":
 			_draw_idle_worker_marker(entity_screen_position(entity_state))
+
+
+func _is_entity_on_screen(entity_state: Dictionary) -> bool:
+	var center := entity_screen_position(entity_state)
+	var margin := 280.0 * camera_scale + 24.0
+	return Rect2(
+		Vector2(-margin, -margin),
+		size + Vector2.ONE * margin * 2.0,
+	).has_point(center)
 
 
 func _entity_draws_before(first: Dictionary, second: Dictionary) -> bool:
@@ -683,8 +886,8 @@ func _draw_entity(entity_state: Dictionary) -> void:
 		)
 
 	if selected:
-		var radius_x := 34.0 if kind == &"jadeclaw" else (27.0 if category == &"unit" else 76.0 if kind == &"yaoguai_den" else 54.0)
-		var radius_y := 16.0 if kind == &"jadeclaw" else (13.0 if category == &"unit" else 34.0 if kind == &"yaoguai_den" else 25.0)
+		var radius_x := 34.0 if kind == &"jadeclaw" else (32.0 if category == &"wildlife" else 27.0 if category == &"unit" else 76.0 if kind == &"yaoguai_den" else 54.0)
+		var radius_y := 16.0 if kind == &"jadeclaw" else (15.0 if category == &"wildlife" else 13.0 if category == &"unit" else 34.0 if kind == &"yaoguai_den" else 25.0)
 		_draw_ellipse(center + Vector2(0.0, 3.0 * camera_scale), radius_x * camera_scale, radius_y * camera_scale, Color("fff0a0"), 2.4)
 
 	if category == &"resource":
@@ -698,7 +901,7 @@ func _draw_entity(entity_state: Dictionary) -> void:
 		_draw_resource_bar(entity_state, center)
 	else:
 		var texture := _entity_texture(entity_state["faction"] as StringName, kind)
-		var display_size := Vector2(94.0, 104.0) if category == &"unit" else _structure_display_size(kind)
+		var display_size := Vector2(94.0, 104.0) if category == &"unit" else (_wildlife_display_size(kind) if category == &"wildlife" else _structure_display_size(kind))
 		if kind == &"jadeclaw":
 			display_size = Vector2(124.0, 112.0)
 		elif kind == &"yaoguai_den":
@@ -736,6 +939,20 @@ func _structure_display_size(kind: StringName) -> Vector2:
 			return Vector2(182.0, 152.0)
 
 
+func _wildlife_display_size(kind: StringName) -> Vector2:
+	match kind:
+		&"chicken":
+			return Vector2(48.0, 48.0)
+		&"deer":
+			return Vector2(90.0, 76.0)
+		&"bison":
+			return Vector2(120.0, 92.0)
+		&"boar":
+			return Vector2(92.0, 70.0)
+		_:
+			return Vector2(116.0, 92.0)
+
+
 func _draw_tree_texture(
 	texture: Texture2D,
 	center: Vector2,
@@ -744,6 +961,9 @@ func _draw_tree_texture(
 	entity_state: Dictionary,
 ) -> void:
 	if texture == null:
+		return
+	if camera_scale < TREE_SWAY_MIN_SCALE:
+		_draw_world_texture(texture, center, display_size, tint)
 		return
 	var top_left := Vector2(center.x - display_size.x * 0.5, center.y - display_size.y + 10.0 * camera_scale)
 	var phase := _tree_wind_phase(entity_state)
@@ -800,8 +1020,8 @@ func _draw_health_bar(entity_state: Dictionary, center: Vector2, category: Strin
 	var ratio := clampf(float(entity_state["hp"]) / float(entity_state["max_hp"]), 0.0, 1.0)
 	if ratio >= 0.999 and not selected_ids.has(int(entity_state["id"])):
 		return
-	var width := (46.0 if category == &"unit" else 86.0) * camera_scale
-	var y_offset := (-77.0 if category == &"unit" else -137.0) * camera_scale
+	var width := (52.0 if category == &"wildlife" else 46.0 if category == &"unit" else 86.0) * camera_scale
+	var y_offset := (-67.0 if category == &"wildlife" else -77.0 if category == &"unit" else -137.0) * camera_scale
 	var rect := Rect2(center + Vector2(-width * 0.5, y_offset), Vector2(width, maxf(4.0, 6.0 * camera_scale)))
 	draw_rect(rect, Color(0.02, 0.03, 0.03, 0.9), true)
 	var health_color := _team_color(int(entity_state.get("team", RtsSimulation.TEAM_NEUTRAL)))

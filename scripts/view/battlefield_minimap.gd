@@ -6,6 +6,7 @@ const RESOURCE_COLOR := Color("deb961")
 const TREE_COLOR := Color("7cab62")
 const CAVE_COLOR := Color("d7bd6c")
 const MONSTER_COLOR := Color("c79855")
+const WILDLIFE_COLOR := Color("d9a96c")
 const CAMERA_COLOR := Color(0.96, 0.9, 0.64, 0.9)
 const REDRAW_SECONDS := 0.1
 const TERRAIN_COLORS := {
@@ -100,6 +101,8 @@ func _draw_entities(map_rect: Rect2, cell_size: Vector2) -> void:
 			color = CAVE_COLOR
 		elif entity_state.get("kind") == &"jadeclaw" and team == RtsSimulation.TEAM_NEUTRAL:
 			color = MONSTER_COLOR
+		elif category == &"wildlife":
+			color = WILDLIFE_COLOR
 		if team == RtsSimulation.TEAM_PLAYER:
 			color = PLAYER_COLOR
 		elif team == RtsSimulation.TEAM_ENEMY:
@@ -109,7 +112,7 @@ func _draw_entities(map_rect: Rect2, cell_size: Vector2) -> void:
 			var marker_size := Vector2(footprint) * cell_size
 			draw_rect(Rect2(center - marker_size * 0.5, marker_size).grow(0.5), color, true)
 		else:
-			radius = 2.8 if category == &"unit" else 2.2
+			radius = 2.8 if category == &"unit" else 2.4 if category == &"wildlife" else 2.2
 			draw_circle(center, radius, color)
 
 

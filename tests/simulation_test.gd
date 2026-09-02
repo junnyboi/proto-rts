@@ -34,6 +34,148 @@ func _test_stronghold_dropoff(failures: Array[String]) -> void:
 		failures.append("worker remained stuck in the resource return order after reaching the Stronghold")
 
 
+func _test_manual_deposit_requires_range(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human")
+	var worker_id := simulation.team_entity_ids(RtsSimulation.TEAM_PLAYER, [&"worker"])[0]
+	var worker := simulation.entity(worker_id)
+	var stronghold_id := simulation.primary_structure_id(RtsSimulation.TEAM_PLAYER, &"stronghold")
+	worker["cargo_kind"] = &"lumber"
+	worker["cargo_amount"] = 20.0
+	var lumber_before := int(simulation.players[RtsSimulation.TEAM_PLAYER]["lumber"])
+	var deposited_workers := simulation.command_deposit([worker_id], stronghold_id)
+	if deposited_workers != 0:
+		failures.append("a remote worker deposited immediately")
+	if int(simulation.players[RtsSimulation.TEAM_PLAYER]["lumber"]) != lumber_before:
+		failures.append("a remote deposit command changed the stockpile")
+	if worker.get("cargo_kind") != &"lumber" or float(worker.get("cargo_amount", 0.0)) != 20.0:
+		failures.append("a remote deposit command changed carried cargo before arrival")
+	if worker.get("order") != &"return":
+		failures.append("a remote deposit command did not start a return order")
+	var timeout := 10.0
+	while float(worker.get("cargo_amount", 0.0)) > 0.0 and timeout > 0.0:
+		simulation.advance(RtsSimulation.TICK_SECONDS)
+		timeout -= RtsSimulation.TICK_SECONDS
+	if int(simulation.players[RtsSimulation.TEAM_PLAYER]["lumber"]) != lumber_before + 20:
+		failures.append("a returning worker did not deposit after reaching the Stronghold")
+	if float(worker.get("cargo_amount", 0.0)) > 0.0:
+		failures.append("a returning worker retained cargo after the physical drop-off")
+
+
+func _test_cargo_reassignment_preserves_kind(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human")
+	var worker_id := simulation.team_entity_ids(RtsSimulation.TEAM_PLAYER, [&"worker"])[0]
+	var worker := simulation.entity(worker_id)
+	var jade: Dictionary = {}
+	for raw_entity in simulation.entities.values():
+		var entity_state := raw_entity as Dictionary
+		if entity_state.get("resource_kind") == &"jade":
+			jade = entity_state
+			break
+	if jade.is_empty():
+		failures.append("no Jade node was available for the cargo reassignment test")
+		return
+	var visible_cell := simulation._nearest_walkable_around(jade["cell"] as Vector2i, 3)
+	worker["position"] = Vector2(visible_cell)
+	worker["cell"] = visible_cell
+	worker["path"] = []
+	worker["cargo_kind"] = &"lumber"
+	worker["cargo_amount"] = 20.0
+	simulation._refresh_visibility()
+	var lumber_before := int(simulation.players[RtsSimulation.TEAM_PLAYER]["lumber"])
+	simulation.command_gather([worker_id], int(jade["id"]))
+	if worker.get("order") != &"return":
+		failures.append("reassigning mixed cargo did not start a return order")
+	if int(worker.get("gather_source_id", -1)) != int(jade["id"]):
+		failures.append("reassigning mixed cargo did not remember the new source")
+	if worker.get("cargo_kind") != &"lumber" or float(worker.get("cargo_amount", 0.0)) != 20.0:
+		failures.append("reassigning to Jade converted the existing Lumber cargo")
+	var timeout := 15.0
+	while int(simulation.players[RtsSimulation.TEAM_PLAYER]["lumber"]) == lumber_before and timeout > 0.0:
+		simulation.advance(RtsSimulation.TICK_SECONDS)
+		timeout -= RtsSimulation.TICK_SECONDS
+		if float(worker.get("cargo_amount", 0.0)) > 0.0 and worker.get("cargo_kind") != &"lumber":
+			failures.append("cargo kind changed before the old load was deposited")
+			break
+	if int(simulation.players[RtsSimulation.TEAM_PLAYER]["lumber"]) != lumber_before + 20:
+		failures.append("the old Lumber load was not banked before gathering Jade")
+	if worker.get("order") != &"gather" or int(worker.get("gather_source_id", -1)) != int(jade["id"]):
+		failures.append("the worker did not resume the requested Jade source after deposit")
+	worker["position"] = Vector2(visible_cell)
+	worker["cell"] = visible_cell
+	worker["path"] = []
+	_advance(simulation, RtsSimulation.GATHER_CYCLE + RtsSimulation.TICK_SECONDS * 2.0)
+	if float(worker.get("cargo_amount", 0.0)) <= 0.0 or worker.get("cargo_kind") != &"jade":
+		failures.append("the empty worker did not begin a new Jade load after returning Lumber")
+
+
+func _test_attack_move_resumes_destination(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human")
+	var start := simulation._nearest_walkable(MapCatalog.PLAYER_BUILD_TEST_SITE)
+	var nearby_cells := simulation._formation_cells(start, 2)
+	if nearby_cells.size() < 2:
+		failures.append("no nearby walkable cells were available for the attack-move test")
+		return
+	var destination := simulation._nearest_walkable(start + Vector2i(12, -6))
+	var attacker_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", start)
+	var target_id := simulation._spawn_unit(RtsSimulation.TEAM_ENEMY, &"vanguard", nearby_cells[1])
+	var attacker := simulation.entity(attacker_id)
+	var target := simulation.entity(target_id)
+	target["hp"] = 1.0
+	simulation._refresh_visibility()
+	simulation.command_move([attacker_id], destination, true)
+	var saved_destination := attacker.get("attack_move_destination", Vector2i(-1, -1)) as Vector2i
+	var timeout := 4.0
+	while bool(target.get("alive", false)) and timeout > 0.0:
+		simulation.advance(RtsSimulation.TICK_SECONDS)
+		timeout -= RtsSimulation.TICK_SECONDS
+	if bool(target.get("alive", false)):
+		failures.append("attack-move did not engage the nearby visible enemy")
+		return
+	var distance_after_kill := (attacker["position"] as Vector2).distance_to(Vector2(saved_destination))
+	_advance(simulation, 1.0)
+	var distance_after_resume := (attacker["position"] as Vector2).distance_to(Vector2(saved_destination))
+	if distance_after_resume >= distance_after_kill - 0.05:
+		failures.append("attack-move did not resume progress toward its saved destination")
+	if bool(attacker.get("attack_move", false)) and attacker.get("attack_move_destination") != saved_destination:
+		failures.append("attack-move lost its final destination after combat")
+
+
+func _test_large_formations_and_separation(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human")
+	var destination := simulation._nearest_walkable(MapCatalog.PLAYER_BUILD_TEST_SITE)
+	var formation := simulation._formation_cells(destination, 14)
+	var unique_cells: Dictionary = {}
+	for cell in formation:
+		unique_cells[cell] = true
+	if formation.size() != 14 or unique_cells.size() != 14:
+		failures.append("formation generation did not provide 14 unique destinations")
+	var unit_ids: Array[int] = []
+	var origin := simulation._nearest_walkable(destination + Vector2i(0, 6))
+	for _index in range(14):
+		unit_ids.append(simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", origin))
+	simulation.command_move(unit_ids, destination, true)
+	var assigned_destinations: Dictionary = {}
+	for unit_id in unit_ids:
+		assigned_destinations[simulation.entity(unit_id).get("attack_move_destination")] = true
+	if assigned_destinations.size() != unit_ids.size():
+		failures.append("a large command group reused formation destinations")
+	var separation_simulation := RtsSimulation.new()
+	separation_simulation.setup(&"human")
+	var separation_cell := separation_simulation._nearest_walkable(MapCatalog.SIZE / 2)
+	var first_id := separation_simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", separation_cell)
+	var second_id := separation_simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", separation_cell)
+	separation_simulation._resolve_unit_separation()
+	var separation := (
+		separation_simulation.entity(first_id)["position"] as Vector2
+	).distance_to(separation_simulation.entity(second_id)["position"] as Vector2)
+	if separation < RtsSimulation.UNIT_SEPARATION_DISTANCE - 0.01:
+		failures.append("overlapping units did not separate locally")
+
+
 func _test_unit_food_costs(failures: Array[String]) -> void:
 	var simulation := RtsSimulation.new()
 	simulation.setup(&"human")
@@ -110,7 +252,7 @@ func _test_food_building(
 
 func _test_ai_food_economy(failures: Array[String]) -> void:
 	var simulation := RtsSimulation.new()
-	simulation.setup(&"human")
+	simulation.setup(&"demon")
 	simulation.players[RtsSimulation.TEAM_ENEMY]["jade"] = 1000
 	simulation.players[RtsSimulation.TEAM_ENEMY]["lumber"] = 1000
 	simulation._try_expand_ai_food_economy()
@@ -127,6 +269,10 @@ func _test_ai_food_economy(failures: Array[String]) -> void:
 func _run() -> void:
 	var failures: Array[String] = []
 	_test_stronghold_dropoff(failures)
+	_test_manual_deposit_requires_range(failures)
+	_test_cargo_reassignment_preserves_kind(failures)
+	_test_attack_move_resumes_destination(failures)
+	_test_large_formations_and_separation(failures)
 	_test_unit_food_costs(failures)
 	_test_food_building(&"rice_farm", failures)
 	_test_food_building(&"hunters_lodge", failures)
@@ -144,6 +290,10 @@ func _run() -> void:
 	else:
 		var deposit_worker := simulation.entity(workers[0])
 		var player_stronghold_id := simulation.primary_structure_id(RtsSimulation.TEAM_PLAYER, &"stronghold")
+		var player_stronghold := simulation.entity(player_stronghold_id)
+		var adjacent_cell := (player_stronghold["cell"] as Vector2i) + Vector2i(0, -1)
+		deposit_worker["position"] = Vector2(adjacent_cell)
+		deposit_worker["cell"] = adjacent_cell
 		var essence_before_deposit := int(simulation.players[RtsSimulation.TEAM_PLAYER]["essence"])
 		deposit_worker["cargo_kind"] = &"essence"
 		deposit_worker["cargo_amount"] = 17.0
@@ -256,6 +406,13 @@ func _run() -> void:
 	if jade_resource_id < 0:
 		failures.append("no jade resource spawned")
 	else:
+		var jade_resource := simulation.entity(jade_resource_id)
+		var jade_approach := simulation._nearest_walkable_around(jade_resource["cell"] as Vector2i, 3)
+		var jade_worker := simulation.entity(workers[0])
+		jade_worker["position"] = Vector2(jade_approach)
+		jade_worker["cell"] = jade_approach
+		jade_worker["path"] = []
+		simulation._refresh_visibility()
 		simulation.command_gather([workers[0]], jade_resource_id)
 		_advance(simulation, 12.0)
 		if int(simulation.players[RtsSimulation.TEAM_PLAYER]["jade"]) <= jade_before:
@@ -366,13 +523,14 @@ func _run() -> void:
 			&"vanguard",
 			MapCatalog.ENEMY_STRONGHOLD + Vector2i(-1, 0),
 		)
+		simulation._refresh_visibility()
 		simulation.command_attack([attacker_id], enemy_hold_id)
 		_advance(simulation, 3.0)
 		if simulation.outcome != &"victory":
 			failures.append("destroying the enemy Stronghold did not produce victory")
 
 	if failures.is_empty():
-		print("PASS simulation_test: Food costs and producers, AI food economy, guardian wandering, tree retargeting, monster bounties, cave capture and recapture, Jadeclaw production, economy, construction, combat, victory")
+		print("PASS simulation_test: deposits, cargo integrity, attack-move, formations, separation, Food costs and producers, AI food economy, guardian wandering, tree retargeting, monster bounties, cave capture and recapture, Jadeclaw production, economy, construction, combat, victory")
 		quit(0)
 	else:
 		for failure in failures:

@@ -1,6 +1,6 @@
 {
   "generator": "GPT Image 2",
-  "runtime_asset_count": 42,
+  "runtime_asset_count": 50,
   "assets": [
     {
       "path": "assets/runtime/ui/mandate_of_myth_title.webp",
@@ -138,6 +138,18 @@
       "sha256": "113cdf7f25c00e001458a0e4dd695e74defe3775c42a9eff229c5e48ae542491"
     },
     {
+      "path": "assets/runtime/units/demon_hunter.png",
+      "source": "assets/source/units/demon_hunter.png",
+      "width": 160,
+      "height": 176,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "ae80f795fd3bfc66b4f42f5a03869b252aa49282b3c91474c1d41f7ea285e501"
+    },
+    {
       "path": "assets/runtime/buildings/demon_stronghold.png",
       "source": "assets/source/buildings/demon_stronghold.png",
       "width": 288,
@@ -205,6 +217,18 @@
         255
       ],
       "sha256": "0e24d50a846920ce69689df9f97fae4a447b250e929c1357bc4fba4d0974f4cd"
+    },
+    {
+      "path": "assets/runtime/units/beast_hunter.png",
+      "source": "assets/source/units/beast_hunter.png",
+      "width": 160,
+      "height": 176,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "0d0e843e4b7ee6b0ee4dcb65f28c0fad9f7e9cf21852e5ef29a34df1ab003d78"
     },
     {
       "path": "assets/runtime/buildings/beast_stronghold.png",
@@ -276,6 +300,18 @@
       "sha256": "633386a7b5f897ac55eae20633b2a039c0dba9b7e755d9b0447978d1765a1e38"
     },
     {
+      "path": "assets/runtime/units/human_hunter.png",
+      "source": "assets/source/units/human_hunter.png",
+      "width": 160,
+      "height": 176,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "0df14c7a8e00def57daa3b01c8b3d37f93e001460bb6b60c48720977fd05cdb0"
+    },
+    {
       "path": "assets/runtime/buildings/human_stronghold.png",
       "source": "assets/source/buildings/human_stronghold.png",
       "width": 288,
@@ -310,6 +346,66 @@
         255
       ],
       "sha256": "cd4c19816573c003b2adea0c47cbaad16e63db5fe011911862b77727e14dcfd7"
+    },
+    {
+      "path": "assets/runtime/wildlife/chicken.png",
+      "source": "assets/source/wildlife/chicken.png",
+      "width": 96,
+      "height": 88,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "66ec22c39dab1f9ad26f2025dda462d976e9d9c2175cbe9a07d1c77d20791d0c"
+    },
+    {
+      "path": "assets/runtime/wildlife/deer.png",
+      "source": "assets/source/wildlife/deer.png",
+      "width": 144,
+      "height": 120,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "d4d22817a0a9bb25c6566decd6388fd852b0e6f9b85d959fd7d4352ccc212426"
+    },
+    {
+      "path": "assets/runtime/wildlife/bison.png",
+      "source": "assets/source/wildlife/bison.png",
+      "width": 176,
+      "height": 136,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "3d72378c783cf0c1ac165f6cd8449a0cfc78a19155d9c37fa6ee19caec011ec6"
+    },
+    {
+      "path": "assets/runtime/wildlife/boar.png",
+      "source": "assets/source/wildlife/boar.png",
+      "width": 144,
+      "height": 112,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "654c79c23d4fc7a51092cda3d4e9dfd152897ba1b2989b2d4ba9fd847b0e7fc1"
+    },
+    {
+      "path": "assets/runtime/wildlife/bear.png",
+      "source": "assets/source/wildlife/bear.png",
+      "width": 176,
+      "height": 136,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "b31cbaa0349af5822f2635dc38eae7d3c38f57cd70ca8f4a61260793b299540f"
     },
     {
       "path": "assets/runtime/buildings/neutral_yaoguai_den.png",

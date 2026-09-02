@@ -55,9 +55,21 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		if key.keycode == KEY_ESCAPE and state == STATE_FACTION:
 			_show_title()
 		return
+	var control_group := _control_group_index(key)
+	if control_group >= 0:
+		if key.ctrl_pressed or key.meta_pressed:
+			battlefield.assign_control_group(control_group, key.shift_pressed)
+		else:
+			battlefield.recall_control_group(control_group, key.shift_pressed)
+		return
 	match key.keycode:
 		KEY_ESCAPE:
-			if battlefield.attack_move_armed or battlefield.placement_worker_id >= 0:
+			if (
+				battlefield.attack_move_armed
+				or battlefield.patrol_armed
+				or battlefield.repair_armed
+				or battlefield.placement_worker_id >= 0
+			):
 				battlefield.cancel_modes()
 				_show_feedback("Command cancelled.", false)
 			else:
@@ -73,10 +85,30 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		KEY_SPACE:
 			battlefield.select_player_stronghold()
 		KEY_F:
-			battlefield.begin_attack_move()
+			battlefield.begin_attack_move(key.shift_pressed)
+		KEY_T:
+			battlefield.begin_patrol(key.shift_pressed)
+		KEY_R:
+			battlefield.begin_repair(key.shift_pressed)
 		KEY_X:
 			simulation.command_stop(battlefield.selected_commandable_units())
 			_show_feedback("Selected units halted.", false)
+
+
+func _control_group_index(key: InputEventKey) -> int:
+	var code := key.keycode if key.keycode != KEY_NONE else key.physical_keycode
+	match code:
+		KEY_0: return 0
+		KEY_1: return 1
+		KEY_2: return 2
+		KEY_3: return 3
+		KEY_4: return 4
+		KEY_5: return 5
+		KEY_6: return 6
+		KEY_7: return 7
+		KEY_8: return 8
+		KEY_9: return 9
+	return -1
 
 
 func _clear_screen() -> void:
@@ -160,7 +192,7 @@ func _show_faction_select() -> void:
 	title.offset_bottom = 64
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	root.add_child(title)
-	var subtitle := ThemeFactory.label("Each host shares the same core army. Their passive changes how the war breathes.", 16, ThemeFactory.MUTED)
+	var subtitle := ThemeFactory.label("Food traditions differ: Celestials farm, Demons and Beasts hunt, and Humans can do both.", 16, ThemeFactory.MUTED)
 	subtitle.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	subtitle.offset_top = 65
 	subtitle.offset_bottom = 96
@@ -329,9 +361,13 @@ func _build_bottom_hud(root: Control) -> void:
 	_add_command_button(command_grid, &"build_farm", "BUILD RICE FARM", func() -> void: _command_build(&"rice_farm"))
 	_add_command_button(command_grid, &"build_lodge", "BUILD HUNTER'S LODGE", func() -> void: _command_build(&"hunters_lodge"))
 	_add_command_button(command_grid, &"worker", "TRAIN WORKER", func() -> void: _command_train(&"worker"))
+	_add_command_button(command_grid, &"hunter", "TRAIN HUNTER", func() -> void: _command_train(&"hunter"))
 	_add_command_button(command_grid, &"vanguard", "TRAIN VANGUARD", func() -> void: _command_train(&"vanguard"))
 	_add_command_button(command_grid, &"mystic", "TRAIN MYSTIC", func() -> void: _command_train(&"mystic"))
 	_add_command_button(command_grid, &"jadeclaw", "CALL JADECLAW", func() -> void: _command_train(&"jadeclaw"))
+	_add_command_button(command_grid, &"repair", "REPAIR  R", func() -> void: battlefield.begin_repair())
+	_add_command_button(command_grid, &"patrol", "PATROL  T", func() -> void: battlefield.begin_patrol())
+	_add_command_button(command_grid, &"cancel_queue", "CANCEL LAST", _command_cancel_training)
 
 
 func _add_command_button(container: Control, id: StringName, text: String, action: Callable) -> void:
@@ -349,7 +385,7 @@ func _build_help_panel(root: Control) -> void:
 	panel.size = Vector2(330, 122)
 	panel.add_theme_stylebox_override(&"panel", ThemeFactory.panel_style(Color(0.02, 0.05, 0.052, 0.82), Color("345d57"), 1, 8))
 	root.add_child(panel)
-	var text := ThemeFactory.label("OBJECTIVE\nBuild Rice Farms or Hunter's Lodges to supply Food for every new unit. Hunt Jadeclaws, hold a cleared Den for 6 seconds, and destroy the rival Stronghold.", 13, ThemeFactory.MUTED)
+	var text := ThemeFactory.label("OBJECTIVE\nUse your faction's farming or hunting tradition to supply Food. Hunters harvest roaming wildlife; boars and bears fight back. Claim Dens and destroy the rival Stronghold.", 13, ThemeFactory.MUTED)
 	text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	panel.add_child(text)
 
@@ -422,21 +458,23 @@ func _update_selection_text() -> void:
 	var ids := battlefield.selected_ids
 	if ids.is_empty():
 		_selection_title.text = "No selection"
-		_selection_detail.text = "Left-click a unit or structure. Drag to select an army. Right-click to move, gather, attack, or set a rally point."
+		_selection_detail.text = "Left-click a unit, structure, or animal. Select Hunters and right-click wildlife to hunt for Food."
 		return
 	if ids.size() > 1:
 		var workers := 0
+		var hunters := 0
 		var vanguards := 0
 		var mystics := 0
 		var jadeclaws := 0
 		for id in ids:
 			match simulation.entity(id).get("kind"):
 				&"worker": workers += 1
+				&"hunter": hunters += 1
 				&"vanguard": vanguards += 1
 				&"mystic": mystics += 1
 				&"jadeclaw": jadeclaws += 1
 		_selection_title.text = "%d units selected" % ids.size()
-		_selection_detail.text = "Workers %d  ·  Vanguards %d  ·  Mystics %d  ·  Jadeclaws %d\nF: attack-move  ·  X: stop" % [workers, vanguards, mystics, jadeclaws]
+		_selection_detail.text = "Workers %d  ·  Hunters %d  ·  Vanguards %d  ·  Mystics %d  ·  Jadeclaws %d\nF: attack-move  ·  T: patrol  ·  R: repair  ·  X: stop  ·  Shift: queue" % [workers, hunters, vanguards, mystics, jadeclaws]
 		return
 	var entity_state := simulation.entity(ids[0])
 	if entity_state.is_empty():
@@ -450,6 +488,18 @@ func _update_selection_text() -> void:
 			_:
 				_selection_title.text = "Essence Shrine"
 		_selection_detail.text = "%d remaining · Select workers and right-click this node to gather." % int(entity_state.get("amount", 0.0))
+		return
+	if entity_state.get("category") == &"wildlife":
+		var wildlife_stats := FactionCatalog.stats(entity_state["kind"] as StringName, &"neutral")
+		_selection_title.text = String(wildlife_stats["name"])
+		var reaction := "Fights back when attacked" if bool(entity_state.get("retaliates", false)) else "Flees when attacked"
+		_selection_detail.text = "%s · %d / %d health\n%s · Hunt bounty: %d Food." % [
+			wildlife_stats["role"],
+			int(entity_state["hp"]),
+			int(entity_state["max_hp"]),
+			reaction,
+			int(entity_state.get("food_bounty", 0)),
+		]
 		return
 	if entity_state.get("kind") == &"yaoguai_den":
 		_selection_title.text = "Yaoguai Den"
@@ -480,6 +530,10 @@ func _update_selection_text() -> void:
 	_selection_title.text = String(stats["name"])
 	var hp_text := "%d / %d health" % [int(entity_state["hp"]), int(entity_state["max_hp"])]
 	var detail := "%s\n%s · Order: %s" % [stats["role"], hp_text, String(entity_state.get("order", &"idle")).capitalize()]
+	if entity_state.get("category") == &"unit":
+		var command_queue := entity_state.get("command_queue", []) as Array
+		if not command_queue.is_empty():
+			detail += " · Orders queued: %d" % command_queue.size()
 	if entity_state.get("category") == &"structure":
 		var completion := float(entity_state.get("complete", 1.0))
 		if completion < 1.0:
@@ -503,9 +557,13 @@ func _update_commands() -> void:
 		return
 	var selected_structure := battlefield.primary_selected_structure()
 	var has_worker := false
+	var has_military := false
 	for id in battlefield.selected_ids:
-		if simulation.entity(id).get("kind") == &"worker":
+		var selected_entity := simulation.entity(id)
+		if selected_entity.get("kind") == &"worker":
 			has_worker = true
+		elif selected_entity.get("kind") in [&"vanguard", &"mystic", &"jadeclaw"]:
+			has_military = true
 	var structure := simulation.entity(selected_structure) if selected_structure >= 0 else {}
 	var player_faction := simulation.players[RtsSimulation.TEAM_PLAYER]["faction"] as StringName
 	var build_commands := {
@@ -517,7 +575,7 @@ func _update_commands() -> void:
 		var structure_kind := build_commands[button_id] as StringName
 		var build_stats := FactionCatalog.stats(structure_kind, player_faction)
 		var build_button := _command_buttons[button_id] as Button
-		build_button.visible = has_worker
+		build_button.visible = has_worker and simulation.is_kind_available(RtsSimulation.TEAM_PLAYER, structure_kind)
 		build_button.disabled = not simulation.can_afford_kind(RtsSimulation.TEAM_PLAYER, structure_kind)
 		build_button.text = "BUILD %s\n%s" % [String(build_stats["name"]).to_upper(), _short_cost(build_stats)]
 		build_button.tooltip_text = _long_cost(build_stats)
@@ -528,6 +586,17 @@ func _update_commands() -> void:
 	var worker_stats := FactionCatalog.stats(&"worker", player_faction)
 	worker_button.text = "TRAIN WORKER\n%s" % _short_cost(worker_stats)
 	worker_button.tooltip_text = _long_cost(worker_stats)
+	var hunter_button := _command_buttons[&"hunter"] as Button
+	hunter_button.visible = (
+		not structure.is_empty()
+		and structure.get("kind") == &"hunters_lodge"
+		and float(structure.get("complete", 0.0)) >= 1.0
+		and simulation.is_kind_available(RtsSimulation.TEAM_PLAYER, &"hunter")
+	)
+	hunter_button.disabled = not simulation.can_afford_kind(RtsSimulation.TEAM_PLAYER, &"hunter") or not simulation.has_population_for(RtsSimulation.TEAM_PLAYER, &"hunter")
+	var hunter_stats := FactionCatalog.stats(&"hunter", player_faction)
+	hunter_button.text = "TRAIN HUNTER\n%s" % _short_cost(hunter_stats)
+	hunter_button.tooltip_text = _long_cost(hunter_stats)
 	var vanguard_button := _command_buttons[&"vanguard"] as Button
 	vanguard_button.visible = not structure.is_empty() and structure.get("kind") == &"war_camp" and float(structure.get("complete", 0.0)) >= 1.0
 	vanguard_button.disabled = not simulation.can_afford_kind(RtsSimulation.TEAM_PLAYER, &"vanguard") or not simulation.has_population_for(RtsSimulation.TEAM_PLAYER, &"vanguard")
@@ -546,6 +615,23 @@ func _update_commands() -> void:
 	var jadeclaw_stats := FactionCatalog.stats(&"jadeclaw", player_faction)
 	jadeclaw_button.text = "CALL JADECLAW\n%s" % _short_cost(jadeclaw_stats)
 	jadeclaw_button.tooltip_text = _long_cost(jadeclaw_stats)
+
+	var repair_button := _command_buttons[&"repair"] as Button
+	repair_button.visible = has_worker
+	repair_button.disabled = false
+	repair_button.tooltip_text = "Repair a damaged allied structure · 15 health per 1 Lumber"
+	var patrol_button := _command_buttons[&"patrol"] as Button
+	patrol_button.visible = has_military
+	patrol_button.disabled = false
+	patrol_button.tooltip_text = "Patrol repeatedly between the unit's position and a destination"
+	var cancel_button := _command_buttons[&"cancel_queue"] as Button
+	var production_queue := structure.get("queue", []) as Array if not structure.is_empty() else []
+	cancel_button.visible = not production_queue.is_empty()
+	cancel_button.disabled = production_queue.is_empty()
+	if not production_queue.is_empty():
+		var queued_item := production_queue[-1] as Dictionary
+		cancel_button.text = "CANCEL LAST\n%s" % String(queued_item.get("kind", &"unit")).to_upper()
+		cancel_button.tooltip_text = "Refund the newest queued unit and release its reserved population"
 
 
 func _short_cost(stats: Dictionary) -> String:
@@ -591,11 +677,45 @@ func _command_train(kind: StringName) -> void:
 		_show_feedback("Insufficient resources, Food, population, or production capacity.", true)
 
 
+func _command_cancel_training() -> void:
+	var structure_id := battlefield.primary_selected_structure()
+	if structure_id < 0:
+		_show_feedback("Select a production structure with a queued unit.", true)
+		return
+	var cancelled := simulation.command_cancel_training(
+		structure_id,
+		RtsSimulation.TEAM_PLAYER,
+	)
+	if cancelled.is_empty():
+		_show_feedback("There is no queued unit to cancel.", true)
+		return
+	var costs := cancelled.get("costs", {}) as Dictionary
+	var refund_parts: Array[String] = []
+	for definition in [
+		["jade", "J"],
+		["lumber", "L"],
+		["essence", "E"],
+		["food", "F"],
+	]:
+		var amount := int(costs.get(definition[0], 0))
+		if amount > 0:
+			refund_parts.append("%d%s" % [amount, definition[1]])
+	_show_feedback(
+		"Cancelled %s · refunded %s." % [
+			String(cancelled.get("kind", &"unit")).capitalize(),
+			" · ".join(refund_parts),
+		],
+		false,
+	)
+
+
 func _on_battle_notice(message: String, team: int) -> void:
 	if team == RtsSimulation.TEAM_PLAYER or message.begins_with("The rival"):
 		_show_feedback(message, false)
 	elif message.contains("cleared"):
 		_show_feedback("The rival cleared a Yaoguai Den and can now capture it.", false)
+	elif message.contains("Food"):
+		_show_feedback("The rival completed a wildlife hunt.", false)
 	else:
 		_show_feedback("The rival claimed a Jadeclaw bounty.", false)
 

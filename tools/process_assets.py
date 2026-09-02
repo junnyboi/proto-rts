@@ -151,6 +151,17 @@ def main() -> None:
                     8,
                 )
             )
+        if faction != "celestial":
+            records.append(
+                save_isolated(
+                    SOURCE / "units" / f"{faction}_hunter.png",
+                    RUNTIME / "units" / f"{faction}_hunter.png",
+                    (160, 176),
+                    (140, 158),
+                    8,
+                    decontaminate_edge=True,
+                )
+            )
         for kind in ("stronghold", "war_camp"):
             records.append(
                 save_isolated(
@@ -171,6 +182,24 @@ def main() -> None:
             6,
         )
     )
+
+    for wildlife, canvas_size, content_size in (
+        ("chicken", (96, 88), (82, 74)),
+        ("deer", (144, 120), (132, 108)),
+        ("bison", (176, 136), (164, 124)),
+        ("boar", (144, 112), (132, 100)),
+        ("bear", (176, 136), (164, 124)),
+    ):
+        records.append(
+            save_isolated(
+                SOURCE / "wildlife" / f"{wildlife}.png",
+                RUNTIME / "wildlife" / f"{wildlife}.png",
+                canvas_size,
+                content_size,
+                6,
+                decontaminate_edge=True,
+            )
+        )
     records.append(
         save_isolated(
             SOURCE / "buildings" / "neutral_yaoguai_den.png",

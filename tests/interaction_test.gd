@@ -62,15 +62,26 @@ func _run() -> void:
 	battlefield.select_entities([worker_id])
 	var stronghold_position := battlefield.entity_screen_position(simulation.entity(stronghold_id))
 	battlefield.call("_handle_right_click", stronghold_position)
+	if int(simulation.players[RtsSimulation.TEAM_PLAYER]["lumber"]) != lumber_before_deposit:
+		failures.append("right-clicking the Stronghold deposited remote cargo immediately")
+	if worker.get("order") != &"return" or worker.get("cargo_kind") != &"lumber":
+		failures.append("right-clicking the Stronghold did not start a physical cargo return")
+	var deposit_timeout := 10.0
+	while float(worker.get("cargo_amount", 0.0)) > 0.0 and deposit_timeout > 0.0:
+		simulation.advance(RtsSimulation.TICK_SECONDS)
+		deposit_timeout -= RtsSimulation.TICK_SECONDS
 	if int(simulation.players[RtsSimulation.TEAM_PLAYER]["lumber"]) != lumber_before_deposit + 20:
-		failures.append("right-clicking the Stronghold did not immediately deposit carried resources")
+		failures.append("the contextual return did not deposit after reaching the Stronghold")
 	if float(worker.get("cargo_amount", -1.0)) != 0.0 or worker.get("cargo_kind") != &"":
-		failures.append("right-click deposit did not clear the worker's cargo")
+		failures.append("the contextual return did not clear the worker's cargo")
 
 	var tree_id := -1
 	for raw_entity in simulation.entities.values():
 		var entity_state := raw_entity as Dictionary
-		if entity_state.get("resource_kind") == &"lumber" and battlefield.should_render_entity(entity_state):
+		if (
+			entity_state.get("resource_kind") == &"lumber"
+			and simulation.is_entity_explored_by_team(RtsSimulation.TEAM_PLAYER, entity_state)
+		):
 			tree_id = int(entity_state["id"])
 			break
 	if tree_id < 0:
@@ -104,7 +115,7 @@ func _run() -> void:
 
 	battlefield.queue_free()
 	if failures.is_empty():
-		print("PASS interaction_test: camera pan and zoom, deterministic depth sorting, selection, Yaoguai Den hunt, Stronghold shortcut and deposit, Lumber contextual gather, Rice Farm placement")
+		print("PASS interaction_test: camera pan and zoom, deterministic depth sorting, selection, Yaoguai Den hunt, Stronghold shortcut and physical deposit, Lumber contextual gather, Rice Farm placement")
 		quit(0)
 	else:
 		for failure in failures:
