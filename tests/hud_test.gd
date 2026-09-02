@@ -22,8 +22,18 @@ func _run() -> void:
 	_verify_move_and_rally(game, battlefield, simulation, failures)
 	_verify_toast(game, failures)
 
+	var director := game.audio_director as AudioDirector
+	director._music_player.stop()
+	for player in director._players:
+		player.stop()
+	await create_timer(0.15).timeout
+	for player in director._players:
+		player.stream = null
+	director._music_player.stream = null
 	game.queue_free()
 	await process_frame
+	if not CursorSystem.is_suspended():
+		failures.append("game shutdown did not release the custom cursor registry")
 	if failures.is_empty():
 		print("PASS hud_test: economy ribbon, objectives, selection states, command card, production queue, armed modes, and toasts")
 		quit(0)
@@ -38,10 +48,22 @@ func _verify_economy_and_objectives(game: Node, simulation: RtsSimulation, failu
 	for chip_id in expected_chips:
 		if not game._resource_values.has(chip_id):
 			failures.append("economy ribbon is missing the %s chip" % String(chip_id))
+	var illustrated_chips: Array[StringName] = [&"jade", &"lumber", &"essence", &"food", &"population", &"dens"]
+	for chip_id in illustrated_chips:
+		if not game._resource_icons.has(chip_id):
+			failures.append("economy ribbon is missing the %s icon" % String(chip_id))
+		elif not (game._resource_icons[chip_id] is TextureRect):
+			failures.append("economy ribbon did not use illustrated art for %s" % String(chip_id))
+		elif (game._resource_icons[chip_id] as TextureRect).texture == null:
+			failures.append("economy ribbon %s icon has no texture" % String(chip_id))
+	if game._resource_icons.has(&"time") and game._resource_icons[&"time"] is TextureRect:
+		failures.append("time chip incorrectly replaced its clock glyph with resource art")
 	if game._resource_values.has(&"jade") and (game._resource_values[&"jade"] as Label).text != "320":
 		failures.append("Jade chip did not bind to the simulation value")
 	if game._objective_rows.size() != 3:
 		failures.append("objective tracker did not create three checklist rows")
+	if game._audio_button == null or not game._audio_button.text.contains("AUDIO ON"):
+		failures.append("economy ribbon is missing the enabled audio control")
 	var players_before := simulation.players.duplicate(true)
 	game.call("_toggle_objectives")
 	if not game._objective_collapsed or game._objective_panel.size.y > 60.0:
@@ -57,11 +79,18 @@ func _verify_selection_states(
 	simulation: RtsSimulation,
 	failures: Array[String],
 ) -> void:
+	battlefield.select_entities([])
+	game.call("_update_hud")
+	if game._selection_portrait.stretch_mode != TextureRect.STRETCH_KEEP_ASPECT_COVERED:
+		failures.append("Empty selection did not fill the portrait frame with centered faction art")
+
 	var workers := simulation.team_entity_ids(RtsSimulation.TEAM_PLAYER, [&"worker"])
 	battlefield.select_entities([workers[0]])
 	game.call("_update_hud")
 	if game._selection_title.text != "WORKER" or not game._command_buttons[&"repair"].visible:
 		failures.append("Worker selection did not populate identity and repair command")
+	if game._selection_portrait.stretch_mode != TextureRect.STRETCH_KEEP_ASPECT_CENTERED:
+		failures.append("Unit selection did not restore uncropped entity art")
 	if game._command_buttons[&"attack_move"].visible:
 		failures.append("Worker selection exposed the military attack-move slot")
 
@@ -143,11 +172,31 @@ func _verify_move_and_rally(
 	if not battlefield.move_armed:
 		failures.append("Move command tile did not arm destination mode")
 	else:
+		game.call("_update_hud")
+		var move_button := game._command_buttons[&"move"] as Button
+		if not move_button.toggle_mode or not move_button.button_pressed:
+			failures.append("armed Move command tile did not retain its selected state")
+		move_button.grab_focus()
+		game.call("_update_hud")
+		if not move_button.has_focus():
+			failures.append("HUD refresh interrupted the focused Move command tile")
 		var move_cell := MapCatalog.PLAYER_WORKERS[0] + Vector2i(2, 0)
 		var move_screen := battlefield.camera_offset + IsoProjection.cell_center(move_cell) * battlefield.camera_scale
 		battlefield.call("_handle_left_press", move_screen)
 		if simulation.entity(workers[0]).get("order") != &"move":
 			failures.append("armed Move did not issue the authoritative move order")
+		if not battlefield.move_armed:
+			failures.append("Move command did not remain armed after choosing a destination")
+		move_button.pressed.emit()
+		if battlefield.move_armed:
+			failures.append("clicking the selected Move command did not unselect it")
+		move_button.pressed.emit()
+		var escape := InputEventKey.new()
+		escape.pressed = true
+		escape.keycode = KEY_ESCAPE
+		game.call("_unhandled_key_input", escape)
+		if battlefield.move_armed or move_button.button_pressed:
+			failures.append("Esc did not immediately clear the selected Move command")
 
 	var stronghold_id := simulation.primary_structure_id(RtsSimulation.TEAM_PLAYER, &"stronghold")
 	var stronghold := simulation.entity(stronghold_id)
@@ -163,6 +212,9 @@ func _verify_move_and_rally(
 		battlefield.call("_handle_left_press", rally_screen)
 		if stronghold["rally_cell"] == rally_before:
 			failures.append("armed Rally did not update the authoritative rally cell")
+		if not battlefield.rally_armed:
+			failures.append("Rally command did not remain armed after choosing a destination")
+		(game._command_buttons[&"rally"] as Button).pressed.emit()
 
 
 func _verify_toast(game: Node, failures: Array[String]) -> void:

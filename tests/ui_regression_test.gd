@@ -41,6 +41,18 @@ func _run() -> void:
 	game.call("_update_hud")
 	for button_id in [&"build", &"build_farm", &"build_lodge"]:
 		_expect(not (game._command_buttons[button_id] as Button).visible, "enemy Worker inspection exposed %s" % button_id, failures)
+	var director := game.audio_director as AudioDirector
+	var music_player := director.get_node("Music") as AudioStreamPlayer
+	music_player.stop()
+	for player in director._players:
+		player.stop()
+	await create_timer(0.15).timeout
+	for player in director._players:
+		player.stream = null
+	music_player.stream = null
+	game.queue_free()
+	await process_frame
+	await process_frame
 
 	if failures.is_empty():
 		print("PASS ui_regression_test: title/faction keyboard focus, unavailable art guard, and enemy command isolation")

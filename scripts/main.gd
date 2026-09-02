@@ -8,6 +8,26 @@ const TITLE_ART := preload("res://assets/runtime/ui/mandate_of_myth_title.webp")
 const BATTLEFIELD_MINIMAP := preload("res://scripts/view/battlefield_minimap.gd")
 const HUD_ICON := preload("res://scripts/ui/hud_icon.gd")
 const HUD_COMMAND_BUTTON := preload("res://scripts/ui/hud_command_button.gd")
+const PERSISTENT_COMMAND_IDS: Array[StringName] = [
+	&"build",
+	&"build_farm",
+	&"build_lodge",
+	&"move",
+	&"attack_move",
+	&"patrol",
+	&"repair",
+	&"rally",
+]
+const COMMAND_VISIBLE_META := &"command_visible_for_update"
+const ARMED_TOOLTIP_SUFFIX := "\nARMED · Click again or Esc cancels"
+const RESOURCE_ICON_TEXTURES := {
+	&"jade": preload("res://assets/runtime/ui/resource_icons/jade.png"),
+	&"lumber": preload("res://assets/runtime/ui/resource_icons/lumber.png"),
+	&"essence": preload("res://assets/runtime/ui/resource_icons/essence.png"),
+	&"food": preload("res://assets/runtime/ui/resource_icons/food.png"),
+	&"population": preload("res://assets/runtime/ui/resource_icons/population.png"),
+	&"dens": preload("res://assets/runtime/ui/resource_icons/dens.png"),
+}
 
 var state: StringName = STATE_TITLE
 var selected_faction: StringName = &"human"
@@ -18,6 +38,7 @@ var _screen: Control
 var _resource_label: Label
 var _faction_label: Label
 var _resource_values: Dictionary = {}
+var _resource_icons: Dictionary = {}
 var _selection_title: Label
 var _selection_detail: Label
 var _selection_portrait: TextureRect
@@ -34,6 +55,7 @@ var _feedback_label: Label
 var _toast_panel: PanelContainer
 var _pause_banner: PanelContainer
 var _pause_button: Button
+var _audio_button: Button
 var _fog_button: Button
 var _fog_icon: HudIcon
 var _minimap: Control
@@ -45,19 +67,28 @@ var _command_deck: PanelContainer
 var _command_grid: GridContainer
 var _command_slots: Array[Control] = []
 var _command_buttons: Dictionary = {}
+var _command_mode_group: ButtonGroup
 var _hud_timer := 0.0
 var _feedback_timer := 0.0
 var _result_overlay: Control
 var _last_queue_focus_id := -1
 var _last_queue_focus_ms := -1000
+var audio_director: AudioDirector
 
 
 func _ready() -> void:
+	audio_director = AudioDirector.new()
+	audio_director.name = "AudioDirector"
+	add_child(audio_director)
 	var game_window := get_window()
 	game_window.mouse_entered.connect(CursorSystem.resume)
 	game_window.mouse_exited.connect(CursorSystem.suspend)
 	CursorSystem.resume()
 	_show_title()
+
+
+func _exit_tree() -> void:
+	CursorSystem.suspend()
 
 
 func _process(delta: float) -> void:
@@ -81,8 +112,13 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	var key := event as InputEventKey
 	if not key.pressed or key.echo:
 		return
+	audio_director.ensure_bgm()
+	if key.keycode == KEY_M:
+		_toggle_audio()
+		return
 	if state != STATE_MATCH or battlefield == null:
 		if key.keycode == KEY_ESCAPE and state == STATE_FACTION:
+			audio_director.play_ui(&"ui_cancel")
 			_show_title()
 		return
 	var control_group := _control_group_index(key)
@@ -103,6 +139,8 @@ func _unhandled_key_input(event: InputEvent) -> void:
 				or battlefield.placement_worker_id >= 0
 			):
 				battlefield.cancel_modes()
+				audio_director.play_ui(&"ui_cancel")
+				_update_armed_command_styles()
 				_show_feedback("Command cancelled.", false)
 			else:
 				_toggle_pause()
@@ -118,12 +156,16 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			battlefield.select_player_stronghold()
 		KEY_F:
 			battlefield.begin_attack_move(key.shift_pressed)
+			_update_armed_command_styles()
 		KEY_T:
 			battlefield.begin_patrol(key.shift_pressed)
+			_update_armed_command_styles()
 		KEY_R:
 			battlefield.begin_repair(key.shift_pressed)
+			_update_armed_command_styles()
 		KEY_X:
 			simulation.command_stop(RtsSimulation.TEAM_PLAYER, battlefield.selected_commandable_units())
+			audio_director.play_ui(&"ui_cancel")
 			_show_feedback("Selected units halted.", false)
 
 
@@ -151,6 +193,7 @@ func _clear_screen() -> void:
 	_resource_label = null
 	_faction_label = null
 	_resource_values.clear()
+	_resource_icons.clear()
 	_selection_title = null
 	_selection_detail = null
 	_selection_portrait = null
@@ -167,6 +210,7 @@ func _clear_screen() -> void:
 	_toast_panel = null
 	_pause_banner = null
 	_pause_button = null
+	_audio_button = null
 	_fog_button = null
 	_fog_icon = null
 	_minimap = null
@@ -177,6 +221,7 @@ func _clear_screen() -> void:
 	_command_grid = null
 	_command_slots.clear()
 	_command_buttons.clear()
+	_command_mode_group = null
 	_result_overlay = null
 	_last_queue_focus_id = -1
 	_last_queue_focus_ms = -1000
@@ -213,6 +258,8 @@ func _show_title() -> void:
 	state = STATE_TITLE
 	paused = false
 	simulation = null
+	audio_director.set_music_state(STATE_TITLE)
+	audio_director.ensure_bgm()
 	var root := _make_screen()
 	_add_title_background(root, 0.42)
 
@@ -230,13 +277,14 @@ func _show_title() -> void:
 	var play := ThemeFactory.button("START GAME")
 	play.custom_minimum_size = Vector2(340, 56)
 	play.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	play.pressed.connect(_show_faction_select)
+	_connect_button(play, _show_faction_select)
 	content.add_child(play)
 	play.grab_focus()
 
 
 func _show_faction_select() -> void:
 	state = STATE_FACTION
+	audio_director.set_music_state(STATE_FACTION)
 	var root := _make_screen()
 	_add_title_background(root, 0.72)
 
@@ -267,7 +315,7 @@ func _show_faction_select() -> void:
 	var back := ThemeFactory.button("BACK")
 	back.position = Vector2(20, 18)
 	back.size = Vector2(110, 40)
-	back.pressed.connect(_show_title)
+	_connect_button(back, _show_title, &"ui_cancel")
 	root.add_child(back)
 
 	var controls := ThemeFactory.label("Controls: left select · drag box-select · right contextual order · F attack-move · X stop · Q workers · E army · Space stronghold · WASD / arrows camera · Cmd+wheel / pinch zoom", 14, ThemeFactory.MUTED)
@@ -316,7 +364,7 @@ func _make_faction_card(faction_id: StringName) -> PanelContainer:
 	button_spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	column.add_child(button_spacer)
 	var choose := ThemeFactory.button("COMMAND %s" % String(definition["name"]).to_upper())
-	choose.pressed.connect(func() -> void: _start_match(faction_id))
+	_connect_button(choose, func() -> void: _start_match(faction_id))
 	column.add_child(choose)
 	if faction_id == FactionCatalog.ORDER[0]:
 		choose.call_deferred("grab_focus")
@@ -327,6 +375,8 @@ func _start_match(faction_id: StringName) -> void:
 	selected_faction = faction_id
 	state = STATE_MATCH
 	paused = false
+	audio_director.set_music_state(STATE_MATCH)
+	audio_director.ensure_bgm()
 	simulation = RtsSimulation.new()
 	simulation.setup(faction_id)
 	simulation.match_ended.connect(_on_match_ended)
@@ -339,6 +389,8 @@ func _start_match(faction_id: StringName) -> void:
 	battlefield.set_simulation(simulation)
 	battlefield.selection_changed.connect(_on_selection_changed)
 	battlefield.feedback.connect(_show_feedback)
+	battlefield.audio_cue.connect(audio_director.play_cue)
+	battlefield.simulation_event.connect(audio_director.handle_simulation_event)
 	root.add_child(battlefield)
 
 	_build_top_bar(root)
@@ -378,6 +430,15 @@ func _build_top_bar(root: Control) -> void:
 	_pause_button.add_theme_font_size_override(&"font_size", 14)
 	_pause_button.pressed.connect(_toggle_pause)
 	row.add_child(_pause_button)
+	_audio_button = ThemeFactory.button(
+		"AUDIO OFF  M" if audio_director.muted else "AUDIO ON  M",
+		"Toggle music and sound effects",
+	)
+	_audio_button.name = "AudioButton"
+	_audio_button.custom_minimum_size = Vector2(104.0, 34.0)
+	_audio_button.add_theme_font_size_override(&"font_size", 12)
+	_audio_button.pressed.connect(_toggle_audio)
+	row.add_child(_audio_button)
 
 
 func _add_resource_chip(
@@ -397,9 +458,21 @@ func _add_resource_chip(
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override(&"separation", 5)
 	chip.add_child(row)
-	var icon := HUD_ICON.new().configure(glyph, color) as HudIcon
-	icon.custom_minimum_size = Vector2(24.0, 24.0)
+	var icon: Control
+	if RESOURCE_ICON_TEXTURES.has(id):
+		var texture_icon := TextureRect.new()
+		texture_icon.texture = RESOURCE_ICON_TEXTURES[id] as Texture2D
+		texture_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		texture_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		texture_icon.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+		texture_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		icon = texture_icon
+	else:
+		icon = HUD_ICON.new().configure(glyph, color) as HudIcon
+	icon.name = "%sIcon" % String(id).capitalize()
+	icon.custom_minimum_size = Vector2(28.0, 28.0)
 	row.add_child(icon)
+	_resource_icons[id] = icon
 	var copy := VBoxContainer.new()
 	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	copy.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -604,6 +677,8 @@ func _build_command_bay() -> Control:
 	panel.custom_minimum_size.x = 326.0
 	panel.add_theme_stylebox_override(&"panel", ThemeFactory.hud_inset_style(ThemeFactory.GOLD))
 	_command_grid = GridContainer.new()
+	_command_mode_group = ButtonGroup.new()
+	_command_mode_group.allow_unpress = true
 	_command_grid.columns = 3
 	_command_grid.add_theme_constant_override(&"h_separation", 4)
 	_command_grid.add_theme_constant_override(&"v_separation", 4)
@@ -628,11 +703,26 @@ func _build_command_bay() -> Control:
 	_add_command_button(0, &"vanguard", "VANGUARD", func() -> void: _command_train(&"vanguard"), load(FactionCatalog.entity_art_path(faction, &"vanguard")) as Texture2D)
 	_add_command_button(1, &"mystic", "MYSTIC", func() -> void: _command_train(&"mystic"), load(FactionCatalog.entity_art_path(faction, &"mystic")) as Texture2D)
 	_add_command_button(0, &"jadeclaw", "JADECLAW", func() -> void: _command_train(&"jadeclaw"), load(FactionCatalog.entity_art_path(faction, &"jadeclaw")) as Texture2D)
-	_add_command_button(3, &"move", "MOVE", func() -> void: battlefield.begin_move(Input.is_key_pressed(KEY_SHIFT)), null, &"move")
-	_add_command_button(4, &"attack_move", "ATTACK-MOVE", func() -> void: battlefield.begin_attack_move(Input.is_key_pressed(KEY_SHIFT)), null, &"attack_move", "F")
-	_add_command_button(5, &"patrol", "PATROL", func() -> void: battlefield.begin_patrol(Input.is_key_pressed(KEY_SHIFT)), null, &"patrol", "T")
-	_add_command_button(5, &"repair", "REPAIR", func() -> void: battlefield.begin_repair(Input.is_key_pressed(KEY_SHIFT)), null, &"repair", "R")
-	_add_command_button(3, &"rally", "RALLY", func() -> void: battlefield.begin_rally(), null, &"rally")
+	_add_command_button(3, &"move", "MOVE", func() -> void:
+		battlefield.begin_move(Input.is_key_pressed(KEY_SHIFT))
+		_update_armed_command_styles()
+	, null, &"move")
+	_add_command_button(4, &"attack_move", "ATTACK-MOVE", func() -> void:
+		battlefield.begin_attack_move(Input.is_key_pressed(KEY_SHIFT))
+		_update_armed_command_styles()
+	, null, &"attack_move", "F")
+	_add_command_button(5, &"patrol", "PATROL", func() -> void:
+		battlefield.begin_patrol(Input.is_key_pressed(KEY_SHIFT))
+		_update_armed_command_styles()
+	, null, &"patrol", "T")
+	_add_command_button(5, &"repair", "REPAIR", func() -> void:
+		battlefield.begin_repair(Input.is_key_pressed(KEY_SHIFT))
+		_update_armed_command_styles()
+	, null, &"repair", "R")
+	_add_command_button(3, &"rally", "RALLY", func() -> void:
+		battlefield.begin_rally()
+		_update_armed_command_styles()
+	, null, &"rally")
 	_add_command_button(6, &"stop", "STOP", _command_stop, null, &"stop", "X")
 	_add_command_button(6, &"cancel_queue", "CANCEL LAST", _command_cancel_training, null, &"cancel")
 	return panel
@@ -649,6 +739,9 @@ func _add_command_button(
 ) -> void:
 	var button := HUD_COMMAND_BUTTON.new().configure(title, "", hotkey, texture, glyph, ThemeFactory.GOLD) as HudCommandButton
 	button.name = "%sCommand" % String(id).capitalize()
+	if id in PERSISTENT_COMMAND_IDS:
+		button.toggle_mode = true
+		button.button_group = _command_mode_group
 	button.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	button.add_theme_stylebox_override(&"normal", ThemeFactory.command_button_style(Color("102020"), Color("4b655f")))
 	button.add_theme_stylebox_override(&"hover", ThemeFactory.command_button_style(Color("183633"), ThemeFactory.JADE, 2))
@@ -832,6 +925,11 @@ func _update_selection_panel() -> void:
 	_selection_health.visible = true
 	_selection_health_label.visible = true
 	var ids: Array[int] = battlefield.selected_ids
+	_selection_portrait.stretch_mode = (
+		TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		if ids.is_empty()
+		else TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	)
 	if ids.is_empty():
 		_selection_portrait.texture = load(FactionCatalog.portrait_path(selected_faction)) as Texture2D
 		_selection_portrait_frame.add_theme_stylebox_override(&"panel", ThemeFactory.portrait_style(FactionCatalog.definition(selected_faction)["accent"] as Color))
@@ -1143,7 +1241,7 @@ func _update_commands() -> void:
 	if battlefield == null or _command_buttons.is_empty():
 		return
 	for raw_button in _command_buttons.values():
-		(raw_button as HudCommandButton).visible = false
+		(raw_button as HudCommandButton).set_meta(COMMAND_VISIBLE_META, false)
 	var selected_structure_id := battlefield.primary_selected_structure()
 	var structure := simulation.entity(selected_structure_id) if selected_structure_id >= 0 else {}
 	var has_units := not battlefield.selected_commandable_units().is_empty()
@@ -1185,7 +1283,7 @@ func _update_commands() -> void:
 	_set_simple_command(&"rally", not structure.is_empty(), "Set the selected producer's rally destination")
 	var production_queue := structure.get("queue", []) as Array if not structure.is_empty() else []
 	var cancel_button := _command_buttons[&"cancel_queue"] as HudCommandButton
-	cancel_button.visible = not production_queue.is_empty()
+	cancel_button.set_meta(COMMAND_VISIBLE_META, not production_queue.is_empty())
 	cancel_button.disabled = production_queue.is_empty()
 	if not production_queue.is_empty():
 		cancel_button.set_command_title("CANCEL LAST")
@@ -1193,6 +1291,7 @@ func _update_commands() -> void:
 		cancel_button.tooltip_text = "Refund the newest queued unit and release its reserved population"
 	for raw_button in _command_buttons.values():
 		var command_button := raw_button as HudCommandButton
+		command_button.visible = bool(command_button.get_meta(COMMAND_VISIBLE_META, false))
 		CursorSystem.apply(command_button, CursorSystem.FORBIDDEN if command_button.disabled else CursorSystem.UI_ACTION)
 
 
@@ -1200,7 +1299,7 @@ func _show_cost_command(button_id: StringName, kind: StringName, verb: String, c
 	var button := _command_buttons[button_id] as HudCommandButton
 	var faction := simulation.players[RtsSimulation.TEAM_PLAYER]["faction"] as StringName
 	var stats := FactionCatalog.stats(kind, faction)
-	button.visible = true
+	button.set_meta(COMMAND_VISIBLE_META, true)
 	button.disabled = not simulation.can_afford_kind(RtsSimulation.TEAM_PLAYER, kind) or (check_population and not simulation.has_population_for(RtsSimulation.TEAM_PLAYER, kind))
 	button.set_cost_markup(_cost_markup(stats))
 	var tooltip := "%s %s · %s" % [verb, stats["name"], _long_cost(stats)]
@@ -1212,7 +1311,7 @@ func _show_cost_command(button_id: StringName, kind: StringName, verb: String, c
 
 func _set_simple_command(button_id: StringName, visible: bool, tooltip: String) -> void:
 	var button := _command_buttons[button_id] as HudCommandButton
-	button.visible = visible
+	button.set_meta(COMMAND_VISIBLE_META, visible)
 	button.disabled = false
 	button.set_cost_markup("")
 	button.tooltip_text = tooltip
@@ -1265,11 +1364,17 @@ func _update_armed_command_styles() -> void:
 	}
 	for button_id in active:
 		var button := _command_buttons[button_id] as HudCommandButton
-		if active[button_id]:
-			button.add_theme_stylebox_override(&"normal", ThemeFactory.command_button_style(Color("173a33"), ThemeFactory.JADE, 2))
-			button.tooltip_text += "\nARMED · Esc cancels"
+		var is_active := bool(active[button_id])
+		button.set_pressed_no_signal(is_active)
+		button.tooltip_text = button.tooltip_text.trim_suffix(ARMED_TOOLTIP_SUFFIX)
+		if is_active:
+			var armed_style := ThemeFactory.command_button_style(Color("173a33"), ThemeFactory.JADE, 2)
+			button.add_theme_stylebox_override(&"normal", armed_style)
+			button.add_theme_stylebox_override(&"pressed", armed_style)
+			button.tooltip_text += ARMED_TOOLTIP_SUFFIX
 		else:
 			button.add_theme_stylebox_override(&"normal", ThemeFactory.command_button_style(Color("102020"), Color("4b655f")))
+			button.add_theme_stylebox_override(&"pressed", ThemeFactory.command_button_style(ThemeFactory.GOLD, Color("ffe8a0"), 2))
 
 
 func _short_cost(stats: Dictionary) -> String:
@@ -1302,6 +1407,7 @@ func _long_cost(stats: Dictionary) -> String:
 
 func _command_build(structure_kind: StringName) -> void:
 	battlefield.begin_structure_placement(structure_kind)
+	_update_armed_command_styles()
 
 
 func _command_stop() -> void:
@@ -1310,6 +1416,7 @@ func _command_stop() -> void:
 		_show_feedback("Select units before issuing Stop.", true)
 		return
 	simulation.command_stop(RtsSimulation.TEAM_PLAYER, units)
+	audio_director.play_ui(&"ui_cancel")
 	_show_feedback("Selected units halted.", false)
 
 
@@ -1319,6 +1426,7 @@ func _command_train(kind: StringName) -> void:
 		_show_feedback("Select the correct production structure.", true)
 		return
 	if simulation.command_train(RtsSimulation.TEAM_PLAYER, structure_id, kind):
+		audio_director.play_ui(&"ui_confirm")
 		_show_feedback("%s added to the training queue." % String(kind).capitalize(), false)
 	else:
 		_show_feedback("Insufficient resources, Food, population, or production capacity.", true)
@@ -1336,6 +1444,7 @@ func _command_cancel_training() -> void:
 	if cancelled.is_empty():
 		_show_feedback("There is no queued unit to cancel.", true)
 		return
+	audio_director.play_ui(&"ui_cancel")
 	var costs := cancelled.get("costs", {}) as Dictionary
 	var refund_parts: Array[String] = []
 	for definition in [
@@ -1368,6 +1477,9 @@ func _on_battle_notice(message: String, team: int) -> void:
 
 
 func _show_feedback(message: String, is_error: bool = false) -> void:
+	audio_director.ensure_bgm()
+	if is_error:
+		audio_director.play_ui(&"ui_error")
 	if _feedback_label == null or _toast_panel == null:
 		return
 	var color := ThemeFactory.IVORY
@@ -1401,6 +1513,8 @@ func _toggle_pause() -> void:
 	_pause_button.text = "▶  P" if paused else "Ⅱ  P"
 	_pause_button.tooltip_text = "Resume the realm" if paused else "Pause the realm"
 	_pause_banner.visible = paused
+	audio_director.set_music_state(&"paused" if paused else STATE_MATCH)
+	audio_director.play_ui(&"ui_cancel" if paused else &"ui_confirm")
 	_show_feedback("The realm is paused." if paused else "The realm resumes.", false)
 
 
@@ -1408,12 +1522,22 @@ func _toggle_fog_of_war() -> void:
 	if battlefield == null:
 		return
 	battlefield.set_fog_enabled(not battlefield.fog_enabled)
+	audio_director.play_ui(&"ui_confirm")
 	_show_feedback("Fog of war enabled." if battlefield.fog_enabled else "Fog of war disabled.", false)
+
+
+func _toggle_audio() -> void:
+	var is_muted := audio_director.toggle_muted()
+	if _audio_button != null:
+		_audio_button.text = "AUDIO OFF  M" if is_muted else "AUDIO ON  M"
+	if not is_muted:
+		audio_director.play_ui(&"ui_confirm")
 
 
 func _on_match_ended(result: StringName) -> void:
 	paused = true
 	state = STATE_RESULT
+	audio_director.play_outcome(result)
 	_result_overlay = Control.new()
 	_result_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_screen.add_child(_result_overlay)
@@ -1448,12 +1572,21 @@ func _on_match_ended(result: StringName) -> void:
 	time_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(time_label)
 	var rematch := ThemeFactory.button("REMATCH")
-	rematch.pressed.connect(func() -> void: _start_match(selected_faction))
+	_connect_button(rematch, func() -> void: _start_match(selected_faction))
 	column.add_child(rematch)
 	var choose := ThemeFactory.button("CHOOSE ANOTHER FACTION")
-	choose.pressed.connect(_show_faction_select)
+	_connect_button(choose, _show_faction_select)
 	column.add_child(choose)
 	var title_button := ThemeFactory.button("RETURN TO TITLE")
-	title_button.pressed.connect(_show_title)
+	_connect_button(title_button, _show_title, &"ui_cancel")
 	column.add_child(title_button)
 	rematch.grab_focus()
+
+
+func _connect_button(button: Button, action: Callable, cue: StringName = &"ui_confirm") -> void:
+	button.pressed.connect(func() -> void:
+		audio_director.ensure_bgm()
+		if not cue.is_empty():
+			audio_director.play_ui(cue)
+		action.call()
+	)

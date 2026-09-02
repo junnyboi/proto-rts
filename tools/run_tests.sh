@@ -46,21 +46,30 @@ if [[ ! -s "${ROOT}/.godot/global_script_class_cache.cfg" ]]; then
   "${GODOT_BIN}" --headless --editor --path "${ROOT}" --import --quit-after 2
 fi
 
+TEST_LOG_DIR="$(mktemp -d)"
+trap 'rm -rf "${TEST_LOG_DIR}"' EXIT
+
 for test_script in \
-  tests/map_test.gd \
-  tests/projection_test.gd \
-  tests/assets_test.gd \
-  tests/cursor_test.gd \
-  tests/hud_test.gd \
-  tests/interaction_test.gd \
+	  tests/map_test.gd \
+	  tests/projection_test.gd \
+	  tests/assets_test.gd \
+	  tests/audio_test.gd \
+	  tests/cursor_test.gd \
+	  tests/hud_test.gd \
+	  tests/interaction_test.gd \
   tests/command_system_test.gd \
   tests/visibility_test.gd \
   tests/simulation_test.gd \
-  tests/core_regression_test.gd \
-  tests/battlefield_regression_test.gd \
-  tests/ui_regression_test.gd \
-  tests/performance_test.gd
+	  tests/core_regression_test.gd \
+	  tests/battlefield_regression_test.gd \
+	  tests/ui_regression_test.gd \
+	  tests/performance_test.gd
 do
   echo "==> ${test_script}"
-  "${GODOT_BIN}" --headless --path "${ROOT}" --script "${ROOT}/${test_script}"
+  test_log="${TEST_LOG_DIR}/$(basename "${test_script}").log"
+  "${GODOT_BIN}" --headless --path "${ROOT}" --script "${ROOT}/${test_script}" 2>&1 | tee "${test_log}"
+  if grep -Eq 'SCRIPT ERROR|Parse Error|Compile Error|No loader found for resource|Failed to load script' "${test_log}"; then
+    echo "Fatal Godot diagnostic detected in ${test_script}" >&2
+    exit 1
+  fi
 done

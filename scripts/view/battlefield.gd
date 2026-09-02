@@ -4,6 +4,8 @@ extends Control
 signal selection_changed(ids)
 signal feedback(message: String, is_error: bool)
 signal fog_visibility_changed
+signal audio_cue(cue: StringName)
+signal simulation_event(event: Dictionary)
 
 const TERRAIN_TEXTURES := {
 	&"meadow": preload("res://assets/runtime/terrain/jade_meadow.webp"),
@@ -25,6 +27,12 @@ const COMMAND_INDICATOR_TEXTURES := {
 	&"flag": preload("res://assets/runtime/command_indicators/destination_flag.png"),
 	&"interact": preload("res://assets/runtime/command_indicators/interaction_ring.png"),
 	&"attack": preload("res://assets/runtime/command_indicators/attack_swords.png"),
+}
+const CARGO_ICON_TEXTURES := {
+	&"jade": preload("res://assets/runtime/ui/resource_icons/jade.png"),
+	&"lumber": preload("res://assets/runtime/ui/resource_icons/lumber.png"),
+	&"essence": preload("res://assets/runtime/ui/resource_icons/essence.png"),
+	&"food": preload("res://assets/runtime/ui/resource_icons/food.png"),
 }
 const IDLE_WORKER_ALERT_TEXTURE := preload("res://assets/runtime/ui/idle_worker_alert.png")
 const PLAYER_COLOR := Color("78dfb7")
@@ -51,6 +59,11 @@ const WALK_BOUNCE_SPEED := 8.5
 const WALK_MOTION_MEMORY_SECONDS := 0.16
 const WALK_MOTION_EPSILON_SQUARED := 0.000001
 const WALK_FACING_EPSILON := 0.01
+const IDLE_WOBBLE_MIN_WAIT_SECONDS := 12.0
+const IDLE_WOBBLE_MAX_WAIT_SECONDS := 24.0
+const IDLE_WOBBLE_DURATION := 0.52
+const IDLE_WOBBLE_ANGLE := 0.0436332313
+const IDLE_WOBBLE_OSCILLATIONS := 2.0
 const MAX_VISIBLE_COMMAND_PATHS := 10
 const COMMAND_PATH_DOT_SPACING := 16.0
 const COMMAND_PATH_DOT_RADIUS := 2.4
@@ -77,8 +90,12 @@ const NATIVE_RIGHT_FACING_ART := {
 	"neutral:deer": true,
 }
 const WHEEL_ZOOM_STEP := 1.12
+const INITIAL_CAMERA_ZOOM_FACTOR := 1.5
 const MIN_CAMERA_SCALE := 0.14
-const MAX_CAMERA_SCALE := 1.05
+const MAX_CAMERA_SCALE := 1.30
+const CAMERA_PAN_SPEED := 1000.0
+const CAMERA_PAN_RESPONSE := 10.0
+const CAMERA_PAN_STOP_EPSILON := 0.5
 const CONTROL_GROUP_DOUBLE_TAP_MS := 450
 
 var simulation: RtsSimulation
@@ -93,9 +110,10 @@ var placement_kind: StringName = &""
 var fog_enabled := true
 var control_groups: Dictionary = {}
 
-var camera_scale := 0.62
+var camera_scale := 0.93
 var camera_offset := Vector2.ZERO
 var _camera_initialized := false
+var _camera_pan_velocity := Vector2.ZERO
 var _middle_dragging := false
 var _selection_pressed := false
 var _selection_dragging := false
@@ -163,15 +181,17 @@ func _fit_camera() -> void:
 	var bounds := IsoProjection.map_bounds(MapCatalog.SIZE)
 	var available := Vector2(size.x - 56.0, size.y - 278.0)
 	var overview_scale := minf(available.x / bounds.size.x, available.y / bounds.size.y)
-	camera_scale = clampf(overview_scale * 2.376, 0.504, 0.864)
+	camera_scale = clampf(overview_scale * 2.376, 0.504, 0.864) * INITIAL_CAMERA_ZOOM_FACTOR
 	var focus := MapCatalog.PLAYER_STRONGHOLD if simulation != null else MapCatalog.SIZE / 2
 	camera_offset = Vector2(size.x * 0.5, size.y * 0.46) - IsoProjection.cell_center(focus) * camera_scale
+	_camera_pan_velocity = Vector2.ZERO
 	_camera_initialized = true
 	_clamp_camera()
 
 
 func center_on_cell(cell: Vector2i) -> void:
 	camera_offset = size * 0.5 - IsoProjection.cell_center(cell) * camera_scale
+	_camera_pan_velocity = Vector2.ZERO
 	_clamp_camera()
 	queue_redraw()
 
@@ -229,16 +249,14 @@ func _process(delta: float) -> void:
 	if simulation != null and _visibility_timer <= 0.0:
 		_visibility_timer = VISIBILITY_REFRESH_SECONDS
 		_refresh_visibility()
-	var camera_direction := Input.get_vector("camera_left", "camera_right", "camera_up", "camera_down")
-	if camera_direction.length_squared() > 0.0:
-		camera_offset -= camera_direction * 1000.0 * delta
-		_clamp_camera()
-		queue_redraw()
+	_update_camera_pan(delta)
 	for event in simulation.drain_events() if simulation != null else []:
 		var effect := (event as Dictionary).duplicate(true)
 		effect["remaining"] = 0.45 if effect.get("type") == &"attack" else 0.7
 		effect["duration"] = effect["remaining"]
 		_effects.append(effect)
+		if _event_is_audible(effect):
+			simulation_event.emit(effect.duplicate(true))
 	for index in range(_effects.size() - 1, -1, -1):
 		_effects[index]["remaining"] = float(_effects[index]["remaining"]) - delta
 		if float(_effects[index]["remaining"]) <= 0.0:
@@ -281,6 +299,21 @@ func _entity_center_cell(entity_state: Dictionary) -> Vector2i:
 	return Vector2i(center.floor())
 
 
+func _event_is_audible(event: Dictionary) -> bool:
+	if int(event.get("team", RtsSimulation.TEAM_NEUTRAL)) == RtsSimulation.TEAM_PLAYER:
+		return true
+	if not fog_enabled:
+		return true
+	var position := Vector2(-9999.0, -9999.0)
+	if event.has("position"):
+		position = event["position"] as Vector2
+	elif event.has("to"):
+		position = event["to"] as Vector2
+	elif event.has("from"):
+		position = event["from"] as Vector2
+	return is_cell_visible(Vector2i(position.floor()))
+
+
 func _gui_input(event: InputEvent) -> void:
 	if simulation == null or not simulation.outcome.is_empty():
 		return
@@ -309,6 +342,8 @@ func _gui_input(event: InputEvent) -> void:
 		_mouse_position = button.position
 		if button.button_index == MOUSE_BUTTON_MIDDLE:
 			_middle_dragging = button.pressed
+			if button.pressed:
+				_camera_pan_velocity = Vector2.ZERO
 			_refresh_cursor()
 			accept_event()
 			return
@@ -345,8 +380,6 @@ func _handle_left_press(screen_position: Vector2, append: bool = false) -> void:
 		var structure_name := String(stats.get("name", "Structure"))
 		if simulation.command_build(RtsSimulation.TEAM_PLAYER, placement_worker_id, placement_kind, cell):
 			feedback.emit("%s foundation placed." % structure_name, false)
-			placement_worker_id = -1
-			placement_kind = &""
 		else:
 			feedback.emit("That site cannot host a %s." % structure_name, true)
 		return
@@ -356,10 +389,9 @@ func _handle_left_press(screen_position: Vector2, append: bool = false) -> void:
 		if not move_units.is_empty() and MapCatalog.in_bounds(move_cell):
 			simulation.command_move(RtsSimulation.TEAM_PLAYER, move_units, move_cell, false, append or _armed_append)
 			feedback.emit("Move queued." if append or _armed_append else "Move order issued.", false)
+			audio_cue.emit(&"order_move")
 		else:
 			feedback.emit("Choose a valid move destination.", true)
-		move_armed = false
-		_armed_append = false
 		return
 	if rally_armed:
 		var rally_cell := screen_to_cell(screen_position)
@@ -367,10 +399,9 @@ func _handle_left_press(screen_position: Vector2, append: bool = false) -> void:
 		if rally_structure >= 0 and MapCatalog.in_bounds(rally_cell):
 			simulation.set_rally(RtsSimulation.TEAM_PLAYER, rally_structure, rally_cell)
 			feedback.emit("Rally point updated.", false)
+			audio_cue.emit(&"order_move")
 		else:
 			feedback.emit("Choose a valid rally destination.", true)
-		rally_armed = false
-		_armed_append = false
 		return
 	if repair_armed:
 		var repair_target_id := entity_at_screen(screen_position, false)
@@ -382,10 +413,9 @@ func _handle_left_press(screen_position: Vector2, append: bool = false) -> void:
 			append or _armed_append,
 		):
 			feedback.emit("Repair order queued." if append or _armed_append else "Repair order issued.", false)
+			audio_cue.emit(&"order_work")
 		else:
 			feedback.emit("Choose a damaged allied structure to repair.", true)
-		repair_armed = false
-		_armed_append = false
 		return
 	if attack_move_armed:
 		var cell := screen_to_cell(screen_position)
@@ -393,8 +423,7 @@ func _handle_left_press(screen_position: Vector2, append: bool = false) -> void:
 		if not units.is_empty() and MapCatalog.in_bounds(cell):
 			simulation.command_move(RtsSimulation.TEAM_PLAYER, units, cell, true, append or _armed_append)
 			feedback.emit("Attack-move queued." if append or _armed_append else "Attack-move order issued.", false)
-		attack_move_armed = false
-		_armed_append = false
+			audio_cue.emit(&"order_attack")
 		return
 	if patrol_armed:
 		var patrol_cell := screen_to_cell(screen_position)
@@ -405,10 +434,9 @@ func _handle_left_press(screen_position: Vector2, append: bool = false) -> void:
 			append or _armed_append,
 		):
 			feedback.emit("Patrol queued." if append or _armed_append else "Patrol route established.", false)
+			audio_cue.emit(&"order_move")
 		else:
 			feedback.emit("Choose a valid patrol destination.", true)
-		patrol_armed = false
-		_armed_append = false
 		return
 	_selection_pressed = true
 	_selection_dragging = false
@@ -442,7 +470,6 @@ func _handle_left_release(screen_position: Vector2) -> void:
 
 
 func _handle_right_click(screen_position: Vector2, append: bool = false) -> void:
-	cancel_modes()
 	if selected_ids.is_empty():
 		return
 	var target_id := entity_at_screen(screen_position, false)
@@ -456,14 +483,17 @@ func _handle_right_click(screen_position: Vector2, append: bool = false) -> void
 			else:
 				simulation.command_attack(RtsSimulation.TEAM_PLAYER, hunters, target_id, append)
 				feedback.emit("Hunt queued." if append else "Hunters pursuing %s." % _display_name(target), false)
+				audio_cue.emit(&"order_attack")
 			return
 		if target.get("kind") == &"yaoguai_den" and not commandable_units.is_empty():
 			simulation.command_move(RtsSimulation.TEAM_PLAYER, commandable_units, target["cell"] as Vector2i, true, append)
 			feedback.emit("Den hunt queued." if append else "Hunt the guardians, then hold the Den's capture ring.", false)
+			audio_cue.emit(&"order_attack")
 			return
 		if not commandable_units.is_empty() and simulation.are_hostile(simulation.entity(commandable_units[0]), target):
 			simulation.command_attack(RtsSimulation.TEAM_PLAYER, commandable_units, target_id, append)
 			feedback.emit("Focus-fire queued." if append else "Focus-fire order issued.", false)
+			audio_cue.emit(&"order_attack")
 			return
 		if target.get("kind") == &"stronghold":
 			var workers := _selected_of_kind(&"worker")
@@ -473,6 +503,7 @@ func _handle_right_click(screen_position: Vector2, append: bool = false) -> void
 					carrying_workers.append(worker_id)
 			if not carrying_workers.is_empty():
 				var deposited_workers := simulation.command_deposit(RtsSimulation.TEAM_PLAYER, carrying_workers, target_id, append)
+				audio_cue.emit(&"order_work")
 				if append:
 					feedback.emit("Resource return queued.", false)
 					return
@@ -492,11 +523,13 @@ func _handle_right_click(screen_position: Vector2, append: bool = false) -> void
 			and simulation.command_repair(RtsSimulation.TEAM_PLAYER, repair_workers, target_id, append)
 		):
 			feedback.emit("Repair queued." if append else "Workers assigned to repairs.", false)
+			audio_cue.emit(&"order_work")
 			return
 		if target.get("category") == &"resource":
 			var workers := _selected_of_kind(&"worker")
 			if not workers.is_empty():
 				simulation.command_gather(RtsSimulation.TEAM_PLAYER, workers, target_id, append)
+				audio_cue.emit(&"order_work")
 				feedback.emit(
 					"%s gathering queued." % _display_name(target) if append
 					else "Workers assigned to %s." % _display_name(target),
@@ -511,9 +544,11 @@ func _handle_right_click(screen_position: Vector2, append: bool = false) -> void
 	if selected_structure >= 0 and selected_commandable_units().is_empty():
 		if simulation.set_rally(RtsSimulation.TEAM_PLAYER, selected_structure, cell):
 			feedback.emit("Rally point updated.", false)
+			audio_cue.emit(&"order_move")
 	else:
 		if simulation.command_move(RtsSimulation.TEAM_PLAYER, selected_commandable_units(), cell, false, append):
 			feedback.emit("Move queued." if append else "Move order issued.", false)
+			audio_cue.emit(&"order_move")
 
 
 func _select_in_rect(rect: Rect2, additive: bool = false) -> void:
@@ -534,6 +569,7 @@ func _select_in_rect(rect: Rect2, additive: bool = false) -> void:
 
 
 func select_entities(ids: Array[int]) -> void:
+	var previous := selected_ids.duplicate()
 	selected_ids.clear()
 	for id in ids:
 		var entity_state := simulation.entity(id)
@@ -543,6 +579,8 @@ func select_entities(ids: Array[int]) -> void:
 			and not selected_ids.has(id)
 		):
 			selected_ids.append(id)
+	if not selected_ids.is_empty() and selected_ids != previous:
+		audio_cue.emit(&"unit_select")
 	selection_changed.emit(selected_ids.duplicate())
 	_refresh_cursor()
 	queue_redraw()
@@ -579,6 +617,7 @@ func assign_control_group(index: int, append: bool = false) -> void:
 		):
 			members.append(id)
 	control_groups[index] = members
+	audio_cue.emit(&"ui_confirm")
 	feedback.emit(
 		"Group %d updated · %d selected." % [index, members.size()]
 		if append
@@ -646,6 +685,11 @@ func _valid_control_group_members(raw_members: Array) -> Array[int]:
 
 
 func begin_attack_move(append: bool = false) -> void:
+	if attack_move_armed:
+		cancel_modes()
+		audio_cue.emit(&"ui_cancel")
+		feedback.emit("Attack-move cancelled.", false)
+		return
 	if selected_commandable_units().is_empty():
 		feedback.emit("Select units before issuing attack-move.", true)
 		return
@@ -653,20 +697,32 @@ func begin_attack_move(append: bool = false) -> void:
 	attack_move_armed = true
 	_armed_append = append
 	_refresh_cursor()
+	audio_cue.emit(&"ui_confirm")
 	feedback.emit("Queued attack-move: choose a destination." if append else "Attack-move armed: choose a destination.", false)
 
 
 func begin_move(append: bool = false) -> void:
+	if move_armed:
+		cancel_modes()
+		audio_cue.emit(&"ui_cancel")
+		feedback.emit("Move command cancelled.", false)
+		return
 	if selected_commandable_units().is_empty():
 		feedback.emit("Select units before issuing a move.", true)
 		return
 	cancel_modes()
 	move_armed = true
 	_armed_append = append
+	audio_cue.emit(&"ui_confirm")
 	feedback.emit("Queued move: choose a destination." if append else "Move armed: choose a destination.", false)
 
 
 func begin_patrol(append: bool = false) -> void:
+	if patrol_armed:
+		cancel_modes()
+		audio_cue.emit(&"ui_cancel")
+		feedback.emit("Patrol cancelled.", false)
+		return
 	if selected_military_units().is_empty():
 		feedback.emit("Select military units before setting a patrol.", true)
 		return
@@ -674,10 +730,16 @@ func begin_patrol(append: bool = false) -> void:
 	patrol_armed = true
 	_armed_append = append
 	_refresh_cursor()
+	audio_cue.emit(&"ui_confirm")
 	feedback.emit("Queued patrol: choose a destination." if append else "Patrol armed: choose a destination.", false)
 
 
 func begin_repair(append: bool = false) -> void:
+	if repair_armed:
+		cancel_modes()
+		audio_cue.emit(&"ui_cancel")
+		feedback.emit("Repair command cancelled.", false)
+		return
 	if _selected_of_kind(&"worker").is_empty():
 		feedback.emit("Select workers before issuing a repair order.", true)
 		return
@@ -685,15 +747,22 @@ func begin_repair(append: bool = false) -> void:
 	repair_armed = true
 	_armed_append = append
 	_refresh_cursor()
+	audio_cue.emit(&"ui_confirm")
 	feedback.emit("Queued repair: choose a structure." if append else "Repair armed: choose a damaged allied structure.", false)
 
 
 func begin_rally() -> void:
+	if rally_armed:
+		cancel_modes()
+		audio_cue.emit(&"ui_cancel")
+		feedback.emit("Rally command cancelled.", false)
+		return
 	if primary_selected_structure() < 0:
 		feedback.emit("Select an allied production structure before setting a rally point.", true)
 		return
 	cancel_modes()
 	rally_armed = true
+	audio_cue.emit(&"ui_confirm")
 	feedback.emit("Rally point armed: choose a destination.", false)
 
 
@@ -702,6 +771,11 @@ func begin_war_camp_placement() -> void:
 
 
 func begin_structure_placement(structure_kind: StringName) -> void:
+	if placement_worker_id >= 0 and placement_kind == structure_kind:
+		cancel_modes()
+		audio_cue.emit(&"ui_cancel")
+		feedback.emit("%s placement cancelled." % String(structure_kind).replace("_", " ").capitalize(), false)
+		return
 	var workers := _selected_of_kind(&"worker")
 	if workers.is_empty():
 		feedback.emit("Select a worker before choosing a build command.", true)
@@ -716,6 +790,7 @@ func begin_structure_placement(structure_kind: StringName) -> void:
 	placement_worker_id = workers[0]
 	placement_kind = structure_kind
 	_refresh_cursor()
+	audio_cue.emit(&"ui_confirm")
 	var faction := simulation.players[RtsSimulation.TEAM_PLAYER]["faction"] as StringName
 	var structure_name := String(FactionCatalog.stats(structure_kind, faction)["name"])
 	feedback.emit("Choose a clear meadow footprint for the %s." % structure_name, false)
@@ -945,6 +1020,41 @@ func _zoom_at(screen_position: Vector2, factor: float) -> void:
 	camera_scale = clampf(camera_scale * factor, MIN_CAMERA_SCALE, MAX_CAMERA_SCALE)
 	camera_offset = screen_position - world_point * camera_scale
 	_clamp_camera()
+
+
+func _update_camera_pan(delta: float) -> void:
+	if delta <= 0.0:
+		return
+	var direction := Input.get_vector(
+		&"camera_left",
+		&"camera_right",
+		&"camera_up",
+		&"camera_down",
+	)
+	var target_velocity := direction * CAMERA_PAN_SPEED
+	if target_velocity.is_zero_approx() and _camera_pan_velocity.length() <= CAMERA_PAN_STOP_EPSILON:
+		_camera_pan_velocity = Vector2.ZERO
+		return
+
+	# Integrate exponential velocity smoothing exactly so uneven browser frame
+	# times do not change the distance or feel of keyboard camera movement.
+	var previous_velocity := _camera_pan_velocity
+	var velocity_difference := previous_velocity - target_velocity
+	var decay := exp(-CAMERA_PAN_RESPONSE * delta)
+	_camera_pan_velocity = target_velocity + velocity_difference * decay
+	var displacement := (
+		target_velocity * delta
+		+ velocity_difference * ((1.0 - decay) / CAMERA_PAN_RESPONSE)
+	)
+	var unclamped_offset := camera_offset - displacement
+	camera_offset = unclamped_offset
+	_clamp_camera()
+	if not displacement.is_zero_approx():
+		queue_redraw()
+	if not is_equal_approx(camera_offset.x, unclamped_offset.x):
+		_camera_pan_velocity.x = 0.0
+	if not is_equal_approx(camera_offset.y, unclamped_offset.y):
+		_camera_pan_velocity.y = 0.0
 
 
 func _clamp_camera() -> void:
@@ -1295,7 +1405,7 @@ func _draw_hover_feedback() -> void:
 		var center := camera_offset + IsoProjection.position_center(center_position) * camera_scale
 		_draw_world_texture(
 			texture,
-			center,
+			center + _footprint_ground_offset(footprint),
 			_structure_display_size(placement_kind) * 0.78 * camera_scale,
 			Color(1, 1, 1, 0.58 if valid else 0.35),
 		)
@@ -1397,11 +1507,12 @@ func _draw_entity(entity_state: Dictionary) -> void:
 		var texture := RESOURCE_TEXTURES.get(kind) as Texture2D
 		var is_tree: bool = entity_state.get("resource_kind") == &"lumber"
 		var resource_size := Vector2(136.0, 164.0) if is_tree else Vector2(98.0, 88.0)
+		var sprite_center := _grounded_sprite_screen_position(entity_state)
 		if is_tree:
-			_draw_tree_texture(texture, center, resource_size * camera_scale, tint, entity_state)
+			_draw_tree_texture(texture, sprite_center, resource_size * camera_scale, tint, entity_state)
 		else:
-			_draw_world_texture(texture, center, resource_size * camera_scale, tint)
-		_draw_resource_bar(entity_state, center)
+			_draw_world_texture(texture, sprite_center, resource_size * camera_scale, tint)
+		_draw_resource_bar(entity_state, sprite_center)
 	else:
 		var texture := _entity_texture(entity_state["faction"] as StringName, kind)
 		var display_size := Vector2(94.0, 104.0) if category == &"unit" else (_wildlife_display_size(kind) if category == &"wildlife" else _structure_display_size(kind))
@@ -1410,22 +1521,55 @@ func _draw_entity(entity_state: Dictionary) -> void:
 		elif kind == &"yaoguai_den":
 			display_size = Vector2(250.0, 212.0)
 		var is_movable := category in [&"unit", &"wildlife"]
-		var sprite_center := center
+		var sprite_center := (
+			_grounded_sprite_screen_position(entity_state)
+			if category in [&"unit", &"structure"]
+			else center
+		)
 		var flip_h := false
+		var rotation := 0.0
 		if is_movable:
 			sprite_center.y += _movement_bounce_offset(entity_state)
 			flip_h = _movement_sprite_flipped(entity_state)
-		_draw_world_texture(texture, sprite_center, display_size * camera_scale, tint, flip_h)
+			rotation = _idle_wobble_rotation(entity_state)
+		_draw_world_texture(texture, sprite_center, display_size * camera_scale, tint, flip_h, rotation)
 		if kind == &"yaoguai_den":
-			_draw_cave_status(entity_state, center)
+			_draw_cave_status(entity_state, sprite_center)
 		else:
-			_draw_health_bar(entity_state, center, category)
+			_draw_health_bar(entity_state, sprite_center, category)
 			if kind in RtsSimulation.FOOD_PRODUCER_KINDS and float(entity_state.get("complete", 0.0)) >= 1.0:
-				_draw_food_progress(entity_state, center)
+				_draw_food_progress(entity_state, sprite_center)
 
 	if kind == &"worker" and float(entity_state.get("cargo_amount", 0.0)) > 0.0:
-		var cargo_color := _resource_color(entity_state.get("cargo_kind", &"") as StringName)
-		draw_circle(center + Vector2(23.0, -40.0) * camera_scale, maxf(3.0, 5.0 * camera_scale), cargo_color)
+		_draw_worker_cargo_icon(entity_state, center)
+
+
+func _draw_worker_cargo_icon(worker: Dictionary, center: Vector2) -> void:
+	var cargo_kind := worker.get("cargo_kind", &"") as StringName
+	var texture := _cargo_icon_texture(cargo_kind)
+	if texture == null:
+		return
+	var icon_size := clampf(23.0 * camera_scale, 12.0, 26.0)
+	var icon_center := center + Vector2(24.0, -48.0) * camera_scale
+	var cargo_color := _resource_color(cargo_kind)
+	var plate_radius := icon_size * 0.57
+	draw_circle(icon_center, plate_radius, Color(0.015, 0.035, 0.035, 0.9))
+	draw_arc(
+		icon_center,
+		plate_radius,
+		0.0,
+		TAU,
+		24,
+		Color(cargo_color, 0.9),
+		maxf(1.0, 1.35 * camera_scale),
+		true,
+	)
+	var rect := Rect2(icon_center - Vector2.ONE * icon_size * 0.5, Vector2.ONE * icon_size)
+	draw_texture_rect(texture, rect, false)
+
+
+func _cargo_icon_texture(cargo_kind: StringName) -> Texture2D:
+	return CARGO_ICON_TEXTURES.get(cargo_kind) as Texture2D
 
 
 func _draw_world_texture(
@@ -1434,6 +1578,7 @@ func _draw_world_texture(
 	display_size: Vector2,
 	tint: Color,
 	flip_h: bool = false,
+	rotation: float = 0.0,
 ) -> void:
 	if texture == null:
 		return
@@ -1441,9 +1586,23 @@ func _draw_world_texture(
 		Vector2(-display_size.x * 0.5, -display_size.y + 10.0 * camera_scale),
 		display_size,
 	)
-	draw_set_transform(center, 0.0, Vector2(-1.0 if flip_h else 1.0, 1.0))
+	draw_set_transform(center, rotation, Vector2(-1.0 if flip_h else 1.0, 1.0))
 	draw_texture_rect(texture, rect, false, tint)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+func _grounded_sprite_screen_position(entity_state: Dictionary) -> Vector2:
+	var footprint := entity_state.get("footprint", Vector2i.ONE) as Vector2i
+	return entity_screen_position(entity_state) + _footprint_ground_offset(footprint)
+
+
+func _footprint_ground_offset(footprint: Vector2i) -> Vector2:
+	# Bottom-anchored world art places its ground contact at the
+	# lowest edge of its projected footprint, horizontally centered on that edge.
+	var half_footprint_height := (
+		float(footprint.x + footprint.y) * IsoProjection.TILE_HEIGHT * 0.25
+	)
+	return Vector2(0.0, half_footprint_height * camera_scale)
 
 
 func _update_movement_visuals(delta: float) -> void:
@@ -1463,8 +1622,11 @@ func _update_movement_visuals(delta: float) -> void:
 				"position": position,
 				"faces_left": not _native_art_faces_right(entity_state),
 				"moving_for": 0.0,
+				"idle_wait_remaining": _idle_wobble_wait(entity_id, 0),
+				"idle_wobble_elapsed": 0.0,
+				"idle_turn_count": 0,
+				"was_idle_player_unit": false,
 			}
-			continue
 		var visual := _movement_visuals[entity_id] as Dictionary
 		var previous_position := visual.get("position", position) as Vector2
 		var movement := position - previous_position
@@ -1475,6 +1637,19 @@ func _update_movement_visuals(delta: float) -> void:
 			visual["moving_for"] = WALK_MOTION_MEMORY_SECONDS
 		else:
 			visual["moving_for"] = maxf(0.0, float(visual.get("moving_for", 0.0)) - delta)
+		var is_idle_player_unit := (
+			_is_idle_player_unit_visual(entity_state)
+			and float(visual.get("moving_for", 0.0)) <= 0.0
+		)
+		if is_idle_player_unit:
+			visual["was_idle_player_unit"] = true
+			_update_idle_unit_visual(visual, entity_id, delta)
+		else:
+			if bool(visual.get("was_idle_player_unit", false)):
+				var turn_count := int(visual.get("idle_turn_count", 0))
+				visual["idle_wait_remaining"] = _idle_wobble_wait(entity_id, turn_count)
+			visual["idle_wobble_elapsed"] = 0.0
+			visual["was_idle_player_unit"] = false
 		visual["position"] = position
 		_movement_visuals[entity_id] = visual
 	for raw_id in _movement_visuals.keys():
@@ -1485,6 +1660,69 @@ func _update_movement_visuals(delta: float) -> void:
 
 func _is_movable_visual(entity_state: Dictionary) -> bool:
 	return entity_state.get("category") in [&"unit", &"wildlife"]
+
+
+func _is_idle_player_unit_visual(entity_state: Dictionary) -> bool:
+	return (
+		entity_state.get("category") == &"unit"
+		and int(entity_state.get("team", RtsSimulation.TEAM_NEUTRAL)) == RtsSimulation.TEAM_PLAYER
+		and entity_state.get("order", &"idle") == &"idle"
+	)
+
+
+func _update_idle_unit_visual(visual: Dictionary, entity_id: int, delta: float) -> void:
+	var wobble_elapsed := float(visual.get("idle_wobble_elapsed", 0.0))
+	if wobble_elapsed > 0.0:
+		wobble_elapsed += delta
+		if wobble_elapsed < IDLE_WOBBLE_DURATION:
+			visual["idle_wobble_elapsed"] = wobble_elapsed
+			return
+		_finish_idle_wobble(visual, entity_id)
+		return
+
+	var wait_remaining := float(
+		visual.get(
+			"idle_wait_remaining",
+			_idle_wobble_wait(entity_id, int(visual.get("idle_turn_count", 0))),
+		)
+	)
+	if delta < wait_remaining:
+		visual["idle_wait_remaining"] = wait_remaining - delta
+		return
+	var elapsed_after_wait := maxf(delta - wait_remaining, 0.000001)
+	if elapsed_after_wait < IDLE_WOBBLE_DURATION:
+		visual["idle_wait_remaining"] = 0.0
+		visual["idle_wobble_elapsed"] = elapsed_after_wait
+		return
+	_finish_idle_wobble(visual, entity_id)
+
+
+func _finish_idle_wobble(visual: Dictionary, entity_id: int) -> void:
+	visual["faces_left"] = not bool(visual.get("faces_left", false))
+	var turn_count := int(visual.get("idle_turn_count", 0)) + 1
+	visual["idle_turn_count"] = turn_count
+	visual["idle_wobble_elapsed"] = 0.0
+	visual["idle_wait_remaining"] = _idle_wobble_wait(entity_id, turn_count)
+
+
+func _idle_wobble_wait(entity_id: int, turn_count: int) -> float:
+	# Stable per-unit variation keeps crowds from wobbling in sync while leaving
+	# gameplay RNG and deterministic simulation state untouched.
+	var hash_value := absi(entity_id * 1103515245 + (turn_count + 1) * 12345)
+	var variation := float(hash_value % 10000) / 9999.0
+	return lerpf(IDLE_WOBBLE_MIN_WAIT_SECONDS, IDLE_WOBBLE_MAX_WAIT_SECONDS, variation)
+
+
+func _idle_wobble_rotation(entity_state: Dictionary) -> float:
+	if not _is_idle_player_unit_visual(entity_state):
+		return 0.0
+	var visual := _movement_visuals.get(int(entity_state.get("id", -1)), {}) as Dictionary
+	var elapsed := float(visual.get("idle_wobble_elapsed", 0.0))
+	if elapsed <= 0.0:
+		return 0.0
+	var progress := clampf(elapsed / IDLE_WOBBLE_DURATION, 0.0, 1.0)
+	var envelope := sin(progress * PI)
+	return sin(progress * TAU * IDLE_WOBBLE_OSCILLATIONS) * envelope * IDLE_WOBBLE_ANGLE
 
 
 func _native_art_faces_right(entity_state: Dictionary) -> bool:
