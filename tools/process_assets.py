@@ -118,6 +118,28 @@ def save_transparent_icon(
     return describe(destination, source)
 
 
+def save_keyed_icon(
+    source: Path,
+    destination: Path,
+    canvas_size: tuple[int, int] = (64, 64),
+    content_size: tuple[int, int] = (58, 58),
+) -> dict:
+    """Extract a magenta-isolated UI master, trim it, and center it on alpha."""
+    image = remove_magenta(Image.open(source), feather_end=220.0, decontaminate_edge=True)
+    alpha = image.getchannel("A")
+    bbox = alpha.point(lambda value: 255 if value > 2 else 0).getbbox()
+    if bbox is None:
+        raise RuntimeError(f"No icon pixels found in {source}")
+    image = image.crop(bbox)
+    image.thumbnail(content_size, RESAMPLING)
+    canvas = Image.new("RGBA", canvas_size, (0, 0, 0, 0))
+    offset = ((canvas_size[0] - image.width) // 2, (canvas_size[1] - image.height) // 2)
+    canvas.alpha_composite(image, offset)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(destination, "PNG", optimize=True)
+    return describe(destination, source)
+
+
 def save_cursor(
     source: Path,
     destination: Path,
@@ -202,6 +224,24 @@ def main() -> None:
                 content_size,
             )
         )
+
+    for resource_icon in ("jade", "lumber", "essence", "population", "dens"):
+        records.append(
+            save_keyed_icon(
+                SOURCE / "ui" / "resource_icons" / f"{resource_icon}.png",
+                RUNTIME / "ui" / "resource_icons" / f"{resource_icon}.png",
+                (64, 64),
+                (58, 58),
+            )
+        )
+    records.append(
+        save_transparent_icon(
+            SOURCE / "ui" / "resource_icons" / "food.png",
+            RUNTIME / "ui" / "resource_icons" / "food.png",
+            (64, 64),
+            (58, 58),
+        )
+    )
 
     for faction in ("celestial", "demon", "beast", "human"):
         records.append(

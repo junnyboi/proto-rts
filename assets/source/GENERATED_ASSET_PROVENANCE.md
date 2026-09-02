@@ -19,12 +19,15 @@ The idle-worker alert uses the built-in GPT Image 2 workflow and the same magent
 
 The wildlife-hunting expansion adds Demon, Beast, and Human Hunter units plus deer, bison, chicken, boar, and bear wildlife. The built-in GPT Image 2 workflow used existing faction units and the Jadeclaw only as style references. Exact prompts are recorded in `WILDLIFE_HUNTING_GENERATION_PROMPTS.md`.
 
+The economy-ribbon refresh adds illustrated Jade, Lumber, Essence, Food, Population, and Yaoguai Den icons. The built-in GPT Image 2 workflow used the existing HUD only as a style-and-scale reference. Exact generation and isolation-correction prompts are recorded in `HUD_RESOURCE_ICON_GENERATION_PROMPTS.md`.
+
 ## Source inventory
 
 | Category | Files | Generation intent |
 | --- | --- | --- |
 | Key art | `key_art/mandate_of_myth_title.png` | Four-faction Jade Meridian battlefield, no text or interface |
 | Interface | `ui/idle_worker_alert.png` | Gold-and-jade exclamation marker for visible idle workers |
+| Resource HUD icons | `ui/resource_icons/jade.png`, `lumber.png`, `essence.png`, `food.png`, `population.png`, `dens.png` | Compact painted economy-ribbon symbols optimized for recognition at 24–28 pixels |
 | Faction portraits | `factions/celestial_portrait.png`, `demon_portrait.png`, `beast_portrait.png`, `human_portrait.png` | Stable faction palette, commander identity, architecture, and mood anchors |
 | Workers | `units/*_worker.png` | Practical gathering and construction silhouettes |
 | Vanguards | `units/*_vanguard.png` | Durable faction-specific melee silhouettes |

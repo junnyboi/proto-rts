@@ -835,17 +835,42 @@ func _set_path(entity_state: Dictionary, destination: Vector2i) -> void:
 	var start := Vector2i((entity_state["position"] as Vector2).round())
 	if not MapCatalog.in_bounds(start):
 		return
-	if _astar.is_point_solid(start):
+	var team := int(entity_state.get("team", TEAM_NEUTRAL))
+	_set_friendly_structures_solid(team, false)
+	var start_was_solid := _astar.is_point_solid(start)
+	if start_was_solid:
 		_astar.set_point_solid(start, false)
 	var target := _nearest_walkable(destination)
 	var cell_path := _astar.get_id_path(start, target, true)
+	if start_was_solid:
+		_astar.set_point_solid(start, true)
+	_set_friendly_structures_solid(team, true)
 	var path: Array[Vector2] = []
 	for cell in cell_path:
 		path.append(Vector2(cell))
-	if not path.is_empty() and path[0].distance_to(entity_state["position"] as Vector2) < 0.1:
+	if not path.is_empty() and Vector2i(path[0]) == start:
 		path.pop_front()
 	entity_state["path"] = path
 	entity_state["path_index"] = 0
+
+
+func _set_friendly_structures_solid(team: int, solid: bool) -> void:
+	if team < 0:
+		return
+	for raw_entity in entities.values():
+		var entity_state := raw_entity as Dictionary
+		if (
+			not bool(entity_state.get("alive", false))
+			or entity_state.get("category") != &"structure"
+			or int(entity_state.get("team", TEAM_NEUTRAL)) != team
+		):
+			continue
+		for cell in MapCatalog.footprint_cells(
+			entity_state["cell"] as Vector2i,
+			entity_state.get("footprint", Vector2i.ONE) as Vector2i,
+		):
+			if MapCatalog.in_bounds(cell):
+				_astar.set_point_solid(cell, solid)
 
 
 func _nearest_walkable(desired: Vector2i) -> Vector2i:

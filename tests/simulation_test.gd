@@ -176,6 +176,54 @@ func _test_large_formations_and_separation(failures: Array[String]) -> void:
 		failures.append("overlapping units did not separate locally")
 
 
+func _test_units_pass_through_friendly_structures(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human")
+	var structure_cell := MapCatalog.PLAYER_BUILD_TEST_SITE
+	var structure_id := simulation._spawn_structure(
+		RtsSimulation.TEAM_PLAYER,
+		&"rice_farm",
+		structure_cell,
+		true,
+	)
+	var structure := simulation.entity(structure_id)
+	var footprint_cells := MapCatalog.footprint_cells(
+		structure_cell,
+		structure["footprint"] as Vector2i,
+	)
+	var start := structure_cell + Vector2i(-2, 0)
+	var destination := structure_cell + Vector2i(3, 0)
+	var unit_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", start)
+	var unit := simulation.entity(unit_id)
+	simulation._rebuild_pathfinding()
+	simulation._set_path(unit, destination)
+	var friendly_path := unit.get("path", []) as Array
+	var crosses_friendly_structure := false
+	for point in friendly_path:
+		if Vector2i(point as Vector2) in footprint_cells:
+			crosses_friendly_structure = true
+			break
+	if not crosses_friendly_structure:
+		failures.append("a unit path did not pass through its friendly structure")
+	unit["order"] = &"move"
+	_advance(simulation, 4.0)
+	if (unit["position"] as Vector2).distance_to(Vector2(destination)) > 0.05:
+		failures.append("a unit did not reach its destination through a friendly structure")
+
+	structure["team"] = RtsSimulation.TEAM_ENEMY
+	unit["position"] = Vector2(start)
+	unit["cell"] = start
+	simulation._rebuild_pathfinding()
+	simulation._set_path(unit, destination)
+	var enemy_path := unit.get("path", []) as Array
+	if enemy_path.is_empty():
+		failures.append("an enemy structure prevented pathfinding around its footprint")
+	for point in enemy_path:
+		if Vector2i(point as Vector2) in footprint_cells:
+			failures.append("a unit path passed through an enemy structure")
+			break
+
+
 func _test_unit_food_costs(failures: Array[String]) -> void:
 	var simulation := RtsSimulation.new()
 	simulation.setup(&"human")
@@ -430,6 +478,7 @@ func _run() -> void:
 	_test_cargo_reassignment_preserves_kind(failures)
 	_test_attack_move_resumes_destination(failures)
 	_test_large_formations_and_separation(failures)
+	_test_units_pass_through_friendly_structures(failures)
 	_test_unit_food_costs(failures)
 	_test_food_building(&"rice_farm", failures)
 	_test_food_building(&"hunters_lodge", failures)

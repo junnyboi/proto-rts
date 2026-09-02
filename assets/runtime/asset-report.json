@@ -1,6 +1,6 @@
 {
   "generator": "GPT Image 2",
-  "runtime_asset_count": 70,
+  "runtime_asset_count": 76,
   "assets": [
     {
       "path": "assets/runtime/ui/mandate_of_myth_title.webp",
@@ -262,6 +262,78 @@
         255
       ],
       "sha256": "3b1d91da40f57dfba13ae5600f90c90715b5f31f4c1de61dd8f752f342a90192"
+    },
+    {
+      "path": "assets/runtime/ui/resource_icons/jade.png",
+      "source": "assets/source/ui/resource_icons/jade.png",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "e55bbc5bba8d8171ebce63cf9b3a173ee285bbe3d48f451358d01e3a5fe2007d"
+    },
+    {
+      "path": "assets/runtime/ui/resource_icons/lumber.png",
+      "source": "assets/source/ui/resource_icons/lumber.png",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "b8a21c06a8d76d63cf26bc77b0c0e4c91e2e3a2beae27cf5a7c729fc48406f55"
+    },
+    {
+      "path": "assets/runtime/ui/resource_icons/essence.png",
+      "source": "assets/source/ui/resource_icons/essence.png",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "f4dd832ba48f71cf28ae571931568f6375dddf1d869c44acc73a73f28e3418ed"
+    },
+    {
+      "path": "assets/runtime/ui/resource_icons/population.png",
+      "source": "assets/source/ui/resource_icons/population.png",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "1bea9f93a164895e9f243f348985a9e44a32877686df34ed3dd45259467c323d"
+    },
+    {
+      "path": "assets/runtime/ui/resource_icons/dens.png",
+      "source": "assets/source/ui/resource_icons/dens.png",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "b987e11aa3c3223a7c1da62eba991e1ba03c7a7fc724ea82f60444038ed49975"
+    },
+    {
+      "path": "assets/runtime/ui/resource_icons/food.png",
+      "source": "assets/source/ui/resource_icons/food.png",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "f702407065377fe2aab3e0b62c54255208184d9359eae07742951d3aa82c97e3"
     },
     {
       "path": "assets/runtime/portraits/celestial.webp",

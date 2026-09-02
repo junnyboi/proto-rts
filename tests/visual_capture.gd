@@ -34,6 +34,23 @@ func _run() -> void:
 	game.call("_start_match", &"human")
 	await _settle(20)
 	_capture("skirmish")
+	var cargo_preview_worker_kinds: Array[StringName] = [&"worker"]
+	var cargo_preview_workers: Array[int] = game.simulation.team_entity_ids(
+		RtsSimulation.TEAM_PLAYER,
+		cargo_preview_worker_kinds,
+	)
+	var cargo_preview_kinds: Array[StringName] = [&"jade", &"lumber", &"essence"]
+	for index in range(mini(cargo_preview_workers.size(), cargo_preview_kinds.size())):
+		var cargo_worker: Dictionary = game.simulation.entity(cargo_preview_workers[index])
+		cargo_worker["cargo_kind"] = cargo_preview_kinds[index]
+		cargo_worker["cargo_amount"] = RtsSimulation.CARGO_CAPACITY * 0.5
+	game.battlefield.queue_redraw()
+	await _settle(2)
+	_capture("worker-cargo-icons")
+	for worker_id in cargo_preview_workers:
+		var cargo_worker: Dictionary = game.simulation.entity(worker_id)
+		cargo_worker["cargo_kind"] = &""
+		cargo_worker["cargo_amount"] = 0.0
 	game.call("_toggle_pause")
 	await _settle(2)
 	_capture("paused")
@@ -199,5 +216,5 @@ func _run() -> void:
 	game.battlefield.center_on_cell(MapCatalog.SIZE / 2)
 	await _settle(2)
 	_capture("map-overview")
-	print("PASS visual_capture: title, faction-select, skirmish, pause, caves, production queue, armed command, multi-selection, food economy, wildlife hunt, command visualization, map overview")
+	print("PASS visual_capture: title, faction-select, skirmish, worker cargo icons, pause, caves, production queue, armed command, multi-selection, food economy, wildlife hunt, command visualization, map overview")
 	quit(0)

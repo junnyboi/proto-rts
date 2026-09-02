@@ -34,6 +34,8 @@ func _run() -> void:
 		paths.append(FactionCatalog.entity_art_path(&"neutral", wildlife_kind))
 	for cursor_state in CursorSystem.ORDER:
 		paths.append("res://assets/runtime/cursors/%s.png" % cursor_state)
+	for resource_icon in [&"jade", &"lumber", &"essence", &"food", &"population", &"dens"]:
+		paths.append("res://assets/runtime/ui/resource_icons/%s.png" % resource_icon)
 	for faction in FactionCatalog.ORDER:
 		paths.append(FactionCatalog.portrait_path(faction))
 		for kind in [&"worker", &"vanguard", &"mystic", &"stronghold", &"war_camp"]:
@@ -43,10 +45,10 @@ func _run() -> void:
 	for path in paths:
 		if not ResourceLoader.exists(path) or load(path) == null:
 			failures.append("missing or invalid runtime asset: %s" % path)
-	if paths.size() != 70:
-		failures.append("expected 70 runtime assets, enumerated %d" % paths.size())
+	if paths.size() != 76:
+		failures.append("expected 76 runtime assets, enumerated %d" % paths.size())
 	if failures.is_empty():
-		print("PASS assets_test: 70 generated runtime assets resolve")
+		print("PASS assets_test: 76 generated runtime assets resolve")
 		quit(0)
 	else:
 		for failure in failures:
