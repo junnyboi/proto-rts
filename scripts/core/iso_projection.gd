@@ -20,9 +20,9 @@ static func unproject(local_position: Vector2) -> Vector2:
 
 static func cell_at(local_position: Vector2) -> Vector2i:
 	var point := unproject(local_position)
-	var snapped := (point * 2.0).round() * 0.5
-	if point.distance_to(snapped) < 0.0001:
-		point = snapped
+	var snapped_point := (point * 2.0).round() * 0.5
+	if point.distance_to(snapped_point) < 0.0001:
+		point = snapped_point
 	return Vector2i(point.floor())
 
 

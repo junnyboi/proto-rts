@@ -35,7 +35,11 @@ def save_webp(source: Path, destination: Path, size: tuple[int, int], quality: i
     return describe(destination, source)
 
 
-def remove_magenta(image: Image.Image) -> Image.Image:
+def remove_magenta(
+    image: Image.Image,
+    feather_end: float = 145.0,
+    decontaminate_edge: bool = False,
+) -> Image.Image:
     rgba = image.convert("RGBA")
     pixels = rgba.load()
     width, height = rgba.size
@@ -51,10 +55,18 @@ def remove_magenta(image: Image.Image) -> Image.Image:
                 alpha = 255
             elif distance <= 55:
                 alpha = 0
-            elif distance >= 145:
+            elif distance >= feather_end:
                 alpha = 255
             else:
-                alpha = round(255 * (distance - 55) / 90)
+                alpha = round(255 * (distance - 55) / (feather_end - 55))
+            if decontaminate_edge and 0 < alpha < 255:
+                opacity = alpha / 255.0
+                red = round((red - (1.0 - opacity) * key[0]) / opacity)
+                green = round((green - (1.0 - opacity) * key[1]) / opacity)
+                blue = round((blue - (1.0 - opacity) * key[2]) / opacity)
+                red = max(0, min(255, red))
+                green = max(0, min(255, green))
+                blue = max(0, min(255, blue))
             pixels[x, y] = (red, green, blue, alpha)
     return rgba
 
@@ -65,8 +77,10 @@ def save_isolated(
     canvas_size: tuple[int, int],
     content_size: tuple[int, int],
     bottom_margin: int,
+    feather_end: float = 145.0,
+    decontaminate_edge: bool = False,
 ) -> dict:
-    image = remove_magenta(Image.open(source))
+    image = remove_magenta(Image.open(source), feather_end, decontaminate_edge)
     alpha = image.getchannel("A")
     bbox = alpha.point(lambda value: 255 if value > 8 else 0).getbbox()
     if bbox is None:
@@ -107,6 +121,16 @@ def main() -> None:
             quality=86,
         )
     )
+    records.append(
+        save_isolated(
+            SOURCE / "ui" / "idle_worker_alert.png",
+            RUNTIME / "ui" / "idle_worker_alert.png",
+            (48, 80),
+            (42, 74),
+            3,
+            decontaminate_edge=True,
+        )
+    )
 
     for faction in ("celestial", "demon", "beast", "human"):
         records.append(
@@ -138,7 +162,48 @@ def main() -> None:
                 )
             )
 
-    terrain_names = ("jade_meadow", "inkstone_ridge", "celadon_water")
+    records.append(
+        save_isolated(
+            SOURCE / "units" / "neutral_jadeclaw.png",
+            RUNTIME / "units" / "neutral_jadeclaw.png",
+            (192, 176),
+            (180, 164),
+            6,
+        )
+    )
+    records.append(
+        save_isolated(
+            SOURCE / "buildings" / "neutral_yaoguai_den.png",
+            RUNTIME / "buildings" / "neutral_yaoguai_den.png",
+            (320, 272),
+            (304, 254),
+            8,
+        )
+    )
+
+    for source_name, runtime_name, canvas_size, content_size in (
+        ("rice_farm", "rice_farm", (336, 280), (320, 264)),
+        ("hunters_lodge_v2", "hunters_lodge", (304, 256), (288, 240)),
+    ):
+        records.append(
+            save_isolated(
+                SOURCE / "buildings" / f"{source_name}.png",
+                RUNTIME / "buildings" / f"{runtime_name}.png",
+                canvas_size,
+                content_size,
+                8,
+                decontaminate_edge=True,
+            )
+        )
+
+    terrain_names = (
+        "jade_meadow",
+        "inkstone_ridge",
+        "celadon_water",
+        "jade_forest",
+        "meridian_road",
+        "moon_bridge",
+    )
     for terrain in terrain_names:
         source = SOURCE / "terrain" / f"{terrain}.png"
         destination = RUNTIME / "terrain" / f"{terrain}.webp"
@@ -155,6 +220,19 @@ def main() -> None:
                 (176, 160),
                 (158, 142),
                 8,
+            )
+        )
+
+    for tree in ("lumber_pine", "lumber_cedar", "lumber_fir", "lumber_juniper"):
+        records.append(
+            save_isolated(
+                SOURCE / "resources" / f"{tree}.png",
+                RUNTIME / "resources" / f"{tree}.png",
+                (224, 256),
+                (212, 244),
+                6,
+                220.0,
+                True,
             )
         )
 

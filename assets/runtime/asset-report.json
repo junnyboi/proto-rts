@@ -1,6 +1,6 @@
 {
   "generator": "GPT Image 2",
-  "runtime_asset_count": 30,
+  "runtime_asset_count": 42,
   "assets": [
     {
       "path": "assets/runtime/ui/mandate_of_myth_title.webp",
@@ -10,6 +10,18 @@
       "mode": "RGB",
       "alpha_extrema": null,
       "sha256": "fb64ba2c54ab96858f3f2b40f397a9db198e5b41ade84148a91dd20ba0cd65ee"
+    },
+    {
+      "path": "assets/runtime/ui/idle_worker_alert.png",
+      "source": "assets/source/ui/idle_worker_alert.png",
+      "width": 48,
+      "height": 80,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "a503e01b74828a13eecdfccc8e53dd032f73ddd8020c8ce45ae5ebaee795c072"
     },
     {
       "path": "assets/runtime/portraits/celestial.webp",
@@ -288,6 +300,54 @@
       "sha256": "f53d6290667d8f14b135bdba420c050b4427f7d7fa731ba0671be2ed4ae28cf8"
     },
     {
+      "path": "assets/runtime/units/neutral_jadeclaw.png",
+      "source": "assets/source/units/neutral_jadeclaw.png",
+      "width": 192,
+      "height": 176,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "cd4c19816573c003b2adea0c47cbaad16e63db5fe011911862b77727e14dcfd7"
+    },
+    {
+      "path": "assets/runtime/buildings/neutral_yaoguai_den.png",
+      "source": "assets/source/buildings/neutral_yaoguai_den.png",
+      "width": 320,
+      "height": 272,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "68b1ffd2f988b34188afbbd9557e2afa01644dff4a50ede5384f2b00e9e3667b"
+    },
+    {
+      "path": "assets/runtime/buildings/rice_farm.png",
+      "source": "assets/source/buildings/rice_farm.png",
+      "width": 336,
+      "height": 280,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "2130e571d661d880bdd0aa68f23fa3a374b33a7556f60a26b703edfc74c71d59"
+    },
+    {
+      "path": "assets/runtime/buildings/hunters_lodge.png",
+      "source": "assets/source/buildings/hunters_lodge_v2.png",
+      "width": 304,
+      "height": 256,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "efade7b0f20b737488b94dcc5736bbe878ba92fb66e07ffd3ae15149911f6f2e"
+    },
+    {
       "path": "assets/runtime/terrain/jade_meadow.webp",
       "source": "assets/source/terrain/jade_meadow.png",
       "width": 512,
@@ -315,6 +375,33 @@
       "sha256": "0bf520e661e98186481e979f7e667b457144430087bd82e27e5e82b779648de7"
     },
     {
+      "path": "assets/runtime/terrain/jade_forest.webp",
+      "source": "assets/source/terrain/jade_forest.png",
+      "width": 512,
+      "height": 512,
+      "mode": "RGB",
+      "alpha_extrema": null,
+      "sha256": "14ce1c70fba86e675e555b4ceb6ac2c31e2b1ea345f6583885b0855948f65081"
+    },
+    {
+      "path": "assets/runtime/terrain/meridian_road.webp",
+      "source": "assets/source/terrain/meridian_road.png",
+      "width": 512,
+      "height": 512,
+      "mode": "RGB",
+      "alpha_extrema": null,
+      "sha256": "bd0584a578682181b2bd1feeb7bfd91238609f380e405e2c3a05791d392e077c"
+    },
+    {
+      "path": "assets/runtime/terrain/moon_bridge.webp",
+      "source": "assets/source/terrain/moon_bridge.png",
+      "width": 512,
+      "height": 512,
+      "mode": "RGB",
+      "alpha_extrema": null,
+      "sha256": "3dced92a586849eb28a5e5c167ef24e3a31a558a5464016c334222d0bc0cd68d"
+    },
+    {
       "path": "assets/runtime/resources/jade_outcrop.png",
       "source": "assets/source/resources/jade_outcrop.png",
       "width": 176,
@@ -337,6 +424,54 @@
         255
       ],
       "sha256": "24dafbf63f149592990abd0c753c340ad69a1259ce50a0484fe696640a8dab07"
+    },
+    {
+      "path": "assets/runtime/resources/lumber_pine.png",
+      "source": "assets/source/resources/lumber_pine.png",
+      "width": 224,
+      "height": 256,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "a9f902ce770a546243710179d4135f2bd1815ea19241eec2a666ef8cb7e3bc69"
+    },
+    {
+      "path": "assets/runtime/resources/lumber_cedar.png",
+      "source": "assets/source/resources/lumber_cedar.png",
+      "width": 224,
+      "height": 256,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "c211ca7ff079a3ca17b751e0e1c8d5d955aa62325532f92992c9ed3949479948"
+    },
+    {
+      "path": "assets/runtime/resources/lumber_fir.png",
+      "source": "assets/source/resources/lumber_fir.png",
+      "width": 224,
+      "height": 256,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "9ec1ccdaf6bb92a2e6a5299f63b7a86f2396a20985cd0d702647f28cf8a83911"
+    },
+    {
+      "path": "assets/runtime/resources/lumber_juniper.png",
+      "source": "assets/source/resources/lumber_juniper.png",
+      "width": 224,
+      "height": 256,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "c9d97aa2806d5f6fd709be37f5eab3c449e32e1ed7745d60cc05e678daf29a14"
     }
   ]
 }

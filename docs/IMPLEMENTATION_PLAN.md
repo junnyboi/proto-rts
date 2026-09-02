@@ -1,4 +1,4 @@
-# Mandate of Myth — Detailed Implementation Plan
+# Game Template - RTS — Detailed Implementation Plan
 
 **Author:** Manus AI  
 **Date:** 2 September 2026  
@@ -79,9 +79,9 @@ Movement commands calculate paths from the entity’s current cell to the reques
 
 ## 8. Input and Camera
 
-The battlefield will interpret input in this order: active placement mode, interface exclusion, selection drag, single selection, and contextual command. The camera transform is view-only. It supports middle-button drag, `WASD` or arrow-key edge-independent panning, mouse-wheel zoom, and `Space` to center the player stronghold. Zoom will be clamped to a readable range and preserve the cursor’s world point.
+The battlefield will interpret input in this order: active placement mode, interface exclusion, selection drag, single selection, and contextual command. The camera transform is view-only. It supports middle-button drag, `WASD` or arrow-key edge-independent panning, `Command` + mouse-wheel or trackpad pinch/spread zoom, and `Space` to center the player stronghold. Zoom will be clamped to a readable range and preserve the cursor’s world point.
 
-Selection rules are deterministic. A click chooses the nearest selectable entity within a screen-space radius, with units preferred over structures when distances are equal. A drag selects all visible player units inside the rectangle. Right clicking an enemy issues focused attack orders. Right clicking a resource with workers selected assigns harvesting. Right clicking empty walkable ground issues movement. Pressing `A` arms an attack-move cursor for the next valid map click.
+Selection rules are deterministic. A click chooses the nearest selectable entity within a screen-space radius, with units preferred over structures when distances are equal. A drag selects all visible player units inside the rectangle. Right clicking an enemy issues focused attack orders. Right clicking a resource with workers selected assigns harvesting. Right clicking empty walkable ground issues movement. Pressing `F` arms an attack-move cursor for the next valid map click.
 
 ## 9. Economy and Construction
 
