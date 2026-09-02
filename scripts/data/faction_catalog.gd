@@ -41,7 +41,7 @@ const DATA := {
 const BASE_STATS := {
 	&"worker": {
 		"name": "Worker",
-		"role": "Gathers Jade and Essence. Constructs War Camps.",
+		"role": "Gathers resources and constructs military or food infrastructure.",
 		"max_hp": 72.0,
 		"speed": 1.95,
 		"damage": 5.0,
@@ -52,6 +52,7 @@ const BASE_STATS := {
 		"train_time": 6.0,
 		"jade_cost": 55,
 		"essence_cost": 0,
+		"food_cost": 30,
 	},
 	&"vanguard": {
 		"name": "Vanguard",
@@ -66,6 +67,7 @@ const BASE_STATS := {
 		"train_time": 7.5,
 		"jade_cost": 75,
 		"essence_cost": 0,
+		"food_cost": 40,
 	},
 	&"mystic": {
 		"name": "Mystic",
@@ -80,6 +82,22 @@ const BASE_STATS := {
 		"train_time": 10.0,
 		"jade_cost": 50,
 		"essence_cost": 65,
+		"food_cost": 50,
+	},
+	&"jadeclaw": {
+		"name": "Jadeclaw",
+		"role": "Durable cave monster with strong melee pressure.",
+		"max_hp": 280.0,
+		"speed": 1.62,
+		"damage": 24.0,
+		"range": 0.9,
+		"attack_period": 1.05,
+		"acquire_range": 6.0,
+		"population": 3,
+		"train_time": 12.0,
+		"jade_cost": 90,
+		"essence_cost": 55,
+		"food_cost": 65,
 	},
 	&"stronghold": {
 		"name": "Stronghold",
@@ -97,9 +115,46 @@ const BASE_STATS := {
 		"max_hp": 850.0,
 		"population": 0,
 		"train_time": 8.0,
-		"jade_cost": 180,
-		"essence_cost": 40,
+		"jade_cost": 150,
+		"lumber_cost": 80,
+		"essence_cost": 25,
 		"footprint": Vector2i(1, 1),
+	},
+	&"rice_farm": {
+		"name": "Rice Farm",
+		"role": "Steady food producer. Harvests 8 Food every 4 seconds.",
+		"max_hp": 650.0,
+		"population": 0,
+		"train_time": 0.0,
+		"jade_cost": 55,
+		"lumber_cost": 45,
+		"essence_cost": 0,
+		"food_yield": 8,
+		"food_interval": 4.0,
+		"footprint": Vector2i(2, 2),
+	},
+	&"hunters_lodge": {
+		"name": "Hunter's Lodge",
+		"role": "Compact food producer. Delivers 18 Food every 5 seconds.",
+		"max_hp": 600.0,
+		"population": 0,
+		"train_time": 0.0,
+		"jade_cost": 90,
+		"lumber_cost": 75,
+		"essence_cost": 15,
+		"food_yield": 18,
+		"food_interval": 5.0,
+		"footprint": Vector2i(1, 1),
+	},
+	&"yaoguai_den": {
+		"name": "Yaoguai Den",
+		"role": "Guarded neutral objective. Capture it to produce Jadeclaws.",
+		"max_hp": 1200.0,
+		"population": 0,
+		"train_time": 0.0,
+		"jade_cost": 0,
+		"essence_cost": 0,
+		"footprint": Vector2i(2, 2),
 	},
 }
 
@@ -118,8 +173,8 @@ static func stats(kind: StringName, faction_id: StringName) -> Dictionary:
 		if kind == &"vanguard":
 			result["jade_cost"] = maxi(0, int(result["jade_cost"]) - 15)
 	if faction_id == &"human" and kind == &"war_camp":
-		result["jade_cost"] = int(round(float(result["jade_cost"]) * 0.85))
-		result["essence_cost"] = int(round(float(result["essence_cost"]) * 0.85))
+		for cost_key in ["jade_cost", "lumber_cost", "essence_cost"]:
+			result[cost_key] = int(round(float(result.get(cost_key, 0)) * 0.85))
 	return result
 
 
@@ -128,6 +183,12 @@ static func portrait_path(faction_id: StringName) -> String:
 
 
 static func entity_art_path(faction_id: StringName, kind: StringName) -> String:
+	if kind == &"jadeclaw":
+		return "res://assets/runtime/units/neutral_jadeclaw.png"
+	if kind == &"yaoguai_den":
+		return "res://assets/runtime/buildings/neutral_yaoguai_den.png"
+	if kind in [&"rice_farm", &"hunters_lodge"]:
+		return "res://assets/runtime/buildings/%s.png" % String(kind)
 	var folder := "buildings" if kind in [&"stronghold", &"war_camp"] else "units"
 	return "res://assets/runtime/%s/%s_%s.png" % [folder, String(faction_id), String(kind)]
 

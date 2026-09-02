@@ -1,4 +1,6 @@
-# Current Visual Audit Notes
+# Visual Audit Notes
+
+The first sections preserve the pre-remediation 20 × 16 audit baseline. The final section records the verified state after integration with the expanded 80 × 64 battlefield and core defect repairs.
 
 ## Title screen
 
@@ -45,3 +47,15 @@ The HUD concept resolves the current dead-space problem by distributing compact 
 ## Concept validation: doctrine choice
 
 The doctrine screen clearly communicates a single irreversible fork and gives each option a distinct strategic thesis through color, iconography, and battlefield imagery. The required title, choice names, and closing line rendered correctly. The additional center phrase is consistent with the prompt's exclusivity requirement. This should remain a later milestone: the current game needs a contested objective and deeper combat loop before persistent in-match doctrines can create meaningful opportunity cost.
+
+## Post-remediation visual regression (expanded 80 × 64 build)
+
+The refreshed native skirmish capture passes at 1280 × 720. The revised objective copy fits inside its panel, explicitly states equal economic rules, and does not obscure the starting base. The top resource bar, minimap, fog toggle, revealed terrain, worker silhouettes, idle-worker cue, and bottom command deck remain legible without clipping.
+
+The refreshed full-map overview also passes. The three river crossings, mirrored road network, clearable forest masses, expansion clearings, neutral cave positions, unit silhouettes, full-map camera framing, and HUD remain readable at minimum zoom. No malformed sprites, missing textures, stale selection markers, or camera-edge gaps were observed.
+
+## Performance-remediation visual regression
+
+After renderer optimization, the 1280 × 720 skirmish and full-map overview remain visually coherent. Authored 2 × 2 terrain macro-cells render without cracks or projection discontinuities, the river and three crossings remain unambiguous, tree-grove silhouettes and faction units remain readable, and the cached minimap retains terrain, fog, entity, and camera overlays. Full Lumber bars are now suppressed unless a tree is selected, reducing overview clutter. The simplified single-draw crown sway preserves ambient motion while eliminating the previous twelve-polygon-per-tree cost.
+
+The final instrumented Godot 4.7.2 gate measured Battlefield p95 CPU draw at **11.229 ms** in the fog-off full-map view and **8.355 ms** in the fogged starting view. Minimap p95 draw measured **4.322 ms** without fog and **6.215 ms** with fog, all within the enforced 16.7 ms desktop budget.

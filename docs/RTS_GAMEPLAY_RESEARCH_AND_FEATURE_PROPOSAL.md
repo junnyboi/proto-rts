@@ -8,6 +8,8 @@
 
 **Target:** Godot 4.7.2, desktop browsers, keyboard and mouse
 
+> **Implementation status note:** The “current implementation” findings below describe the audited revision above. A later same-day integration expanded the battlefield to 80 × 64 and delivered harvestable Lumber forests, Food infrastructure, fog of war, a tactical minimap, and capturable Yaoguai Dens. The core-remediation pass also corrected persistent attack-move, scalable formations, live occupancy, local separation, line-of-sight, fair AI construction, selection safety, command bounds, explicit cross-team command authority, 1,016-tree rendering performance, and Web export hygiene. The remaining proposal—especially the Jade Meridian conflict engine, faction powers, combat juice, and doctrines—should be read as the forward roadmap.
+
 ## Executive Recommendation
 
 **Mandate of Myth already has a sound vertical-slice foundation.** The repository contains a complete 1v1 skirmish loop, a deterministic 30 Hz simulation, two-resource gathering, construction, production queues, pathfinding, formation destinations, combat, four visual factions, a scripted opponent, victory and defeat, a polished title flow, and a working web export. The architecture correctly treats simulation coordinates as authoritative and keeps projection, camera, rendering, and interface feedback in the view layer.[1] [2] [3]

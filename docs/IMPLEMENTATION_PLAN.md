@@ -1,4 +1,4 @@
-# Mandate of Myth — Detailed Implementation Plan
+# Game Template - RTS — Detailed Implementation Plan
 
 **Author:** Manus AI  
 **Date:** 2 September 2026  
@@ -45,13 +45,13 @@ screen_x = (x - y) × tile_width ÷ 2
 screen_y = (x + y) × tile_height ÷ 2
 ```
 
-The inverse transform reconstructs cell space from the screen point. A selectable cell is `floor(unproject(local_point))`, with boundary clamping. A 96 × 48 tile size will provide enough visual area for generated sprites while fitting the 20 × 16 battlefield in a 1280 × 720 browser viewport. The transform is kept pure so tests can validate centers and boundaries without loading a scene.
+The inverse transform reconstructs cell space from the screen point. A selectable cell is `floor(unproject(local_point))`, while command handlers reject points outside the authored region. A 96 × 48 tile size provides enough visual area for generated sprites across the camera-scaled 80 × 64 battlefield. The transform is kept pure so tests can validate centers and boundaries without loading a scene.
 
 The renderer will draw cells in increasing `x + y` order. Entities will use a depth key based on their current continuous cell position. This retains the core separation used by `proto-td`: gameplay state never depends on projection offsets, sprite dimensions, or camera movement.[2]
 
 ## 5. Authored Battlefield
 
-The Jade Meridian map will be represented by arrays of terrain row strings. The symbols will distinguish meadow, stone ridge, and water. The map will reserve two base clearings, two safe resource clusters, a contested central Essence cluster, and at least two valid attack routes. Static walkability will be validated at startup.
+The Jade Divide is represented by authored terrain and tree row strings expanded from a 40 × 32 macro-grid to an 80 × 64 battlefield. The symbols distinguish meadow, road, ridge, river, and three bridges. The map reserves mirrored base clearings, safe and contested resource clusters, three attack routes, harvestable forest topology, and two guarded Yaoguai Dens. Dimensions, placements, overlaps, resource definitions, and static walkability are validated at startup.
 
 Generated meadow, stone, and water material images will be mapped across diamond polygons using repeated ultraviolet coordinates. The renderer may apply deterministic tint variation by cell to break repetition. It will not synthesize terrain art procedurally. Grid strokes, hover diamonds, and placement colors remain engine-drawn overlays because they communicate interaction state.
 
@@ -79,13 +79,15 @@ Movement commands calculate paths from the entity’s current cell to the reques
 
 ## 8. Input and Camera
 
-The battlefield interprets input in this order: active placement mode, interface exclusion, selection drag, single selection, and contextual command. The camera transform is view-only. It supports middle-button drag, arrow-key edge-independent panning, mouse-wheel zoom, and `Space` to center the player stronghold. `A` and `S` remain reserved for attack-move and stop. Zoom is clamped to a readable range and preserves the cursor’s world point.
+The battlefield will interpret input in this order: active placement mode, interface exclusion, selection drag, single selection, and contextual command. The camera transform is view-only. It supports middle-button drag, `WASD` or arrow-key edge-independent panning, `Command` + mouse-wheel or trackpad pinch/spread zoom, and `Space` to center the player stronghold. Zoom will be clamped to a readable range and preserve the cursor’s world point.
 
-Selection rules are deterministic. A click chooses the nearest selectable entity within a screen-space radius, with units preferred over structures when distances are equal. A drag selects all visible player units inside the rectangle. Right clicking an enemy issues focused attack orders. Right clicking a resource with workers selected assigns harvesting. Right clicking empty walkable ground issues movement. Pressing `A` arms an attack-move cursor for the next valid map click.
+Selection rules are deterministic. A click chooses the nearest selectable entity within a screen-space radius, with units preferred over structures when distances are equal. A drag selects all visible player units inside the rectangle. Right clicking an enemy issues focused attack orders. Right clicking a resource with workers selected assigns harvesting. Right clicking empty walkable ground issues movement. Pressing `F` arms an attack-move cursor for the next valid map click.
+
+Every simulation command carries an explicit issuer team. Units, workers, production structures, deposit targets, and rally structures must belong to that issuer before state can mutate. The battlefield issues player commands; the computer commander uses the same checked surface as the rival team. Cross-team IDs are rejected even if a future interface or mod passes them directly.
 
 ## 9. Economy and Construction
 
-Workers gather from Jade and Essence nodes. A gather cycle transfers a bounded amount into worker cargo. A full worker returns to the nearest friendly stronghold, deposits cargo with faction multipliers, and returns to its resource if it remains available. Resource nodes are finite but sized so a normal match does not exhaust every cluster.
+Workers gather from Jade, Lumber, and Essence nodes. A gather cycle transfers a bounded amount into worker cargo. A full worker returns to the nearest friendly stronghold, deposits cargo with faction multipliers, and returns to its resource if it remains available. Lumber trees are finite clearable obstacles; Food is produced by completed Rice Farms and Hunter's Lodges.
 
 When one or more workers are selected, the command panel exposes **Build War Camp**. Activating the command enters placement mode. A ghost footprint follows the hovered cell and reports validity. Valid placement requires walkable in-bounds cells, no resource or entity overlap, and enough resources. Confirming placement deducts the faction-adjusted cost and creates a partially complete structure. The worker constructs it over time and becomes available when construction completes.
 
@@ -97,7 +99,7 @@ The vertical slice uses a fixed population cap of 24. This keeps the interface a
 
 ## 11. Combat and Faction Passives
 
-Military units in an attack stance search for the closest reachable enemy within acquisition range and unobstructed terrain line of sight. Ridges block combat line of sight. A focused order pursues its target until the unit enters attack range and has line of sight. An attack applies deterministic damage after the cooldown expires and triggers a short view-only flash. Buildings can be attacked but do not move.
+Military units in an attack stance search for the closest visible enemy within acquisition range. A focused order pursues its target until the unit enters attack range. An attack applies deterministic damage after the cooldown expires and triggers a short view-only flash. Buildings can be attacked but do not move.
 
 Faction modifiers are applied at explicit seams:
 
@@ -106,15 +108,13 @@ Faction modifiers are applied at explicit seams:
 | Celestial | Multiply Essence deposits by 1.15 and increase Mystic range |
 | Demon | On enemy kill, heal the killing unit and add a small Essence bounty |
 | Beast | Multiply movement speed by 1.18 and reduce Vanguard Jade cost |
-| Human | Multiply Jade deposits by 1.10 and structure costs by 0.85 |
+| Human | Multiply Jade deposits by 1.10 and War Camp costs by 0.85 |
 
 The simulation checks both strongholds after every destructive event. Loss of the enemy stronghold yields victory; loss of the player stronghold yields defeat.
 
 ## 12. Computer Commander
 
-The computer commander evaluates its military count, production structures, resources, and attack timer on a bounded strategy interval rather than per frame. Both sides begin with equal resources and Workers and no War Camp. The computer constructs and rebuilds one War Camp through normal costs and construction time, maintains Workers up to a small limit, alternates Vanguard and Mystic production, and launches its military units toward the player Stronghold after reaching a force threshold or maximum wait.
-
-The computer receives no periodic stipend, free production structure, combat-stat modifier, hidden sight, or build-time advantage. It gathers, spends, builds, rebuilds, trains, and attacks through the same simulation rules as the player.
+The computer commander runs a small strategic state machine rather than per-frame cheating. Both sides start with identical resources and worker counts. Every strategy interval it evaluates its military count, production structures, harvested resources, Food supply, cave control, and attack timer. It assigns workers across Jade, Lumber, and Essence; constructs and reconstructs its War Camp and food infrastructure through normal costs and build time; falls back to an affordable unit rather than deadlocking production; and hunts, captures, or attacks after reaching force thresholds. It receives no periodic resource stipend and no free production structure.
 
 ## 13. Generated Asset Pipeline
 
@@ -138,12 +138,16 @@ The heads-up display will use a dark ink-and-lacquer palette with warm parchment
 
 The bottom information panel will display selected entity name, role, health, current order, and queue state. Multi-selection will display count and composition. The command panel will refresh from the authoritative selection and resource state. A first-match help panel will list controls and the victory condition without blocking play.
 
+The expanded renderer batches each authored 2 × 2 terrain macro-cell, culls entities before sorting, renders each swaying tree with one textured draw, suppresses full-tree resource bars unless selected, and composites minimap terrain, entity, and fog image layers. Ambient redraws are capped at 30 Hz while input actions still invalidate immediately.
+
 ## 15. Tests and Verification
 
 | Gate | Method | Pass condition |
 | --- | --- | --- |
 | Projection | Headless GDScript test | Grid centers round-trip and edge cells pick correctly |
-| Simulation | Headless GDScript test | Harvest, deposit, production, combat, death, and result transitions succeed |
+| Simulation | Headless GDScript test | Harvest, deposit, production, persistent attack-move, line-of-sight, separation, fair AI construction, combat, death, and result transitions succeed |
+| Authority | Headless GDScript test | Player-issued commands cannot mutate rival movement, combat, gathering, cargo, construction, queues, population, or rally state |
+| Performance | Instrumented headless draw test | Battlefield and minimap p95 CPU draw stay at or below 16.7 ms with all 1,016 trees in full-map and fogged starting views |
 | Import | Godot headless import | No parse or missing-resource errors |
 | Boot | Bounded headless run | Main scene reaches idle without fatal errors |
 | Visual | Native screenshot capture | Title, faction screen, and active match are legible at 1280 × 720 |

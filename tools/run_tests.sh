@@ -8,29 +8,28 @@ find_godot() {
     printf '%s\n' "${GODOT_BIN}"
     return
   fi
-
   local candidate
-  for candidate in godot4 godot /Applications/Godot.app/Contents/MacOS/Godot; do
-    if [[ "${candidate}" == /* ]]; then
-      if [[ -x "${candidate}" ]]; then
-        printf '%s\n' "${candidate}"
-        return
-      fi
-    elif command -v "${candidate}" >/dev/null 2>&1; then
+  for candidate in \
+    godot4 \
+    godot \
+    /Applications/Godot.app/Contents/MacOS/Godot \
+    /home/ubuntu/tools/godot-4.7.2/Godot_v4.7.2-stable_linux.x86_64
+  do
+    if command -v "${candidate}" >/dev/null 2>&1; then
       command -v "${candidate}"
       return
     fi
+    if [[ -x "${candidate}" ]]; then
+      printf '%s\n' "${candidate}"
+      return
+    fi
   done
-
   return 1
 }
 
-if ! GODOT_BIN="$(find_godot)"; then
-  echo "Godot 4.7.2 was not found. Set GODOT_BIN to the Godot executable." >&2
-  exit 1
-fi
-if [[ ! -x "${GODOT_BIN}" ]]; then
-  echo "GODOT_BIN is not executable: ${GODOT_BIN}" >&2
+GODOT_BIN="$(find_godot || true)"
+if [[ -z "${GODOT_BIN}" || ! -x "${GODOT_BIN}" ]]; then
+  echo "Godot 4.7.2 was not found. Set GODOT_BIN to an executable." >&2
   exit 1
 fi
 GODOT_VERSION="$("${GODOT_BIN}" --version)"
@@ -41,18 +40,23 @@ fi
 
 export GODOT_SILENCE_ROOT_WARNING=1
 
-if [[ ! -f "${ROOT}/.godot/global_script_class_cache.cfg" ]]; then
-  echo "==> Initializing Godot imports and global script classes"
-  "${GODOT_BIN}" --headless --path "${ROOT}" --import
+# A clean clone has no global-script cache. Prime imports before direct SceneTree scripts.
+if [[ ! -s "${ROOT}/.godot/global_script_class_cache.cfg" ]]; then
+  echo "==> initializing Godot imports"
+  "${GODOT_BIN}" --headless --editor --path "${ROOT}" --import --quit-after 2
 fi
 
 for test_script in \
+  tests/map_test.gd \
   tests/projection_test.gd \
   tests/assets_test.gd \
+  tests/interaction_test.gd \
+  tests/visibility_test.gd \
   tests/simulation_test.gd \
   tests/core_regression_test.gd \
   tests/battlefield_regression_test.gd \
-  tests/ui_regression_test.gd
+  tests/ui_regression_test.gd \
+  tests/performance_test.gd
 do
   echo "==> ${test_script}"
   "${GODOT_BIN}" --headless --path "${ROOT}" --script "${ROOT}/${test_script}"

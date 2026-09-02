@@ -1,4 +1,4 @@
-# Mandate of Myth — Game Proposal
+# Game Template - RTS — Game Proposal
 
 **Author:** Manus AI  
 **Date:** 2 September 2026  
@@ -6,7 +6,7 @@
 
 ## Executive Proposal
 
-**Mandate of Myth** is a browser-playable real-time strategy game set in a mythic interpretation of ancient China. The player commands one of four asymmetric factions—**Celestial, Demon, Beast, or Human**—on a hand-authored isometric battlefield. The playable release will be a complete skirmish vertical slice rather than a broad but shallow prototype. It will include faction selection, resource harvesting, structure construction, unit production, group selection, pathfinding, real-time combat, an opposing commander, victory and defeat states, and replay.
+**Game Template - RTS** is a browser-playable real-time strategy game set in a mythic interpretation of ancient China. The player commands one of four asymmetric factions—**Celestial, Demon, Beast, or Human**—on a hand-authored isometric battlefield. The playable release will be a complete skirmish vertical slice rather than a broad but shallow prototype. It will include faction selection, resource harvesting, structure construction, unit production, group selection, pathfinding, real-time combat, an opposing commander, victory and defeat states, and replay.
 
 The game will combine the legible economic and territorial rhythm associated with *Age of Mythology* with the responsive unit control, compact match duration, and faction readability associated with *StarCraft*. These references define design goals only. The factions, mythology, visual language, balance, interface, and implementation will be original.
 

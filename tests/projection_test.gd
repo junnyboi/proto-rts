@@ -7,7 +7,7 @@ func _initialize() -> void:
 
 func _run() -> void:
 	var failures: Array[String] = []
-	for cell in [Vector2i.ZERO, Vector2i(1, 1), Vector2i(7, 3), Vector2i(19, 15)]:
+	for cell in [Vector2i.ZERO, Vector2i(1, 1), Vector2i(17, 13), Vector2i(39, 31)]:
 		var picked := IsoProjection.cell_at(IsoProjection.cell_center(cell))
 		if picked != cell:
 			failures.append("center round-trip failed for %s -> %s" % [cell, picked])
