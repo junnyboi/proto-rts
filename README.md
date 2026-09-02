@@ -6,7 +6,7 @@
 
 ## Play
 
-The hosted Web build is published at **[junnyboi.github.io/proto-rts](https://junnyboi.github.io/proto-rts/)** after the GitHub Pages workflow completes.
+The hosted Web build is published at **[junnyboi.github.io/proto-rts](https://junnyboi.github.io/proto-rts/)** from the dedicated `gh-pages` branch after the GitHub Pages build completes.
 
 For native play, open the project in Godot 4.7.2 or run:
 
