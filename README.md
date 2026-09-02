@@ -16,7 +16,7 @@ For native play, open the project in Godot 4.7.2 or run:
 
 ## Complete skirmish loop
 
-The current release is a focused one-versus-one vertical slice. It includes faction selection, asymmetric faction passives, two-resource harvesting, worker cargo and drop-off behavior, War Camp construction, queued unit production, population limits, generated faction-specific unit and building art, click and box selection, formation movement, contextual commands, A* pathfinding, real-time melee and ranged combat, computer production and attacks, faction kill and economy modifiers, victory, defeat, pause, and rematch.
+The current release is a focused one-versus-one vertical slice. It includes faction selection, asymmetric faction passives, two-resource harvesting, worker cargo and drop-off behavior, War Camp construction, queued unit production, population limits, generated faction-specific unit and building art, click and box selection, arbitrary-size formation destinations, contextual commands, A* pathfinding, local unit separation, terrain line of sight, real-time melee and ranged combat, symmetric computer construction and rebuilding, faction kill and economy modifiers, victory, defeat, pause, and rematch.
 
 | Unit or structure | Function |
 | --- | --- |
@@ -30,7 +30,7 @@ The current release is a focused one-versus-one vertical slice. It includes fact
 
 | Input | Action |
 | --- | --- |
-| Left click | Select one friendly entity |
+| Left click | Select a friendly entity, enemy, or resource for inspection |
 | Left drag | Box-select friendly units |
 | Right click ground | Move selected units |
 | Right click resource | Assign selected workers to gather |
@@ -81,7 +81,9 @@ Run the focused suite:
 tools/run_tests.sh
 ```
 
-The suite verifies projection round trips, all 30 runtime asset paths, resource harvesting, deposits, construction, production, combat, and match victory. A native visual harness captures the title, faction selection, and skirmish screens:
+The suite self-initializes Godot imports on a clean clone and verifies projection round trips, all 30 runtime asset paths, resource harvesting, deposits, construction, production, combat, match victory, attack-move continuation, 24-unit formations, live-entity placement rejection, unit separation, AI construction and rebuilding, terrain line of sight, map-bound command rejection, resource inspection, and stale-selection pruning. Set `GODOT_BIN` when Godot is not available as `godot4`, `godot`, or the default macOS application path.
+
+A native visual harness captures the title, faction selection, and skirmish screens:
 
 ```bash
 /Applications/Godot.app/Contents/MacOS/Godot --path . --script tests/visual_capture.gd

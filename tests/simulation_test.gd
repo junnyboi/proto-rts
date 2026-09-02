@@ -13,7 +13,7 @@ func _advance(simulation: RtsSimulation, seconds: float) -> void:
 func _run() -> void:
 	var failures: Array[String] = []
 	var simulation := RtsSimulation.new()
-	simulation.setup(&"human")
+	simulation.setup(&"human", false)
 	var workers := simulation.team_entity_ids(RtsSimulation.TEAM_PLAYER, [&"worker"])
 	if workers.size() != 3:
 		failures.append("expected 3 initial workers, got %d" % workers.size())

@@ -247,6 +247,8 @@ func _make_faction_card(faction_id: StringName) -> PanelContainer:
 	var choose := ThemeFactory.button("COMMAND %s" % String(definition["name"]).to_upper())
 	choose.pressed.connect(func() -> void: _start_match(faction_id))
 	column.add_child(choose)
+	if faction_id == FactionCatalog.ORDER[0]:
+		choose.call_deferred("grab_focus")
 	return panel
 
 
@@ -359,7 +361,7 @@ func _build_help_panel(root: Control) -> void:
 	panel.size = Vector2(310, 80)
 	panel.add_theme_stylebox_override(&"panel", ThemeFactory.panel_style(Color(0.02, 0.05, 0.052, 0.82), Color("345d57"), 1, 8))
 	root.add_child(panel)
-	var text := ThemeFactory.label("OBJECTIVE\nDestroy the rival Stronghold. The AI receives a disclosed income stipend, but no combat bonuses.", 13, ThemeFactory.MUTED)
+	var text := ThemeFactory.label("OBJECTIVE\nDestroy the rival Stronghold. Both sides start with equal resources and workers; the AI builds and rebuilds through normal rules.", 13, ThemeFactory.MUTED)
 	text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	panel.add_child(text)
 
@@ -441,7 +443,12 @@ func _update_commands() -> void:
 	var selected_structure := battlefield.primary_selected_structure()
 	var has_worker := false
 	for id in battlefield.selected_ids:
-		if simulation.entity(id).get("kind") == &"worker":
+		var selected_entity := simulation.entity(id)
+		if (
+			bool(selected_entity.get("alive", false))
+			and selected_entity.get("kind") == &"worker"
+			and int(selected_entity.get("team", RtsSimulation.TEAM_NEUTRAL)) == RtsSimulation.TEAM_PLAYER
+		):
 			has_worker = true
 	var structure := simulation.entity(selected_structure) if selected_structure >= 0 else {}
 	var player_faction := simulation.players[RtsSimulation.TEAM_PLAYER]["faction"] as StringName

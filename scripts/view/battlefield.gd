@@ -84,6 +84,7 @@ func center_on_player_stronghold() -> void:
 
 
 func _process(delta: float) -> void:
+	_prune_invalid_selection()
 	var camera_direction := Input.get_vector("camera_left", "camera_right", "camera_up", "camera_down")
 	if camera_direction.length_squared() > 0.0:
 		camera_offset -= camera_direction * 520.0 * delta
@@ -152,6 +153,8 @@ func _handle_left_press(position: Vector2) -> void:
 		if not units.is_empty() and MapCatalog.in_bounds(cell):
 			simulation.command_move(units, cell, true)
 			feedback.emit("Attack-move order issued.", false)
+		elif not MapCatalog.in_bounds(cell):
+			feedback.emit("Choose a destination inside the battlefield.", true)
 		attack_move_armed = false
 		return
 	_selection_pressed = true
@@ -168,8 +171,11 @@ func _handle_left_release(position: Vector2) -> void:
 	if _selection_dragging:
 		_select_in_rect(Rect2(_selection_start, _selection_current - _selection_start).abs())
 	else:
-		var hit := entity_at_screen(position, true)
-		select_entities([] if hit < 0 else [hit])
+		var hit := entity_at_screen(position, false)
+		var clicked_ids: Array[int] = []
+		if hit >= 0:
+			clicked_ids.append(hit)
+		select_entities(clicked_ids)
 	_selection_dragging = false
 
 
@@ -181,8 +187,10 @@ func _handle_right_click(position: Vector2) -> void:
 	if target_id >= 0:
 		var target := simulation.entity(target_id)
 		if int(target.get("team", RtsSimulation.TEAM_NEUTRAL)) == RtsSimulation.TEAM_ENEMY:
-			simulation.command_attack(selected_commandable_units(), target_id)
-			feedback.emit("Focus-fire order issued.", false)
+			var attackers := selected_commandable_units()
+			if not attackers.is_empty():
+				simulation.command_attack(attackers, target_id)
+				feedback.emit("Focus-fire order issued.", false)
 			return
 		if target.get("category") == &"resource":
 			var workers := _selected_of_kind(&"worker")
@@ -192,12 +200,17 @@ func _handle_right_click(position: Vector2) -> void:
 				return
 	var selected_structure := primary_selected_structure()
 	var cell := screen_to_cell(position)
+	if not MapCatalog.in_bounds(cell):
+		feedback.emit("Choose a destination inside the battlefield.", true)
+		return
 	if selected_structure >= 0 and selected_commandable_units().is_empty():
 		simulation.set_rally(selected_structure, cell)
 		feedback.emit("Rally point updated.", false)
 	else:
-		simulation.command_move(selected_commandable_units(), cell)
-		feedback.emit("Move order issued.", false)
+		var units := selected_commandable_units()
+		if not units.is_empty():
+			simulation.command_move(units, cell)
+			feedback.emit("Move order issued.", false)
 
 
 func _select_in_rect(rect: Rect2) -> void:
@@ -223,6 +236,22 @@ func select_entities(ids: Array[int]) -> void:
 			selected_ids.append(id)
 	selection_changed.emit(selected_ids.duplicate())
 	queue_redraw()
+
+
+func _prune_invalid_selection() -> void:
+	if simulation == null or selected_ids.is_empty():
+		return
+	var valid_ids: Array[int] = []
+	for id in selected_ids:
+		var entity_state := simulation.entity(id)
+		if not entity_state.is_empty() and bool(entity_state.get("alive", false)):
+			valid_ids.append(id)
+	if valid_ids == selected_ids:
+		return
+	selected_ids = valid_ids
+	if placement_worker_id >= 0 and not selected_ids.has(placement_worker_id):
+		placement_worker_id = -1
+	selection_changed.emit(selected_ids.duplicate())
 
 
 func select_all_workers() -> void:
@@ -268,7 +297,7 @@ func selected_commandable_units() -> Array[int]:
 	var result: Array[int] = []
 	for id in selected_ids:
 		var entity_state := simulation.entity(id)
-		if entity_state.get("category") == &"unit" and int(entity_state.get("team", -1)) == RtsSimulation.TEAM_PLAYER:
+		if bool(entity_state.get("alive", false)) and entity_state.get("category") == &"unit" and int(entity_state.get("team", -1)) == RtsSimulation.TEAM_PLAYER:
 			result.append(id)
 	return result
 
@@ -276,7 +305,7 @@ func selected_commandable_units() -> Array[int]:
 func primary_selected_structure() -> int:
 	for id in selected_ids:
 		var entity_state := simulation.entity(id)
-		if entity_state.get("category") == &"structure" and int(entity_state.get("team", -1)) == RtsSimulation.TEAM_PLAYER:
+		if bool(entity_state.get("alive", false)) and entity_state.get("category") == &"structure" and int(entity_state.get("team", -1)) == RtsSimulation.TEAM_PLAYER:
 			return id
 	return -1
 
@@ -285,7 +314,7 @@ func _selected_of_kind(kind: StringName) -> Array[int]:
 	var result: Array[int] = []
 	for id in selected_ids:
 		var entity_state := simulation.entity(id)
-		if entity_state.get("kind") == kind and int(entity_state.get("team", -1)) == RtsSimulation.TEAM_PLAYER:
+		if bool(entity_state.get("alive", false)) and entity_state.get("kind") == kind and int(entity_state.get("team", -1)) == RtsSimulation.TEAM_PLAYER:
 			result.append(id)
 	return result
 

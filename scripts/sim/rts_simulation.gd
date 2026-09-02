@@ -12,6 +12,10 @@ const TICK_SECONDS := 1.0 / 30.0
 const GATHER_CYCLE := 0.8
 const CARGO_CAPACITY := 50.0
 const GATHER_AMOUNT := 10.0
+const UNIT_SEPARATION_DISTANCE := 0.46
+const UNIT_SEPARATION_STEP := 0.10
+const AI_WAR_CAMP_CELL := Vector2i(15, 3)
+const INVALID_CELL := Vector2i(-1, -1)
 
 var players: Array[Dictionary] = []
 var entities: Dictionary = {}
@@ -23,15 +27,26 @@ var _accumulator := 0.0
 var _astar := AStarGrid2D.new()
 var _events: Array[Dictionary] = []
 var _ai_strategy_timer := 0.5
-var _ai_income_timer := 2.0
 var _ai_attack_timer := 14.0
 var _ai_training_flip := false
+var _ai_enabled := true
 
 
-func setup(player_faction: StringName) -> void:
+func setup(player_faction: StringName, enable_ai: bool = true) -> void:
+	var map_errors := MapCatalog.validation_errors()
+	if not map_errors.is_empty():
+		for message in map_errors:
+			push_error("Invalid authored map: %s" % message)
+		assert(map_errors.is_empty(), "Authored map validation failed")
+		return
 	entities.clear()
 	_events.clear()
 	_next_entity_id = 1
+	_accumulator = 0.0
+	_ai_strategy_timer = 0.5
+	_ai_attack_timer = 14.0
+	_ai_training_flip = false
+	_ai_enabled = enable_ai
 	elapsed_time = 0.0
 	outcome = &""
 	players = [
@@ -41,7 +56,6 @@ func setup(player_faction: StringName) -> void:
 	_rebuild_pathfinding()
 	_spawn_structure(TEAM_PLAYER, &"stronghold", MapCatalog.PLAYER_STRONGHOLD, true)
 	_spawn_structure(TEAM_ENEMY, &"stronghold", MapCatalog.ENEMY_STRONGHOLD, true)
-	_spawn_structure(TEAM_ENEMY, &"war_camp", Vector2i(15, 3), true)
 	for cell in MapCatalog.PLAYER_WORKERS:
 		_spawn_unit(TEAM_PLAYER, &"worker", cell)
 	for cell in MapCatalog.ENEMY_WORKERS:
@@ -49,7 +63,8 @@ func setup(player_faction: StringName) -> void:
 	for resource in MapCatalog.RESOURCES:
 		_spawn_resource(resource)
 	_rebuild_pathfinding()
-	_auto_assign_workers(TEAM_ENEMY)
+	if _ai_enabled:
+		_auto_assign_workers(TEAM_ENEMY)
 	state_changed.emit()
 
 
@@ -68,7 +83,8 @@ func _tick(delta: float) -> void:
 	_advance_production(delta)
 	_advance_worker_orders(delta)
 	_advance_combat_and_movement(delta)
-	_advance_ai(delta)
+	if _ai_enabled:
+		_advance_ai(delta)
 	state_changed.emit()
 
 
@@ -110,6 +126,7 @@ func _spawn_unit(team: int, kind: StringName, cell: Vector2i) -> int:
 		"path": [],
 		"path_index": 0,
 		"attack_move": false,
+		"attack_move_destination": INVALID_CELL,
 		"repath_timer": 0.0,
 		"cargo_kind": &"",
 		"cargo_amount": 0.0,
@@ -177,17 +194,24 @@ func _spawn_resource(definition: Dictionary) -> int:
 
 
 func command_move(ids: Array[int], destination: Vector2i, attack_move: bool = false) -> void:
-	var formation := _formation_cells(destination, ids.size())
-	var index := 0
+	if not MapCatalog.in_bounds(destination):
+		return
+	var commandable: Array[Dictionary] = []
 	for id in ids:
 		var unit := entity(id)
-		if not _is_commandable_unit(unit):
-			continue
+		if _is_commandable_unit(unit):
+			commandable.append(unit)
+	if commandable.is_empty():
+		return
+	var formation := _formation_cells(destination, commandable.size())
+	for index in range(commandable.size()):
+		var unit := commandable[index]
+		var formation_cell := formation[index]
 		unit["order"] = &"attack_move" if attack_move else &"move"
 		unit["target_id"] = -1
 		unit["attack_move"] = attack_move
-		_set_path(unit, formation[min(index, formation.size() - 1)])
-		index += 1
+		unit["attack_move_destination"] = formation_cell if attack_move else INVALID_CELL
+		_set_path(unit, formation_cell)
 	_add_event(&"command", Vector2(destination), Color("8de8c0"))
 
 
@@ -202,6 +226,7 @@ func command_attack(ids: Array[int], target_id: int) -> void:
 		attacker["order"] = &"attack"
 		attacker["target_id"] = target_id
 		attacker["attack_move"] = false
+		attacker["attack_move_destination"] = INVALID_CELL
 		attacker["path"] = []
 	_add_event(&"command", _entity_center(target), Color("f16a57"))
 
@@ -218,6 +243,8 @@ func command_gather(ids: Array[int], resource_id: int) -> void:
 		worker["gather_source_id"] = resource_id
 		worker["target_id"] = resource_id
 		worker["gather_timer"] = 0.0
+		worker["attack_move"] = false
+		worker["attack_move_destination"] = INVALID_CELL
 		_set_path(worker, resource["cell"] as Vector2i)
 	_add_event(&"command", _entity_center(resource), Color("73e6bc"))
 
@@ -231,6 +258,7 @@ func command_stop(ids: Array[int]) -> void:
 		unit["target_id"] = -1
 		unit["path"] = []
 		unit["attack_move"] = false
+		unit["attack_move_destination"] = INVALID_CELL
 
 
 func command_build_war_camp(worker_id: int, cell: Vector2i) -> bool:
@@ -259,7 +287,7 @@ func can_place_war_camp(team: int, cell: Vector2i) -> bool:
 	for footprint_cell in MapCatalog.footprint_cells(cell, footprint):
 		if not MapCatalog.is_static_walkable(footprint_cell):
 			return false
-		if _cell_occupied_by_static_entity(footprint_cell):
+		if _cell_occupied_by_live_entity(footprint_cell):
 			return false
 	return true
 
@@ -294,7 +322,7 @@ func command_train(structure_id: int, unit_kind: StringName) -> bool:
 
 func set_rally(structure_id: int, cell: Vector2i) -> void:
 	var structure := entity(structure_id)
-	if structure.is_empty() or structure.get("category") != &"structure":
+	if structure.is_empty() or structure.get("category") != &"structure" or not MapCatalog.in_bounds(cell):
 		return
 	structure["rally_cell"] = _nearest_walkable(cell)
 	_add_event(&"command", Vector2(structure["rally_cell"]), Color("f0d278"))
@@ -545,6 +573,7 @@ func _advance_combat_and_movement(delta: float) -> void:
 				if _advance_attack_order(current, delta):
 					continue
 		_advance_path(current, delta)
+	_apply_unit_separation()
 
 
 func _advance_attack_order(attacker: Dictionary, delta: float) -> bool:
@@ -557,13 +586,14 @@ func _advance_attack_order(attacker: Dictionary, delta: float) -> bool:
 				attacker["target_id"] = acquired
 				target = entity(acquired)
 			else:
+				_resume_attack_move(attacker)
 				return false
 		else:
 			attacker["order"] = &"idle"
 			attacker["path"] = []
 			return false
 	var distance := _combat_distance(attacker, target)
-	if distance <= float(attacker["range"]):
+	if distance <= float(attacker["range"]) and _has_line_of_sight(attacker, target):
 		attacker["path"] = []
 		if float(attacker["attack_cooldown"]) <= 0.0:
 			_apply_attack(attacker, target)
@@ -573,6 +603,24 @@ func _advance_attack_order(attacker: Dictionary, delta: float) -> bool:
 		attacker["repath_timer"] = 0.55
 	_advance_path(attacker, delta)
 	return true
+
+
+func _resume_attack_move(attacker: Dictionary) -> void:
+	var destination := attacker.get("attack_move_destination", INVALID_CELL) as Vector2i
+	if not MapCatalog.in_bounds(destination):
+		attacker["order"] = &"idle"
+		attacker["attack_move"] = false
+		attacker["attack_move_destination"] = INVALID_CELL
+		attacker["path"] = []
+		return
+	if (attacker["position"] as Vector2).distance_to(Vector2(destination)) <= 0.025:
+		attacker["order"] = &"idle"
+		attacker["attack_move"] = false
+		attacker["attack_move_destination"] = INVALID_CELL
+		attacker["path"] = []
+		return
+	if (attacker.get("path", []) as Array).is_empty():
+		_set_path(attacker, destination)
 
 
 func _apply_attack(attacker: Dictionary, target: Dictionary) -> void:
@@ -620,8 +668,10 @@ func _advance_path(entity_state: Dictionary, delta: float) -> void:
 	var path := entity_state.get("path", []) as Array
 	var path_index := int(entity_state.get("path_index", 0))
 	if path.is_empty() or path_index >= path.size():
-		if entity_state.get("order") == &"move":
+		if entity_state.get("order") in [&"move", &"attack_move"] and int(entity_state.get("target_id", -1)) < 0:
 			entity_state["order"] = &"idle"
+			entity_state["attack_move"] = false
+			entity_state["attack_move_destination"] = INVALID_CELL
 		return
 	var target := path[path_index] as Vector2
 	var position := entity_state["position"] as Vector2
@@ -636,31 +686,38 @@ func _advance_path(entity_state: Dictionary, delta: float) -> void:
 		if path_index >= path.size():
 			entity_state["path"] = []
 			entity_state["path_index"] = 0
-			if entity_state.get("order") == &"move":
+			if entity_state.get("order") in [&"move", &"attack_move"] and int(entity_state.get("target_id", -1)) < 0:
 				entity_state["order"] = &"idle"
+				entity_state["attack_move"] = false
+				entity_state["attack_move_destination"] = INVALID_CELL
 
 
 func _advance_ai(delta: float) -> void:
-	_ai_income_timer -= delta
-	if _ai_income_timer <= 0.0:
-		_ai_income_timer = 4.0
-		players[TEAM_ENEMY]["jade"] = int(players[TEAM_ENEMY]["jade"]) + 42
-		players[TEAM_ENEMY]["essence"] = int(players[TEAM_ENEMY]["essence"]) + 26
 	_ai_strategy_timer -= delta
 	_ai_attack_timer -= delta
 	if _ai_strategy_timer > 0.0:
 		return
 	_ai_strategy_timer = 1.4
+	var camps := _team_structures_of_kind(TEAM_ENEMY, &"war_camp")
+	if camps.is_empty() and can_afford_kind(TEAM_ENEMY, &"war_camp") and can_place_war_camp(TEAM_ENEMY, AI_WAR_CAMP_CELL):
+		var builders := _team_units_of_kind(TEAM_ENEMY, &"worker")
+		if not builders.is_empty():
+			command_build_war_camp(int(builders[0]["id"]), AI_WAR_CAMP_CELL)
+			camps = _team_structures_of_kind(TEAM_ENEMY, &"war_camp")
 	var stronghold := _stronghold_for_team(TEAM_ENEMY)
 	if not stronghold.is_empty() and _team_units_of_kind(TEAM_ENEMY, &"worker").size() < 5:
 		if (stronghold.get("queue", []) as Array).size() < 1:
 			command_train(int(stronghold["id"]), &"worker")
-	for camp in _team_structures_of_kind(TEAM_ENEMY, &"war_camp"):
+	for camp in camps:
 		if (camp.get("queue", []) as Array).size() >= 2:
 			continue
 		var next_kind: StringName = &"mystic" if _ai_training_flip else &"vanguard"
 		if command_train(int(camp["id"]), next_kind):
 			_ai_training_flip = not _ai_training_flip
+		else:
+			var fallback_kind: StringName = &"vanguard" if next_kind == &"mystic" else &"mystic"
+			if command_train(int(camp["id"]), fallback_kind):
+				_ai_training_flip = fallback_kind == &"vanguard"
 	var army := _team_military(TEAM_ENEMY)
 	if army.size() >= 4 and (_ai_attack_timer <= 0.0 or army.size() >= 8):
 		var player_hold := _stronghold_for_team(TEAM_PLAYER)
@@ -675,22 +732,43 @@ func _advance_ai(delta: float) -> void:
 
 func _auto_assign_workers(team: int) -> void:
 	for worker in _team_units_of_kind(team, &"worker"):
-		_assign_nearest_resource(worker)
+		if team == TEAM_ENEMY:
+			_assign_ai_resource(worker)
+		else:
+			_assign_nearest_resource(worker)
 
 
 func _auto_assign_idle_worker(team: int) -> void:
 	for worker in _team_units_of_kind(team, &"worker"):
 		if worker.get("order") == &"idle":
-			_assign_nearest_resource(worker)
+			if team == TEAM_ENEMY:
+				_assign_ai_resource(worker)
+			else:
+				_assign_nearest_resource(worker)
 			return
 
 
-func _assign_nearest_resource(worker: Dictionary) -> void:
+func _assign_ai_resource(worker: Dictionary) -> void:
+	var essence_workers := 0
+	for teammate in _team_units_of_kind(TEAM_ENEMY, &"worker"):
+		if int(teammate.get("id", -1)) == int(worker.get("id", -1)):
+			continue
+		var source := entity(int(teammate.get("gather_source_id", -1)))
+		if bool(source.get("alive", false)) and source.get("resource_kind") == &"essence":
+			essence_workers += 1
+	var preferred_kind: StringName = &"essence" if essence_workers < 1 else &"jade"
+	if not _assign_nearest_resource(worker, preferred_kind):
+		_assign_nearest_resource(worker)
+
+
+func _assign_nearest_resource(worker: Dictionary, resource_kind: StringName = &"") -> bool:
 	var best_id := -1
 	var best_distance := INF
 	for raw_resource in entities.values():
 		var resource := raw_resource as Dictionary
 		if not bool(resource.get("alive", false)) or resource.get("category") != &"resource":
+			continue
+		if not resource_kind.is_empty() and resource.get("resource_kind") != resource_kind:
 			continue
 		var distance := _entity_distance(worker, resource)
 		if distance < best_distance:
@@ -698,33 +776,35 @@ func _assign_nearest_resource(worker: Dictionary) -> void:
 			best_id = int(resource["id"])
 	if best_id >= 0:
 		command_gather([int(worker["id"])], best_id)
+		return true
+	return false
 
 
 func _formation_cells(center: Vector2i, count: int) -> Array[Vector2i]:
-	var result: Array[Vector2i] = [center]
-	var offsets: Array[Vector2i] = [
-		Vector2i(1, 0),
-		Vector2i(0, 1),
-		Vector2i(-1, 0),
-		Vector2i(0, -1),
-		Vector2i(1, 1),
-		Vector2i(-1, 1),
-		Vector2i(-1, -1),
-		Vector2i(1, -1),
-	]
-	for offset in offsets:
-		if result.size() >= count:
-			break
-		result.append(center + offset)
+	var result: Array[Vector2i] = []
+	if count <= 0:
+		return result
+	var used := {}
+	var max_radius := MapCatalog.SIZE.x + MapCatalog.SIZE.y
+	for radius in range(max_radius):
+		for y in range(-radius, radius + 1):
+			for x in range(-radius, radius + 1):
+				if abs(x) + abs(y) != radius:
+					continue
+				var candidate := center + Vector2i(x, y)
+				if not MapCatalog.in_bounds(candidate) or _astar.is_point_solid(candidate) or used.has(candidate):
+					continue
+				used[candidate] = true
+				result.append(candidate)
+				if result.size() >= count:
+					return result
 	return result
 
 
-func _cell_occupied_by_static_entity(cell: Vector2i) -> bool:
+func _cell_occupied_by_live_entity(cell: Vector2i) -> bool:
 	for raw_entity in entities.values():
 		var entity_state := raw_entity as Dictionary
 		if not bool(entity_state.get("alive", false)):
-			continue
-		if entity_state.get("category") not in [&"structure", &"resource"]:
 			continue
 		for occupied in MapCatalog.footprint_cells(
 			entity_state["cell"] as Vector2i,
@@ -733,6 +813,42 @@ func _cell_occupied_by_static_entity(cell: Vector2i) -> bool:
 			if occupied == cell:
 				return true
 	return false
+
+
+func _apply_unit_separation() -> void:
+	var unit_ids := team_entity_ids(TEAM_PLAYER) + team_entity_ids(TEAM_ENEMY)
+	unit_ids.sort()
+	for first_index in range(unit_ids.size()):
+		var first := entity(unit_ids[first_index])
+		if first.get("category") != &"unit":
+			continue
+		for second_index in range(first_index + 1, unit_ids.size()):
+			var second := entity(unit_ids[second_index])
+			if second.get("category") != &"unit":
+				continue
+			var first_position := first["position"] as Vector2
+			var second_position := second["position"] as Vector2
+			var offset := second_position - first_position
+			var distance := offset.length()
+			if distance >= UNIT_SEPARATION_DISTANCE:
+				continue
+			var direction := offset / distance if distance > 0.001 else _deterministic_separation_direction(int(first["id"]), int(second["id"]))
+			var correction := minf((UNIT_SEPARATION_DISTANCE - distance) * 0.5, UNIT_SEPARATION_STEP)
+			_try_move_for_separation(first, first_position - direction * correction)
+			_try_move_for_separation(second, second_position + direction * correction)
+
+
+func _deterministic_separation_direction(first_id: int, second_id: int) -> Vector2:
+	var directions: Array[Vector2] = [Vector2.RIGHT, Vector2.DOWN, Vector2.LEFT, Vector2.UP]
+	return directions[posmod(first_id * 31 + second_id * 17, directions.size())]
+
+
+func _try_move_for_separation(unit: Dictionary, candidate: Vector2) -> void:
+	var cell := Vector2i(candidate.round())
+	if not MapCatalog.in_bounds(cell) or _astar.is_point_solid(cell):
+		return
+	unit["position"] = candidate
+	unit["cell"] = cell
 
 
 func _can_afford(team: int, stats: Dictionary) -> bool:
@@ -797,10 +913,35 @@ func _nearest_enemy(source: Dictionary, maximum_distance: float) -> int:
 		if int(target["team"]) == int(source["team"]):
 			continue
 		var distance := _entity_distance(source, target)
-		if distance < best_distance:
+		if distance < best_distance and _has_line_of_sight(source, target) and _has_reachable_path(source, target):
 			best_distance = distance
 			best_id = int(target["id"])
 	return best_id
+
+
+func _has_reachable_path(source: Dictionary, target: Dictionary) -> bool:
+	var start := Vector2i((source["position"] as Vector2).round())
+	if not MapCatalog.in_bounds(start):
+		return false
+	var destination := _nearest_walkable(target["cell"] as Vector2i)
+	if start == destination:
+		return true
+	return not _astar.get_id_path(start, destination, false).is_empty()
+
+
+func _has_line_of_sight(source: Dictionary, target: Dictionary) -> bool:
+	var start := Vector2i((source["position"] as Vector2).round())
+	var finish := Vector2i(_entity_center(target).round())
+	var difference := finish - start
+	var steps := maxi(absi(difference.x), absi(difference.y))
+	if steps <= 1:
+		return true
+	for step in range(1, steps):
+		var ratio := float(step) / float(steps)
+		var cell := Vector2i(Vector2(start).lerp(Vector2(finish), ratio).round())
+		if not MapCatalog.in_bounds(cell) or MapCatalog.terrain_at(cell) == &"ridge":
+			return false
+	return true
 
 
 func _team_units_of_kind(team: int, kind: StringName) -> Array[Dictionary]:

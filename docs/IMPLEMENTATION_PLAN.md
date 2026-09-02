@@ -79,7 +79,7 @@ Movement commands calculate paths from the entity’s current cell to the reques
 
 ## 8. Input and Camera
 
-The battlefield will interpret input in this order: active placement mode, interface exclusion, selection drag, single selection, and contextual command. The camera transform is view-only. It supports middle-button drag, `WASD` or arrow-key edge-independent panning, mouse-wheel zoom, and `Space` to center the player stronghold. Zoom will be clamped to a readable range and preserve the cursor’s world point.
+The battlefield interprets input in this order: active placement mode, interface exclusion, selection drag, single selection, and contextual command. The camera transform is view-only. It supports middle-button drag, arrow-key edge-independent panning, mouse-wheel zoom, and `Space` to center the player stronghold. `A` and `S` remain reserved for attack-move and stop. Zoom is clamped to a readable range and preserves the cursor’s world point.
 
 Selection rules are deterministic. A click chooses the nearest selectable entity within a screen-space radius, with units preferred over structures when distances are equal. A drag selects all visible player units inside the rectangle. Right clicking an enemy issues focused attack orders. Right clicking a resource with workers selected assigns harvesting. Right clicking empty walkable ground issues movement. Pressing `A` arms an attack-move cursor for the next valid map click.
 
@@ -97,7 +97,7 @@ The vertical slice uses a fixed population cap of 24. This keeps the interface a
 
 ## 11. Combat and Faction Passives
 
-Military units in an attack stance search for the closest visible enemy within acquisition range. A focused order pursues its target until the unit enters attack range. An attack applies deterministic damage after the cooldown expires and triggers a short view-only flash. Buildings can be attacked but do not move.
+Military units in an attack stance search for the closest reachable enemy within acquisition range and unobstructed terrain line of sight. Ridges block combat line of sight. A focused order pursues its target until the unit enters attack range and has line of sight. An attack applies deterministic damage after the cooldown expires and triggers a short view-only flash. Buildings can be attacked but do not move.
 
 Faction modifiers are applied at explicit seams:
 
@@ -112,9 +112,9 @@ The simulation checks both strongholds after every destructive event. Loss of th
 
 ## 12. Computer Commander
 
-The computer commander runs a small strategic state machine rather than per-frame cheating. Every strategy interval it evaluates its military count, production structures, resources, and attack timer. It builds one War Camp if none exists, maintains workers up to a small limit, alternates Vanguard and Mystic production, and launches all idle military units toward the player stronghold after reaching a force threshold or maximum wait.
+The computer commander evaluates its military count, production structures, resources, and attack timer on a bounded strategy interval rather than per frame. Both sides begin with equal resources and Workers and no War Camp. The computer constructs and rebuilds one War Camp through normal costs and construction time, maintains Workers up to a small limit, alternates Vanguard and Mystic production, and launches its military units toward the player Stronghold after reaching a force threshold or maximum wait.
 
-The computer receives a transparent periodic income stipend. The stipend compensates for deliberately simplified worker micro and is disclosed in the in-game help panel as the selected difficulty rule. It does not modify combat statistics, sight, pathfinding, or build times.
+The computer receives no periodic stipend, free production structure, combat-stat modifier, hidden sight, or build-time advantage. It gathers, spends, builds, rebuilds, trains, and attacks through the same simulation rules as the player.
 
 ## 13. Generated Asset Pipeline
 

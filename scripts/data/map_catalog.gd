@@ -73,3 +73,51 @@ static func footprint_cells(origin: Vector2i, footprint: Vector2i) -> Array[Vect
 		for x in range(footprint.x):
 			result.append(origin + Vector2i(x, y))
 	return result
+
+
+static func validation_errors() -> Array[String]:
+	var errors: Array[String] = []
+	if TERRAIN_ROWS.size() != SIZE.y:
+		errors.append("terrain row count must equal map height")
+	for row_index in range(TERRAIN_ROWS.size()):
+		if TERRAIN_ROWS[row_index].length() != SIZE.x:
+			errors.append("terrain row %d must contain %d cells" % [row_index, SIZE.x])
+	var occupied := {}
+	_validate_footprint("player Stronghold", PLAYER_STRONGHOLD, Vector2i(2, 2), occupied, errors)
+	_validate_footprint("enemy Stronghold", ENEMY_STRONGHOLD, Vector2i(2, 2), occupied, errors)
+	for index in range(PLAYER_WORKERS.size()):
+		_validate_cell("player Worker %d" % index, PLAYER_WORKERS[index], occupied, errors)
+	for index in range(ENEMY_WORKERS.size()):
+		_validate_cell("enemy Worker %d" % index, ENEMY_WORKERS[index], occupied, errors)
+	for index in range(RESOURCES.size()):
+		var definition := RESOURCES[index]
+		var kind := definition.get("kind", &"") as StringName
+		if kind not in [&"jade", &"essence"]:
+			errors.append("resource %d has unsupported kind %s" % [index, String(kind)])
+		if float(definition.get("amount", 0.0)) <= 0.0:
+			errors.append("resource %d must have a positive amount" % index)
+		_validate_cell("resource %d" % index, definition.get("cell", Vector2i(-1, -1)) as Vector2i, occupied, errors)
+	return errors
+
+
+static func _validate_footprint(
+	label: String,
+	origin: Vector2i,
+	footprint: Vector2i,
+	occupied: Dictionary,
+	errors: Array[String],
+) -> void:
+	for cell in footprint_cells(origin, footprint):
+		_validate_cell(label, cell, occupied, errors)
+
+
+static func _validate_cell(label: String, cell: Vector2i, occupied: Dictionary, errors: Array[String]) -> void:
+	if not in_bounds(cell):
+		errors.append("%s is out of bounds at %s" % [label, cell])
+		return
+	if not is_static_walkable(cell):
+		errors.append("%s is not on walkable terrain at %s" % [label, cell])
+	if occupied.has(cell):
+		errors.append("%s overlaps %s at %s" % [label, occupied[cell], cell])
+	else:
+		occupied[cell] = label
