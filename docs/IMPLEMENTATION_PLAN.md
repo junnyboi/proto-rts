@@ -99,7 +99,7 @@ The vertical slice uses a fixed population cap of 24. This keeps the interface a
 
 ## 11. Combat and Faction Passives
 
-Military units in an attack stance search for the closest visible enemy within acquisition range. A focused order pursues its target until the unit enters attack range. An attack applies deterministic damage after the cooldown expires and triggers a short view-only flash. Buildings can be attacked but do not move.
+Military units in an attack stance search for the closest visible enemy within acquisition range and terrain-aware line-of-sight. A focused order pursues its target until the unit enters attack range with an unobstructed grid ray; ridges, trees, resources, and structures block acquisition and ranged damage. An attack applies deterministic damage after the cooldown expires and triggers a short view-only flash. Buildings can be attacked but do not move.
 
 Faction modifiers are applied at explicit seams:
 
@@ -138,7 +138,7 @@ The heads-up display will use a dark ink-and-lacquer palette with warm parchment
 
 The bottom information panel will display selected entity name, role, health, current order, and queue state. Multi-selection will display count and composition. The command panel will refresh from the authoritative selection and resource state. A first-match help panel will list controls and the victory condition without blocking play.
 
-The expanded renderer batches each authored 2 × 2 terrain macro-cell, culls entities before sorting, renders each swaying tree with one textured draw, suppresses full-tree resource bars unless selected, and composites minimap terrain, entity, and fog image layers. Ambient redraws are capped at 30 Hz while input actions still invalidate immediately.
+The expanded renderer batches each authored 2 × 2 terrain macro-cell, culls entities before sorting, renders each nearby swaying tree with one textured draw, suppresses tree resource bars unless selected, and composites minimap terrain, entity, wildlife, and fog image layers. Strategic overview zoom renders one representative tree per authored grove cell and hides unreadable duplicate sprites and grid strokes. Ambient redraws are capped at 30 Hz while input actions still invalidate immediately.
 
 ## 15. Tests and Verification
 
@@ -146,8 +146,8 @@ The expanded renderer batches each authored 2 × 2 terrain macro-cell, culls ent
 | --- | --- | --- |
 | Projection | Headless GDScript test | Grid centers round-trip and edge cells pick correctly |
 | Simulation | Headless GDScript test | Harvest, deposit, production, persistent attack-move, line-of-sight, separation, fair AI construction, combat, death, and result transitions succeed |
-| Authority | Headless GDScript test | Player-issued commands cannot mutate rival movement, combat, gathering, cargo, construction, queues, population, or rally state |
-| Performance | Instrumented headless draw test | Battlefield and minimap p95 CPU draw stay at or below 16.7 ms with all 1,016 trees in full-map and fogged starting views |
+| Authority | Headless GDScript test | Player-issued commands cannot mutate rival movement, combat, gathering, repair, patrol, cargo, construction, queues, cancellation, population, or rally state |
+| Performance | Instrumented headless draw test | With all 2,224 authored trees active, Battlefield p95 CPU draw stays at or below its 33.3 ms ambient-redraw budget and minimap p95 stays at or below 16.7 ms in full-map and fogged starting views |
 | Import | Godot headless import | No parse or missing-resource errors |
 | Boot | Bounded headless run | Main scene reaches idle without fatal errors |
 | Visual | Native screenshot capture | Title, faction screen, and active match are legible at 1280 × 720 |

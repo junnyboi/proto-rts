@@ -18,18 +18,18 @@ The redesign deliberately changes map topology without adding hidden combat rule
 | Symmetry | Exact 180-degree rotational terrain symmetry | Equal approach geometry and travel opportunities |
 | Bases | Player southwest, enemy northeast | Clear territorial identity and a long strategic front |
 | River | Three-cell diagonal band | Hard territorial separator and readable battle line |
-| Crossings | Three crossings, each two rows wide | Predictable conflict points without one choke deciding the match |
-| Tree groves | 1,016 harvestable blockers in mirrored clusters | Mutable jungle pockets, flanking corridors, ambush edges, and lane separation |
+| Crossings | Two outer crossings, each two authored rows wide | Flanking commitments with no direct central bridge |
+| Tree groves | 2,224 harvestable blockers in mirrored clusters and an irregular perimeter | Mutable jungle pockets, flanking corridors, ambush edges, and a natural wooded boundary |
 | Roads | 472 walkable, non-buildable cells | Legible primary routes and protected traffic flow |
 | Ridge | 40 impassable cells | Small routing knuckles that prevent overly straight jungle movement |
-| Economy nodes | 12 Jade/Essence nodes plus 1,016 harvestable trees | Safe openings, progressively riskier expansion, and mutable logging routes |
+| Economy nodes | 12 Jade/Essence nodes plus 2,224 harvestable trees | Safe openings, progressively riskier expansion, and mutable logging routes |
 
 ## Route structure
 
 The three routes form distinct strategic choices:
 
 1. The high route follows the outer bank to a narrow northern crossing. It is the longest approach and exposes an army to multiple jungle exits.
-2. The Meridian route is the most direct base-to-base line. It reaches the broad central Moon Gate and is the natural location for early army contact.
+2. The Meridian route reaches opposite central riverbanks but no longer crosses the water, making it a staging and vision lane rather than a direct assault path.
 3. The low route wraps around the opposite perimeter to the southern crossing. It offers a long flank and access to the second jungle economy pocket.
 
 Each road has a walkable shoulder carved through the tree groves. This supports small formations and prevents a single occupied cell from visually reducing a lane to a thread. Meadow connections between lanes form rotation paths, but standing trees block direct shortcuts and make crossing choice meaningful until players invest worker time in logging.
@@ -38,7 +38,7 @@ Each road has a walkable shoulder carved through the tree groves. This supports 
 
 The river follows the rotationally invariant diagonal around `x - y = 4`. It separates the two starting territories continuously from one map edge to the other. Ordinary river cells are impassable. Bridge cells use the same A* cost as meadow so no new movement modifier is hidden from the player.
 
-The high and low crossings are paired outer fords at rows 10–13 and 50–53. The central Moon Gate occupies rows 30–33. All three span the complete river width, and automated connectivity validation confirms that starting armies can reach one another through the authored walkable network.
+The high and low crossings are paired outer fords at rows 10–13 and 50–53. The former central Moon Gate at rows 30–33 is now uninterrupted water. Both outer bridges span the complete river width, and automated connectivity validation confirms that starting armies can still reach one another through the authored walkable network.
 
 ## Forest and jungle design
 
@@ -56,7 +56,7 @@ Each faction receives the same six-node Jade/Essence progression under 180-degre
 
 The starting Jade node is close enough to preserve the existing worker-harvest cadence. Resource glades are statically walkable and accessible from more than one adjacent cell, while their resource entities still block their occupied cells through the simulation's normal pathfinding rebuild.
 
-The Lumber implementation adds 36 easily reached trees per territory around the authored meadow glades and converts the remaining jungle into 944 more harvestable trees. Each tree begins as a normal resource blocker and opens its occupied cell when depleted. Small edge clearings support early War Camp placement; deeper logging creates cross-jungle reinforcement routes later in the match.
+The Lumber implementation adds 36 easily reached trees per territory around the authored meadow glades, converts the former jungle into 944 harvestable trees, and shapes 1,208 more into varied stands around the sides and corners. Each tree begins as a normal resource blocker and opens its occupied cell when depleted. Protected base clearings and road exits support early construction and movement; deeper logging creates cross-jungle or perimeter expansion routes later in the match.
 
 ## Camera, fog, and navigation usability
 
@@ -80,8 +80,8 @@ The implementation is complete when all of the following hold:
 
 - The map is exactly 80 × 64 and every 40 × 32 authored macro-grid row has a matching width.
 - Terrain and resource opportunities are rotationally fair.
-- A 40 × 32 authored tree layer expands to exactly 1,016 harvestable blockers in meaningful jungle masses.
-- The diagonal river remains continuous except for exactly three authored crossings.
+- A 40 × 32 authored tree layer expands to exactly 2,224 harvestable blockers in meaningful jungle masses and around the organic map perimeter.
+- The diagonal river remains continuous except for exactly two authored outer crossings.
 - Roads and bridges are walkable but non-buildable; ridge and water remain static blockers.
 - Every standing tree blocks navigation and construction, and its meadow cell reopens after depletion.
 - Both stronghold footprints and every resource glade are valid.

@@ -12,7 +12,7 @@ func _advance(simulation: RtsSimulation, seconds: float) -> void:
 
 func _test_stronghold_dropoff(failures: Array[String]) -> void:
 	var simulation := RtsSimulation.new()
-	simulation.setup(&"human", false)
+	simulation.setup(&"human")
 	var worker_id := simulation.team_entity_ids(RtsSimulation.TEAM_PLAYER, [&"worker"])[0]
 	var worker := simulation.entity(worker_id)
 	var stronghold := simulation.entity(
@@ -34,9 +34,151 @@ func _test_stronghold_dropoff(failures: Array[String]) -> void:
 		failures.append("worker remained stuck in the resource return order after reaching the Stronghold")
 
 
+func _test_manual_deposit_requires_range(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human")
+	var worker_id := simulation.team_entity_ids(RtsSimulation.TEAM_PLAYER, [&"worker"])[0]
+	var worker := simulation.entity(worker_id)
+	var stronghold_id := simulation.primary_structure_id(RtsSimulation.TEAM_PLAYER, &"stronghold")
+	worker["cargo_kind"] = &"lumber"
+	worker["cargo_amount"] = 20.0
+	var lumber_before := int(simulation.players[RtsSimulation.TEAM_PLAYER]["lumber"])
+	var deposited_workers := simulation.command_deposit(RtsSimulation.TEAM_PLAYER, [worker_id], stronghold_id)
+	if deposited_workers != 0:
+		failures.append("a remote worker deposited immediately")
+	if int(simulation.players[RtsSimulation.TEAM_PLAYER]["lumber"]) != lumber_before:
+		failures.append("a remote deposit command changed the stockpile")
+	if worker.get("cargo_kind") != &"lumber" or float(worker.get("cargo_amount", 0.0)) != 20.0:
+		failures.append("a remote deposit command changed carried cargo before arrival")
+	if worker.get("order") != &"return":
+		failures.append("a remote deposit command did not start a return order")
+	var timeout := 10.0
+	while float(worker.get("cargo_amount", 0.0)) > 0.0 and timeout > 0.0:
+		simulation.advance(RtsSimulation.TICK_SECONDS)
+		timeout -= RtsSimulation.TICK_SECONDS
+	if int(simulation.players[RtsSimulation.TEAM_PLAYER]["lumber"]) != lumber_before + 20:
+		failures.append("a returning worker did not deposit after reaching the Stronghold")
+	if float(worker.get("cargo_amount", 0.0)) > 0.0:
+		failures.append("a returning worker retained cargo after the physical drop-off")
+
+
+func _test_cargo_reassignment_preserves_kind(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human")
+	var worker_id := simulation.team_entity_ids(RtsSimulation.TEAM_PLAYER, [&"worker"])[0]
+	var worker := simulation.entity(worker_id)
+	var jade: Dictionary = {}
+	for raw_entity in simulation.entities.values():
+		var entity_state := raw_entity as Dictionary
+		if entity_state.get("resource_kind") == &"jade":
+			jade = entity_state
+			break
+	if jade.is_empty():
+		failures.append("no Jade node was available for the cargo reassignment test")
+		return
+	var visible_cell := simulation._nearest_walkable_around(jade["cell"] as Vector2i, 3)
+	worker["position"] = Vector2(visible_cell)
+	worker["cell"] = visible_cell
+	worker["path"] = []
+	worker["cargo_kind"] = &"lumber"
+	worker["cargo_amount"] = 20.0
+	simulation._refresh_visibility()
+	var lumber_before := int(simulation.players[RtsSimulation.TEAM_PLAYER]["lumber"])
+	simulation.command_gather(RtsSimulation.TEAM_PLAYER, [worker_id], int(jade["id"]))
+	if worker.get("order") != &"return":
+		failures.append("reassigning mixed cargo did not start a return order")
+	if int(worker.get("gather_source_id", -1)) != int(jade["id"]):
+		failures.append("reassigning mixed cargo did not remember the new source")
+	if worker.get("cargo_kind") != &"lumber" or float(worker.get("cargo_amount", 0.0)) != 20.0:
+		failures.append("reassigning to Jade converted the existing Lumber cargo")
+	var timeout := 15.0
+	while int(simulation.players[RtsSimulation.TEAM_PLAYER]["lumber"]) == lumber_before and timeout > 0.0:
+		simulation.advance(RtsSimulation.TICK_SECONDS)
+		timeout -= RtsSimulation.TICK_SECONDS
+		if float(worker.get("cargo_amount", 0.0)) > 0.0 and worker.get("cargo_kind") != &"lumber":
+			failures.append("cargo kind changed before the old load was deposited")
+			break
+	if int(simulation.players[RtsSimulation.TEAM_PLAYER]["lumber"]) != lumber_before + 20:
+		failures.append("the old Lumber load was not banked before gathering Jade")
+	if worker.get("order") != &"gather" or int(worker.get("gather_source_id", -1)) != int(jade["id"]):
+		failures.append("the worker did not resume the requested Jade source after deposit")
+	worker["position"] = Vector2(visible_cell)
+	worker["cell"] = visible_cell
+	worker["path"] = []
+	_advance(simulation, RtsSimulation.GATHER_CYCLE + RtsSimulation.TICK_SECONDS * 2.0)
+	if float(worker.get("cargo_amount", 0.0)) <= 0.0 or worker.get("cargo_kind") != &"jade":
+		failures.append("the empty worker did not begin a new Jade load after returning Lumber")
+
+
+func _test_attack_move_resumes_destination(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human")
+	var start := simulation._nearest_walkable(MapCatalog.PLAYER_BUILD_TEST_SITE)
+	var nearby_cells := simulation._formation_cells(start, 2)
+	if nearby_cells.size() < 2:
+		failures.append("no nearby walkable cells were available for the attack-move test")
+		return
+	var destination := simulation._nearest_walkable(start + Vector2i(12, -6))
+	var attacker_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", start)
+	var target_id := simulation._spawn_unit(RtsSimulation.TEAM_ENEMY, &"vanguard", nearby_cells[1])
+	var attacker := simulation.entity(attacker_id)
+	var target := simulation.entity(target_id)
+	target["hp"] = 1.0
+	simulation._refresh_visibility()
+	simulation.command_move(RtsSimulation.TEAM_PLAYER, [attacker_id], destination, true)
+	var saved_destination := attacker.get("attack_move_destination", Vector2i(-1, -1)) as Vector2i
+	var timeout := 4.0
+	while bool(target.get("alive", false)) and timeout > 0.0:
+		simulation.advance(RtsSimulation.TICK_SECONDS)
+		timeout -= RtsSimulation.TICK_SECONDS
+	if bool(target.get("alive", false)):
+		failures.append("attack-move did not engage the nearby visible enemy")
+		return
+	var distance_after_kill := (attacker["position"] as Vector2).distance_to(Vector2(saved_destination))
+	_advance(simulation, 1.0)
+	var distance_after_resume := (attacker["position"] as Vector2).distance_to(Vector2(saved_destination))
+	if distance_after_resume >= distance_after_kill - 0.05:
+		failures.append("attack-move did not resume progress toward its saved destination")
+	if bool(attacker.get("attack_move", false)) and attacker.get("attack_move_destination") != saved_destination:
+		failures.append("attack-move lost its final destination after combat")
+
+
+func _test_large_formations_and_separation(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human")
+	var destination := simulation._nearest_walkable(MapCatalog.PLAYER_BUILD_TEST_SITE)
+	var formation := simulation._formation_cells(destination, 14)
+	var unique_cells: Dictionary = {}
+	for cell in formation:
+		unique_cells[cell] = true
+	if formation.size() != 14 or unique_cells.size() != 14:
+		failures.append("formation generation did not provide 14 unique destinations")
+	var unit_ids: Array[int] = []
+	var origin := simulation._nearest_walkable(destination + Vector2i(0, 6))
+	for _index in range(14):
+		unit_ids.append(simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", origin))
+	simulation.command_move(RtsSimulation.TEAM_PLAYER, unit_ids, destination, true)
+	var assigned_destinations: Dictionary = {}
+	for unit_id in unit_ids:
+		assigned_destinations[simulation.entity(unit_id).get("attack_move_destination")] = true
+	if assigned_destinations.size() != unit_ids.size():
+		failures.append("a large command group reused formation destinations")
+	var separation_simulation := RtsSimulation.new()
+	separation_simulation.setup(&"human")
+	var separation_cell := separation_simulation._nearest_walkable(MapCatalog.SIZE / 2)
+	var first_id := separation_simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", separation_cell)
+	var second_id := separation_simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", separation_cell)
+	separation_simulation._resolve_unit_separation()
+	var separation := (
+		separation_simulation.entity(first_id)["position"] as Vector2
+	).distance_to(separation_simulation.entity(second_id)["position"] as Vector2)
+	if separation < RtsSimulation.UNIT_SEPARATION_DISTANCE - 0.01:
+		failures.append("overlapping units did not separate locally")
+
+
 func _test_unit_food_costs(failures: Array[String]) -> void:
 	var simulation := RtsSimulation.new()
-	simulation.setup(&"human", false)
+	simulation.setup(&"human")
 	var stronghold_id := simulation.primary_structure_id(RtsSimulation.TEAM_PLAYER, &"stronghold")
 	var worker_stats := FactionCatalog.stats(&"worker", &"human")
 	var food_cost := int(worker_stats.get("food_cost", 0))
@@ -57,7 +199,7 @@ func _test_unit_food_costs(failures: Array[String]) -> void:
 		failures.append("Stronghold rejected a Worker with exactly enough Food")
 	elif int(simulation.players[RtsSimulation.TEAM_PLAYER]["food"]) != 0:
 		failures.append("Worker queue did not deduct its exact Food cost")
-	for kind in [&"worker", &"vanguard", &"mystic", &"jadeclaw"]:
+	for kind in [&"worker", &"hunter", &"vanguard", &"mystic", &"jadeclaw"]:
 		if int(FactionCatalog.stats(kind, &"human").get("food_cost", 0)) <= 0:
 			failures.append("%s does not require Food" % String(kind).capitalize())
 
@@ -67,7 +209,7 @@ func _test_food_building(
 	failures: Array[String],
 ) -> void:
 	var simulation := RtsSimulation.new()
-	simulation.setup(&"human", false)
+	simulation.setup(&"human")
 	simulation.players[RtsSimulation.TEAM_PLAYER]["jade"] = 1000
 	simulation.players[RtsSimulation.TEAM_PLAYER]["lumber"] = 1000
 	simulation.players[RtsSimulation.TEAM_PLAYER]["essence"] = 1000
@@ -110,28 +252,192 @@ func _test_food_building(
 
 func _test_ai_food_economy(failures: Array[String]) -> void:
 	var simulation := RtsSimulation.new()
-	simulation.setup(&"human", false)
+	simulation.setup(&"demon")
 	simulation.players[RtsSimulation.TEAM_ENEMY]["jade"] = 1000
 	simulation.players[RtsSimulation.TEAM_ENEMY]["lumber"] = 1000
 	simulation._try_expand_ai_food_economy()
 	if simulation.primary_structure_id(RtsSimulation.TEAM_ENEMY, &"rice_farm") < 0:
 		failures.append("computer commander did not establish a Rice Farm")
-	var food_before_stipend := int(simulation.players[RtsSimulation.TEAM_ENEMY]["food"])
+	var resources_before_strategy := simulation.players[RtsSimulation.TEAM_ENEMY].duplicate(true)
 	simulation._ai_strategy_timer = 999.0
 	simulation._advance_ai(RtsSimulation.TICK_SECONDS)
-	if int(simulation.players[RtsSimulation.TEAM_ENEMY]["food"]) != food_before_stipend:
-		failures.append("computer income stipend bypassed food infrastructure")
+	for resource_kind in ["jade", "lumber", "essence", "food"]:
+		if int(simulation.players[RtsSimulation.TEAM_ENEMY][resource_kind]) != int(resources_before_strategy[resource_kind]):
+			failures.append("computer commander received a free %s stipend" % resource_kind)
+
+	var hunting_simulation := RtsSimulation.new()
+	hunting_simulation.setup(&"human")
+	hunting_simulation.players[RtsSimulation.TEAM_ENEMY]["jade"] = 1000
+	hunting_simulation.players[RtsSimulation.TEAM_ENEMY]["lumber"] = 1000
+	hunting_simulation.players[RtsSimulation.TEAM_ENEMY]["essence"] = 1000
+	hunting_simulation.players[RtsSimulation.TEAM_ENEMY]["food"] = 1000
+	hunting_simulation._try_expand_ai_food_economy()
+	var lodge_id := hunting_simulation.primary_structure_id(RtsSimulation.TEAM_ENEMY, &"hunters_lodge")
+	if lodge_id < 0:
+		failures.append("hunt-only computer commander did not establish a Hunter's Lodge")
+	if hunting_simulation.primary_structure_id(RtsSimulation.TEAM_ENEMY, &"rice_farm") >= 0:
+		failures.append("hunt-only computer commander established a forbidden Rice Farm")
+	if lodge_id >= 0:
+		var lodge := hunting_simulation.entity(lodge_id)
+		lodge["complete"] = 1.0
+		lodge["hp"] = lodge["max_hp"]
+		hunting_simulation._try_train_ai_hunters()
+		var queue := lodge.get("queue", []) as Array
+		if queue.is_empty() or (queue[0] as Dictionary).get("kind") != &"hunter":
+			failures.append("hunt-only computer commander did not queue a Hunter")
+	var ai_hunter_id := hunting_simulation._spawn_unit(
+		RtsSimulation.TEAM_ENEMY,
+		&"hunter",
+		MapCatalog.ENEMY_STRONGHOLD + Vector2i(-1, 2),
+	)
+	hunting_simulation._issue_ai_hunt_orders()
+	if hunting_simulation.entity(ai_hunter_id).get("order") not in [&"attack", &"attack_move"]:
+		failures.append("computer Hunter did not pursue living wildlife")
+
+
+func _test_faction_food_traditions(failures: Array[String]) -> void:
+	var expectations := {
+		&"celestial": {"farm": true, "hunt": false},
+		&"demon": {"farm": false, "hunt": true},
+		&"beast": {"farm": false, "hunt": true},
+		&"human": {"farm": true, "hunt": true},
+	}
+	for faction in expectations:
+		var simulation := RtsSimulation.new()
+		simulation.setup(faction)
+		var expected := expectations[faction] as Dictionary
+		var farm_available := simulation.is_kind_available(RtsSimulation.TEAM_PLAYER, &"rice_farm")
+		var lodge_available := simulation.is_kind_available(RtsSimulation.TEAM_PLAYER, &"hunters_lodge")
+		var hunter_available := simulation.is_kind_available(RtsSimulation.TEAM_PLAYER, &"hunter")
+		if farm_available != bool(expected["farm"]):
+			failures.append("%s farming availability is incorrect" % String(faction).capitalize())
+		if lodge_available != bool(expected["hunt"]) or hunter_available != bool(expected["hunt"]):
+			failures.append("%s hunting availability is incorrect" % String(faction).capitalize())
+		var worker_id := simulation.team_entity_ids(RtsSimulation.TEAM_PLAYER, [&"worker"])[0]
+		simulation.players[RtsSimulation.TEAM_PLAYER]["jade"] = 1000
+		simulation.players[RtsSimulation.TEAM_PLAYER]["lumber"] = 1000
+		simulation.players[RtsSimulation.TEAM_PLAYER]["essence"] = 1000
+		var blocked_kind := &"hunters_lodge" if bool(expected["farm"]) and not bool(expected["hunt"]) else &"rice_farm"
+		if bool(expected["farm"]) == bool(expected["hunt"]):
+			continue
+		if simulation.command_build(RtsSimulation.TEAM_PLAYER, worker_id, blocked_kind, MapCatalog.PLAYER_BUILD_TEST_SITE):
+			failures.append("%s constructed forbidden %s infrastructure" % [faction, blocked_kind])
+
+	var human_simulation := RtsSimulation.new()
+	human_simulation.setup(&"human")
+	human_simulation.players[RtsSimulation.TEAM_PLAYER]["jade"] = 1000
+	human_simulation.players[RtsSimulation.TEAM_PLAYER]["food"] = 1000
+	var lodge_site := human_simulation._find_build_site(
+		RtsSimulation.TEAM_PLAYER,
+		&"hunters_lodge",
+		MapCatalog.PLAYER_STRONGHOLD,
+	)
+	var lodge_id := human_simulation._spawn_structure(
+		RtsSimulation.TEAM_PLAYER,
+		&"hunters_lodge",
+		lodge_site,
+		true,
+	)
+	human_simulation._rebuild_pathfinding()
+	if not human_simulation.command_train(RtsSimulation.TEAM_PLAYER, lodge_id, &"hunter"):
+		failures.append("Human Hunter's Lodge rejected Hunter production")
+	else:
+		_advance(human_simulation, 7.0)
+		if human_simulation.team_entity_ids(RtsSimulation.TEAM_PLAYER, [&"hunter"]).is_empty():
+			failures.append("Hunter's Lodge did not finish training a Hunter")
+
+	var celestial_simulation := RtsSimulation.new()
+	celestial_simulation.setup(&"celestial")
+	var forbidden_lodge_id := celestial_simulation._spawn_structure(
+		RtsSimulation.TEAM_PLAYER,
+		&"hunters_lodge",
+		MapCatalog.PLAYER_BUILD_TEST_SITE,
+		true,
+	)
+	if celestial_simulation.command_train(RtsSimulation.TEAM_PLAYER, forbidden_lodge_id, &"hunter"):
+		failures.append("Celestial Court trained a forbidden Hunter")
+
+
+func _test_wildlife_hunting(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human")
+	if simulation.wildlife_ids().size() != 34:
+		failures.append("simulation did not spawn all 34 wildlife members")
+	for kind in FactionCatalog.WILDLIFE_KINDS:
+		if simulation.wildlife_ids(kind).is_empty():
+			failures.append("simulation did not spawn %s wildlife" % kind)
+
+	var deer := simulation.entity(simulation.wildlife_ids(&"deer")[0])
+	var deer_start := deer["position"] as Vector2
+	deer["wander_timer"] = 0.0
+	for _step in range(90):
+		simulation._advance_wildlife(deer, RtsSimulation.TICK_SECONDS)
+	if (deer["position"] as Vector2).distance_to(deer_start) <= 0.1:
+		failures.append("idle deer did not wander")
+	if (deer["position"] as Vector2).distance_to(deer["herd_origin"] as Vector2) > float(deer["herd_radius"]) + 0.01:
+		failures.append("wandering deer left its herd territory")
+
+	var hunter_cell := Vector2i((deer["position"] as Vector2).round()) + Vector2i(-1, 0)
+	var hunter_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"hunter", hunter_cell)
+	var hunter := simulation.entity(hunter_id)
+	var deer_hp_before := float(deer["hp"])
+	simulation._apply_attack(hunter, deer)
+	if not is_equal_approx(float(deer["hp"]), deer_hp_before - 24.0):
+		failures.append("Hunter did not deal triple damage to wildlife")
+	if deer.get("order") != &"flee":
+		failures.append("passive wildlife did not flee after a nonlethal hit")
+
+	var vanguard_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", hunter_cell)
+	if simulation.are_hostile(simulation.entity(vanguard_id), deer):
+		failures.append("a non-Hunter unit was allowed to target wildlife")
+
+	for aggressive_kind in [&"boar", &"bear"]:
+		var aggressive := simulation.entity(simulation.wildlife_ids(aggressive_kind)[0])
+		hunter["position"] = aggressive["position"] as Vector2 + Vector2(-0.5, 0.0)
+		hunter["cell"] = Vector2i((hunter["position"] as Vector2).round())
+		simulation._apply_attack(hunter, aggressive)
+		if aggressive.get("order") != &"attack" or int(aggressive.get("target_id", -1)) != hunter_id:
+			failures.append("%s did not retaliate against its Hunter" % String(aggressive_kind).capitalize())
+		var hunter_hp_before := float(hunter["hp"])
+		aggressive["attack_cooldown"] = 0.0
+		simulation._advance_wildlife(aggressive, RtsSimulation.TICK_SECONDS)
+		if float(hunter["hp"]) >= hunter_hp_before:
+			failures.append("%s retaliation did not damage the Hunter" % String(aggressive_kind).capitalize())
+
+	var chicken := simulation.entity(simulation.wildlife_ids(&"chicken")[0])
+	chicken["hp"] = 1.0
+	var food_before := int(simulation.players[RtsSimulation.TEAM_PLAYER]["food"])
+	simulation._apply_attack(hunter, chicken)
+	if int(simulation.players[RtsSimulation.TEAM_PLAYER]["food"]) != food_before + int(chicken["food_bounty"]):
+		failures.append("wildlife kill did not grant its exact Food bounty")
+
+	var celestial_simulation := RtsSimulation.new()
+	celestial_simulation.setup(&"celestial")
+	var celestial_deer := celestial_simulation.entity(celestial_simulation.wildlife_ids(&"deer")[0])
+	var forbidden_hunter_id := celestial_simulation._spawn_unit(
+		RtsSimulation.TEAM_PLAYER,
+		&"hunter",
+		celestial_deer["cell"] as Vector2i,
+	)
+	if celestial_simulation.are_hostile(celestial_simulation.entity(forbidden_hunter_id), celestial_deer):
+		failures.append("Celestial Court could hunt through a directly spawned Hunter")
 
 
 func _run() -> void:
 	var failures: Array[String] = []
 	_test_stronghold_dropoff(failures)
+	_test_manual_deposit_requires_range(failures)
+	_test_cargo_reassignment_preserves_kind(failures)
+	_test_attack_move_resumes_destination(failures)
+	_test_large_formations_and_separation(failures)
 	_test_unit_food_costs(failures)
 	_test_food_building(&"rice_farm", failures)
 	_test_food_building(&"hunters_lodge", failures)
 	_test_ai_food_economy(failures)
+	_test_faction_food_traditions(failures)
+	_test_wildlife_hunting(failures)
 	var simulation := RtsSimulation.new()
-	simulation.setup(&"human", false)
+	simulation.setup(&"human")
 	if int(simulation.players[RtsSimulation.TEAM_PLAYER]["lumber"]) != 30:
 		failures.append("unexpected starting Lumber amount")
 	var human_camp_stats := FactionCatalog.stats(&"war_camp", &"human")
@@ -143,6 +449,10 @@ func _run() -> void:
 	else:
 		var deposit_worker := simulation.entity(workers[0])
 		var player_stronghold_id := simulation.primary_structure_id(RtsSimulation.TEAM_PLAYER, &"stronghold")
+		var player_stronghold := simulation.entity(player_stronghold_id)
+		var adjacent_cell := (player_stronghold["cell"] as Vector2i) + Vector2i(0, -1)
+		deposit_worker["position"] = Vector2(adjacent_cell)
+		deposit_worker["cell"] = adjacent_cell
 		var essence_before_deposit := int(simulation.players[RtsSimulation.TEAM_PLAYER]["essence"])
 		deposit_worker["cargo_kind"] = &"essence"
 		deposit_worker["cargo_amount"] = 17.0
@@ -255,11 +565,15 @@ func _run() -> void:
 	if jade_resource_id < 0:
 		failures.append("no jade resource spawned")
 	else:
+		var jade_resource := simulation.entity(jade_resource_id)
+		var jade_approach := simulation._nearest_walkable_around(jade_resource["cell"] as Vector2i, 3)
+		var jade_worker := simulation.entity(workers[0])
+		jade_worker["position"] = Vector2(jade_approach)
+		jade_worker["cell"] = jade_approach
+		jade_worker["path"] = []
+		simulation._refresh_visibility()
 		simulation.command_gather(RtsSimulation.TEAM_PLAYER, [workers[0]], jade_resource_id)
-		var jade_timeout := 30.0
-		while int(simulation.players[RtsSimulation.TEAM_PLAYER]["jade"]) <= jade_before and jade_timeout > 0.0:
-			simulation.advance(RtsSimulation.TICK_SECONDS)
-			jade_timeout -= RtsSimulation.TICK_SECONDS
+		_advance(simulation, 12.0)
 		if int(simulation.players[RtsSimulation.TEAM_PLAYER]["jade"]) <= jade_before:
 			failures.append("worker did not gather and deposit Jade")
 
@@ -342,17 +656,20 @@ func _run() -> void:
 			if simulation.team_entity_ids(RtsSimulation.TEAM_PLAYER, [&"vanguard"]).is_empty():
 				failures.append("Vanguard did not finish training")
 
-	if simulation.primary_structure_id(RtsSimulation.TEAM_ENEMY, &"war_camp") >= 0:
-		failures.append("computer started with a free War Camp")
-	simulation.players[RtsSimulation.TEAM_ENEMY]["jade"] = 1000
-	simulation.players[RtsSimulation.TEAM_ENEMY]["lumber"] = 1000
-	simulation.players[RtsSimulation.TEAM_ENEMY]["essence"] = 1000
-	simulation._try_rebuild_ai_war_camp()
-	var rebuilt_camp_id := simulation.primary_structure_id(RtsSimulation.TEAM_ENEMY, &"war_camp")
-	if rebuilt_camp_id < 0:
-		failures.append("computer did not construct a missing War Camp")
-	elif float(simulation.entity(rebuilt_camp_id).get("complete", 1.0)) >= 1.0:
-		failures.append("computer War Camp bypassed normal construction")
+	var original_enemy_camp_id := simulation.primary_structure_id(RtsSimulation.TEAM_ENEMY, &"war_camp")
+	var original_enemy_camp := simulation.entity(original_enemy_camp_id)
+	if original_enemy_camp.is_empty():
+		failures.append("enemy War Camp missing before rebuild test")
+	else:
+		original_enemy_camp["alive"] = false
+		simulation._rebuild_pathfinding()
+		simulation.players[RtsSimulation.TEAM_ENEMY]["jade"] = 1000
+		simulation.players[RtsSimulation.TEAM_ENEMY]["lumber"] = 1000
+		simulation.players[RtsSimulation.TEAM_ENEMY]["essence"] = 1000
+		simulation._try_rebuild_ai_war_camp()
+		var rebuilt_camp_id := simulation.primary_structure_id(RtsSimulation.TEAM_ENEMY, &"war_camp")
+		if rebuilt_camp_id < 0 or rebuilt_camp_id == original_enemy_camp_id:
+			failures.append("computer did not replace its destroyed War Camp")
 
 	var enemy_hold_id := simulation.primary_structure_id(RtsSimulation.TEAM_ENEMY, &"stronghold")
 	var enemy_hold := simulation.entity(enemy_hold_id)
@@ -365,13 +682,14 @@ func _run() -> void:
 			&"vanguard",
 			MapCatalog.ENEMY_STRONGHOLD + Vector2i(-1, 0),
 		)
+		simulation._refresh_visibility()
 		simulation.command_attack(RtsSimulation.TEAM_PLAYER, [attacker_id], enemy_hold_id)
 		_advance(simulation, 3.0)
 		if simulation.outcome != &"victory":
 			failures.append("destroying the enemy Stronghold did not produce victory")
 
 	if failures.is_empty():
-		print("PASS simulation_test: Food costs and producers, AI food economy, guardian wandering, tree retargeting, monster bounties, cave capture and recapture, Jadeclaw production, economy, construction, combat, victory")
+		print("PASS simulation_test: deposits, cargo integrity, attack-move, formations, separation, Food costs and producers, AI food economy, guardian wandering, tree retargeting, monster bounties, cave capture and recapture, Jadeclaw production, economy, construction, combat, victory")
 		quit(0)
 	else:
 		for failure in failures:

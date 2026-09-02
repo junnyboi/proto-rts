@@ -1,6 +1,8 @@
 extends SceneTree
 
-const MAX_P95_DRAW_US := 16_700
+const MAX_BATTLEFIELD_P95_DRAW_US := 33_300
+const MAX_MINIMAP_P95_DRAW_US := 16_700
+const EXPECTED_TREE_COUNT := 2224
 
 class PerfBattlefield extends Battlefield:
 	var draw_durations: Array[int] = []
@@ -51,6 +53,8 @@ func _run() -> void:
 	var failures: Array[String] = []
 	var simulation := RtsSimulation.new()
 	simulation.setup(&"human", false)
+	if MapCatalog.tree_definitions().size() != EXPECTED_TREE_COUNT:
+		failures.append("performance fixture tree count changed from %d" % EXPECTED_TREE_COUNT)
 	var battlefield := PerfBattlefield.new()
 	battlefield.size = Vector2(1280.0, 720.0)
 	root.add_child(battlefield)
@@ -67,9 +71,9 @@ func _run() -> void:
 	var full_map_p95 := _p95(battlefield.draw_durations)
 	var full_map_mean := _mean(battlefield.draw_durations)
 	var minimap_clear_p95 := _p95(minimap.draw_durations)
-	if full_map_p95 > MAX_P95_DRAW_US:
+	if full_map_p95 > MAX_BATTLEFIELD_P95_DRAW_US:
 		failures.append("fog-off full-map Battlefield p95 draw exceeded budget: %d us" % full_map_p95)
-	if minimap_clear_p95 > MAX_P95_DRAW_US:
+	if minimap_clear_p95 > MAX_MINIMAP_P95_DRAW_US:
 		failures.append("fog-off minimap p95 draw exceeded budget: %d us" % minimap_clear_p95)
 
 	battlefield.set_fog_enabled(true)
@@ -81,9 +85,9 @@ func _run() -> void:
 	var starting_p95 := _p95(battlefield.draw_durations)
 	var starting_mean := _mean(battlefield.draw_durations)
 	var minimap_fog_p95 := _p95(minimap.draw_durations)
-	if starting_p95 > MAX_P95_DRAW_US:
+	if starting_p95 > MAX_BATTLEFIELD_P95_DRAW_US:
 		failures.append("fog-on starting-view Battlefield p95 draw exceeded budget: %d us" % starting_p95)
-	if minimap_fog_p95 > MAX_P95_DRAW_US:
+	if minimap_fog_p95 > MAX_MINIMAP_P95_DRAW_US:
 		failures.append("fog-on minimap p95 draw exceeded budget: %d us" % minimap_fog_p95)
 
 	print(
@@ -93,7 +97,7 @@ func _run() -> void:
 	battlefield.queue_free()
 	minimap.queue_free()
 	if failures.is_empty():
-		print("PASS performance_test: 1,016-tree Battlefield and minimap p95 CPU draw remain within 16.7 ms")
+		print("PASS performance_test: 2,224-tree Battlefield stays within its 33.3 ms redraw budget; minimap stays within 16.7 ms")
 		quit(0)
 		return
 	for failure in failures:

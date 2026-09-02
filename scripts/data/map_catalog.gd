@@ -23,8 +23,8 @@ const TERRAIN_ROWS: Array[String] = [
 	"...+...........~~~........+..........+..",
 	"...+............~~~........#.........+..",
 	"...+.............~~~....+..#.........+..",
-	"...+.............+===+.+.............+..",
-	"..+.............+.+===+.............+...",
+	"...+.............+~~~+.+.............+..",
+	"..+.............+.+~~~+.............+...",
 	"..+.........#..+....~~~.............+...",
 	"..+.........#........~~~............+...",
 	"..+..........+........~~~...........+...",
@@ -92,43 +92,59 @@ const RESOURCES: Array[Dictionary] = [
 	{"kind": &"essence", "cell": Vector2i(55, 35), "amount": 1700.0},
 ]
 
+# Five wildlife species occupy mirrored herd territories. Centers are deliberately
+# placed in tree-free glades; simulation-owned members wander inside each radius.
+# Passive species flee from hunters, while boars and bears retaliate.
+const WILDLIFE_HERDS: Array[Dictionary] = [
+	{"kind": &"chicken", "center": Vector2i(12, 13), "count": 5, "radius": 3.0},
+	{"kind": &"chicken", "center": Vector2i(67, 50), "count": 5, "radius": 3.0},
+	{"kind": &"deer", "center": Vector2i(14, 47), "count": 4, "radius": 4.0},
+	{"kind": &"deer", "center": Vector2i(65, 16), "count": 4, "radius": 4.0},
+	{"kind": &"bison", "center": Vector2i(26, 10), "count": 3, "radius": 3.5},
+	{"kind": &"bison", "center": Vector2i(53, 53), "count": 3, "radius": 3.5},
+	{"kind": &"boar", "center": Vector2i(32, 34), "count": 3, "radius": 3.0},
+	{"kind": &"boar", "center": Vector2i(47, 29), "count": 3, "radius": 3.0},
+	{"kind": &"bear", "center": Vector2i(38, 20), "count": 2, "radius": 2.5},
+	{"kind": &"bear", "center": Vector2i(41, 43), "count": 2, "radius": 2.5},
+]
+
 # The tree layer replaces painted, permanent forest walls with real Lumber
 # entities. Adjacent letters form dense groves; dots keep roads, crossing
 # approaches, bases, and expansion glades open. The layer is rotationally
 # symmetric, and every tree can be cleared to reveal buildable meadow below.
 const TREE_ROWS: Array[String] = [
-	"........................................",
-	".........................F......P.......",
-	"........................................",
-	".................................P......",
-	"............................J..P........",
-	"..................PPFFFFP...............",
-	"....P..........CPPPPF.FFPP.PJJ..........",
-	"...C.............PPPFFFFPPPPJJ.........J",
-	"..CC....P............FFFFFFF.J........J.",
-	"..C....CP............FFFFFF......J......",
-	"..C....CP..............FFF......JJJ.....",
-	"......CC......................PPJJJ.....",
-	"......CC.....................JJJPP......",
-	".....CCCCC..................JJJJPPPP...J",
-	".P...CCCCC..................JJJJPPPP...J",
-	".....CCCCCC...................JJPPP....J",
-	"J....PPPJJ...................CCCCCC.....",
-	"J...PPPPJJJJ..................CCCCC...P.",
-	"J...PPPPJJJJ..................CCCCC.....",
-	"......PPJJJ.....................CC......",
-	".....JJJPP......................CC......",
-	".....JJJ......FFF..............PC....C..",
-	"......J......FFFFFF............PC....C..",
-	".J........J.FFFFFFF............P....CC..",
-	"J.........JJPPPPFFFFPPP.............C...",
-	"..........JJP.PPFF.FPPPPC..........P....",
-	"...............PFFFFPP..................",
-	"........P..J............................",
-	"......P.................................",
-	"........................................",
-	".......P......F.........................",
-	"........................................",
+	"PPP...CCFFFFJJJJPPPPFFFFCCCCPPPPJJJ...FF",
+	"PPPP...CFFFFJJJJPPPPFFFFCCCCPPPPJJJ....F",
+	"PPPPC...FFFFJJJ..PPPCCC................C",
+	"CCCC.....JJJP.............PP....FP.....C",
+	"CCC........J.......CC.......J..P.......C",
+	"CC................PPFFFFP..............P",
+	"FF..P..........CPPPPF.FFPP.PJJ........PP",
+	"FFFC.............PPPFFFFPPPPJJ.......PPP",
+	"FFFC....P............FFFFFFF.J......J.JJ",
+	"JJJJP..CP............FFFFFF......J.PJ.JJ",
+	"JJJJ...CP..............FFF......JJJ.J.JJ",
+	"J.....CC......................PPJJJ...FF",
+	"PP....CC.....................JJJPP....FF",
+	"PP...CCCCC..................JJJJPPPP..FF",
+	"PPP..CCCCC..................JJJJPPPP..CC",
+	"CCC..CCCCCC...................JJPPP.C.CC",
+	"CC.C.PPPJJ...................CCCCCC..CCC",
+	"CC..PPPPJJJJ..................CCCCC..PPP",
+	"FF..PPPPJJJJ..................CCCCC...PP",
+	"FF....PPJJJ.....................CC....PP",
+	"FF...JJJPP......................CC.....J",
+	"JJ.J.JJJ......FFF..............PC...JJJJ",
+	"JJ.JP.J......FFFFFF............PC..PJJJJ",
+	"JJ.J......J.FFFFFFF............P....CFFF",
+	"PPP.......JJPPPPFFFFPPP.............CFFF",
+	"PP........JJP.PPFF.FPPPPC..........P..FF",
+	"P..............PFFFFPP................CC",
+	"C.......P..J.......CC.......J........CCC",
+	"C.....PF....PP.............PJJJ.....CCCC",
+	"C................CCCPPP..JJJFFFF...CPPPP",
+	"F....JJJPPPPCCCCFFFFPPPPJJJJFFFFC...PPPP",
+	"FF...JJJPPPPCCCCFFFFPPPPJJJJFFFFCC...PPP",
 ]
 const TREE_YIELD := 300.0
 
@@ -242,6 +258,18 @@ static func validation_errors() -> Array[String]:
 	for index in range(trees.size()):
 		var tree := trees[index]
 		_validate_cell("tree %d" % index, tree["cell"] as Vector2i, occupied, errors)
+	for index in range(WILDLIFE_HERDS.size()):
+		var herd := WILDLIFE_HERDS[index]
+		var kind := herd.get("kind", &"") as StringName
+		var center := herd.get("center", Vector2i(-1, -1)) as Vector2i
+		if kind not in [&"chicken", &"deer", &"bison", &"boar", &"elephant", &"bear"]:
+			errors.append("wildlife herd %d has unsupported kind %s" % [index, String(kind)])
+		if int(herd.get("count", 0)) <= 0:
+			errors.append("wildlife herd %d must have a positive count" % index)
+		if int(herd.get("radius", -1)) < 0:
+			errors.append("wildlife herd %d must have a non-negative radius" % index)
+		if not in_bounds(center) or not is_static_walkable(center):
+			errors.append("wildlife herd %d center is not walkable at %s" % [index, center])
 	return errors
 
 

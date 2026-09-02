@@ -8,7 +8,7 @@
 
 **Target:** Godot 4.7.2, desktop browsers, keyboard and mouse
 
-> **Implementation status note:** The “current implementation” findings below describe the audited revision above. A later same-day integration expanded the battlefield to 80 × 64 and delivered harvestable Lumber forests, Food infrastructure, fog of war, a tactical minimap, and capturable Yaoguai Dens. The core-remediation pass also corrected persistent attack-move, scalable formations, live occupancy, local separation, line-of-sight, fair AI construction, selection safety, command bounds, explicit cross-team command authority, 1,016-tree rendering performance, and Web export hygiene. The remaining proposal—especially the Jade Meridian conflict engine, faction powers, combat juice, and doctrines—should be read as the forward roadmap.
+> **Implementation status note:** The “current implementation” findings below describe the audited revision above. Later same-day integrations expanded the battlefield to 80 × 64 and delivered 2,224 harvestable Lumber trees, Food infrastructure, wildlife hunting, fog of war, a tactical minimap, capturable Yaoguai Dens, queued commands, patrol and repair, custom cursors, command visualization, and a redesigned HUD. The core-remediation pass also corrected persistent attack-move, scalable formations, live occupancy, local separation, terrain-aware line-of-sight, fair AI construction, selection safety, command bounds, explicit cross-team command authority, large-map rendering performance, and Web export hygiene. The remaining proposal—especially the Jade Meridian conflict engine, faction powers, combat juice, and doctrines—should be read as the forward roadmap.
 
 ## Executive Recommendation
 

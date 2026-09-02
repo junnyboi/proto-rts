@@ -94,9 +94,9 @@ func _test_unit_separation(failures: Array[String]) -> void:
 	var simulation := _blank_simulation()
 	var first_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", Vector2i(14, 50))
 	var second_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", Vector2i(14, 50))
-	simulation._apply_unit_separation()
+	simulation._resolve_unit_separation()
 	var distance := (simulation.entity(first_id)["position"] as Vector2).distance_to(simulation.entity(second_id)["position"] as Vector2)
-	_expect(distance >= RtsSimulation.UNIT_SEPARATION_RADIUS * 2.0 - 0.001, "overlapping units did not separate", failures)
+	_expect(distance >= RtsSimulation.UNIT_SEPARATION_DISTANCE - 0.001, "overlapping units did not separate", failures)
 
 
 func _test_ai_natural_construction_and_fallback(failures: Array[String]) -> void:
@@ -206,6 +206,12 @@ func _test_command_authority(failures: Array[String]) -> void:
 	_expect(not simulation.command_stop(RtsSimulation.TEAM_PLAYER, [enemy_worker_id]), "player issuer stopped a rival unit", failures)
 	_expect(not simulation.command_build(RtsSimulation.TEAM_PLAYER, enemy_worker_id, &"war_camp", Vector2i(66, 14)), "player issuer built with a rival worker", failures)
 	_expect(enemy_worker.get("order") == enemy_order, "rejected rival unit commands changed its state", failures)
+	var enemy_vanguard_id := simulation._spawn_unit(RtsSimulation.TEAM_ENEMY, &"vanguard", Vector2i(69, 14))
+	_expect(not simulation.command_patrol(RtsSimulation.TEAM_PLAYER, [enemy_vanguard_id], Vector2i(65, 16)), "player issuer patrolled a rival military unit", failures)
+	var enemy_hold := simulation.entity(enemy_hold_id)
+	enemy_hold["hp"] = float(enemy_hold["max_hp"]) - 20.0
+	_expect(not simulation.command_repair(RtsSimulation.TEAM_PLAYER, [enemy_worker_id], enemy_hold_id), "player issuer repaired a rival structure with a rival worker", failures)
+	_expect(not simulation.command_move(-1, [enemy_worker_id], Vector2i(70, 15)), "invalid issuer team was accepted", failures)
 
 	var player_jade_before := int(simulation.players[RtsSimulation.TEAM_PLAYER]["jade"])
 	enemy_worker["cargo_kind"] = &"jade"
@@ -217,6 +223,10 @@ func _test_command_authority(failures: Array[String]) -> void:
 	var player_population_before := int(simulation.players[RtsSimulation.TEAM_PLAYER]["population"])
 	_expect(not simulation.command_train(RtsSimulation.TEAM_PLAYER, enemy_hold_id, &"worker"), "player issuer queued production in a rival structure", failures)
 	_expect(int(simulation.players[RtsSimulation.TEAM_PLAYER]["population"]) == player_population_before, "rejected rival production changed player population", failures)
+	_expect(simulation.command_train(RtsSimulation.TEAM_ENEMY, enemy_hold_id, &"worker"), "rival issuer could not queue its own production", failures)
+	var enemy_queue_before := (enemy_hold.get("queue", []) as Array).size()
+	_expect(simulation.command_cancel_training(RtsSimulation.TEAM_PLAYER, enemy_hold_id).is_empty(), "player issuer cancelled a rival production queue", failures)
+	_expect((enemy_hold.get("queue", []) as Array).size() == enemy_queue_before, "rejected rival cancellation mutated the queue", failures)
 	_expect(not simulation.set_rally(RtsSimulation.TEAM_PLAYER, enemy_hold_id, Vector2i(70, 15)), "player issuer changed a rival rally point", failures)
 	_expect(simulation.command_move(RtsSimulation.TEAM_ENEMY, [enemy_worker_id], Vector2i(70, 15)), "rival issuer could not command its own unit", failures)
 

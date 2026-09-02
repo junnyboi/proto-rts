@@ -50,7 +50,10 @@ for test_script in \
   tests/map_test.gd \
   tests/projection_test.gd \
   tests/assets_test.gd \
+  tests/cursor_test.gd \
+  tests/hud_test.gd \
   tests/interaction_test.gd \
+  tests/command_system_test.gd \
   tests/visibility_test.gd \
   tests/simulation_test.gd \
   tests/core_regression_test.gd \

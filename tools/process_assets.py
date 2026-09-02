@@ -96,6 +96,37 @@ def save_isolated(
     return describe(destination, source)
 
 
+def save_transparent_icon(
+    source: Path,
+    destination: Path,
+    canvas_size: tuple[int, int] = (64, 64),
+    content_size: tuple[int, int] = (58, 58),
+) -> dict:
+    """Trim and downsample a transparent UI master without changing its silhouette."""
+    image = Image.open(source).convert("RGBA")
+    alpha = image.getchannel("A")
+    bbox = alpha.point(lambda value: 255 if value > 2 else 0).getbbox()
+    if bbox is None:
+        raise RuntimeError(f"No cursor pixels found in {source}")
+    image = image.crop(bbox)
+    image.thumbnail(content_size, RESAMPLING)
+    canvas = Image.new("RGBA", canvas_size, (0, 0, 0, 0))
+    offset = ((canvas_size[0] - image.width) // 2, (canvas_size[1] - image.height) // 2)
+    canvas.alpha_composite(image, offset)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(destination, "PNG", optimize=True)
+    return describe(destination, source)
+
+
+def save_cursor(
+    source: Path,
+    destination: Path,
+    canvas_size: tuple[int, int] = (64, 64),
+    content_size: tuple[int, int] = (58, 58),
+) -> dict:
+    return save_transparent_icon(source, destination, canvas_size, content_size)
+
+
 def describe(path: Path, source: Path) -> dict:
     with Image.open(path) as image:
         extrema = image.getchannel("A").getextrema() if "A" in image.getbands() else None
@@ -132,6 +163,46 @@ def main() -> None:
         )
     )
 
+    for cursor in (
+        "select",
+        "ui_action",
+        "box_select",
+        "move",
+        "attack",
+        "attack_move",
+        "patrol",
+        "rally",
+        "gather_jade",
+        "gather_lumber",
+        "gather_essence",
+        "hunt",
+        "deposit",
+        "repair",
+        "build",
+        "forbidden",
+        "pan",
+    ):
+        records.append(
+            save_cursor(
+                SOURCE / "cursors" / f"{cursor}.png",
+                RUNTIME / "cursors" / f"{cursor}.png",
+            )
+        )
+
+    for indicator, content_size in (
+        ("destination_flag", (72, 90)),
+        ("interaction_ring", (90, 90)),
+        ("attack_swords", (90, 90)),
+    ):
+        records.append(
+            save_transparent_icon(
+                SOURCE / "command_indicators" / f"{indicator}.png",
+                RUNTIME / "command_indicators" / f"{indicator}.png",
+                (96, 96),
+                content_size,
+            )
+        )
+
     for faction in ("celestial", "demon", "beast", "human"):
         records.append(
             save_webp(
@@ -149,6 +220,18 @@ def main() -> None:
                     (160, 176),
                     (140, 158),
                     8,
+                )
+            )
+        if faction != "celestial":
+            hunter_source = "human_hunter_female.png" if faction == "human" else f"{faction}_hunter.png"
+            records.append(
+                save_isolated(
+                    SOURCE / "units" / hunter_source,
+                    RUNTIME / "units" / f"{faction}_hunter.png",
+                    (160, 176),
+                    (140, 158),
+                    8,
+                    decontaminate_edge=True,
                 )
             )
         for kind in ("stronghold", "war_camp"):
@@ -171,6 +254,24 @@ def main() -> None:
             6,
         )
     )
+
+    for wildlife, canvas_size, content_size in (
+        ("chicken", (96, 88), (82, 74)),
+        ("deer", (144, 120), (132, 108)),
+        ("bison", (176, 136), (164, 124)),
+        ("boar", (144, 112), (132, 100)),
+        ("bear", (176, 136), (164, 124)),
+    ):
+        records.append(
+            save_isolated(
+                SOURCE / "wildlife" / f"{wildlife}.png",
+                RUNTIME / "wildlife" / f"{wildlife}.png",
+                canvas_size,
+                content_size,
+                6,
+                decontaminate_edge=True,
+            )
+        )
     records.append(
         save_isolated(
             SOURCE / "buildings" / "neutral_yaoguai_den.png",

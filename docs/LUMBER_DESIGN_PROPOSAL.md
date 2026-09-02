@@ -21,14 +21,14 @@ Add a third resource that deepens the opening economy and makes the Jade Meridia
 
 ## Landscape and map play
 
-The map contains **1,016 trees** in rotationally mirrored groves. The 254-cell authored layer expands each macro-cell to a 2 × 2 gameplay block, preserving the previous tree density across the doubled dimensions. The ground below every tree is meadow, so its sprite, collision, resource state, minimap marker, and eventual removal all describe the same gameplay fact.
+The map contains **2,224 trees** in rotationally mirrored groves and an organic perimeter woodland. The 556-cell authored layer expands each macro-cell to a 2 × 2 gameplay block. The perimeter varies from roughly two to ten gameplay cells deep, forming tapered gaps, inward fingers, and rounded stands wherever terrain and protected clearings allow. The ground below every tree remains meadow so its sprite, collision, resource state, minimap marker, and eventual removal all describe the same gameplay fact.
 
 The dense groves occupy the jungle bands between the three lanes and around selected outer edges. They preserve the map's initial movement topology while making it mutable: armies begin on the authored roads and crossing approaches, then workers can cut one-cell scouting gaps, reinforcement channels, or larger construction clearings. Contiguous grove interiors are intentionally reached from their edges, so opening a major shortcut requires sustained logging rather than harvesting one token tree.
 
 The tree layer follows four placement rules:
 
 - Keep both 2 × 2 Stronghold footprints, the enemy War Camp, workers, and all Jade/Essence nodes clear.
-- Keep the three roads, bridge approaches, and a navigable shoulder around each main route open at match start.
+- Keep the three roads, two outer bridge approaches, and a navigable shoulder around each main route open at match start.
 - Use exact 180-degree rotational counterparts with matching species and yield for competitive fairness.
 - Group pine, cedar, fir, and juniper sprites into coherent patches so the jungle reads as landscape rather than a noisy checkerboard.
 
@@ -67,8 +67,8 @@ Each master uses the repository's flat magenta isolation background. Transparent
 - Lumber deposits, costs, affordability, and Human construction discounts are authoritative simulation state.
 - Workers can gather every tree variant with the existing right-click resource command.
 - Trees block placement and pathfinding until depleted; depleted tree cells become usable.
-- Exactly 1,016 tree entities reproduce the intended jungle masses without permanent forest terrain underneath them.
-- The initial tree-blocked walkability graph still connects both starting territories through the three river crossings.
+- Exactly 2,224 tree entities reproduce the intended jungle masses and organic perimeter woodland without permanent forest terrain underneath them.
+- The initial tree-blocked walkability graph still connects both starting territories through the two outer river crossings.
 - Bases, starting workers, roads, bridges, and Jade/Essence expansion sites do not overlap trees.
 - The computer economy remains functional and can replace its production structure.
 - All four runtime tree assets load, render with alpha, appear in the asset report, and pass checksum validation.

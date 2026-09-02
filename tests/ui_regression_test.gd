@@ -29,8 +29,10 @@ func _run() -> void:
 	focus_owner = root.gui_get_focus_owner()
 	_expect(focus_owner is Button and (focus_owner as Button).text == "COMMAND CELESTIAL COURT", "faction screen did not focus its first keyboard action", failures)
 
-	game.call("_start_match", &"human")
+	game.call("_start_match", &"celestial")
 	await _settle()
+	var hunter_button := game._command_buttons[&"hunter"] as HudCommandButton
+	_expect(hunter_button.art_texture == null and not hunter_button.visible, "Celestial HUD loaded or exposed unavailable Hunter art", failures)
 	var worker_kinds: Array[StringName] = [&"worker"]
 	var enemy_worker_id := int(game.simulation.team_entity_ids(RtsSimulation.TEAM_ENEMY, worker_kinds)[0])
 	game.battlefield.set_fog_enabled(false)
@@ -41,7 +43,7 @@ func _run() -> void:
 		_expect(not (game._command_buttons[button_id] as Button).visible, "enemy Worker inspection exposed %s" % button_id, failures)
 
 	if failures.is_empty():
-		print("PASS ui_regression_test: title/faction keyboard focus and enemy command isolation")
+		print("PASS ui_regression_test: title/faction keyboard focus, unavailable art guard, and enemy command isolation")
 		quit(0)
 		return
 	for failure in failures:

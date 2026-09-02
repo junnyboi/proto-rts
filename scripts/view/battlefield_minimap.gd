@@ -7,6 +7,7 @@ const RESOURCE_COLOR := Color("deb961")
 const TREE_COLOR := Color("7cab62")
 const CAVE_COLOR := Color("d7bd6c")
 const MONSTER_COLOR := Color("c79855")
+const WILDLIFE_COLOR := Color("d9a96c")
 const CAMERA_COLOR := Color(0.96, 0.9, 0.64, 0.9)
 const REDRAW_SECONDS := 0.1
 const TERRAIN_COLORS := {
@@ -121,6 +122,8 @@ func _draw_entities(map_rect: Rect2) -> void:
 			color = CAVE_COLOR
 		elif entity_state.get("kind") == &"jadeclaw" and team == RtsSimulation.TEAM_NEUTRAL:
 			color = MONSTER_COLOR
+		elif category == &"wildlife":
+			color = WILDLIFE_COLOR
 		if team == RtsSimulation.TEAM_PLAYER:
 			color = PLAYER_COLOR
 		elif team == RtsSimulation.TEAM_ENEMY:
@@ -128,7 +131,7 @@ func _draw_entities(map_rect: Rect2) -> void:
 		if category == &"structure":
 			for footprint_cell in MapCatalog.footprint_cells(cell, footprint):
 				_set_overlay_pixel(_entity_image, footprint_cell, color)
-		elif category == &"unit":
+		elif category in [&"unit", &"wildlife"]:
 			_paint_marker(_entity_image, cell, color, 1)
 		else:
 			_set_overlay_pixel(_entity_image, cell, color)

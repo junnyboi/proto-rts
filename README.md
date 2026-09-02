@@ -16,7 +16,7 @@ For native play, open the project in Godot 4.7.2 or run:
 
 ## Complete skirmish loop
 
-The current release is a focused one-versus-one vertical slice played on **The Jade Divide**, an 80 × 64 battlefield with four times the previous map area. Its three-lane layout uses a diagonal river, three crossings, 1,016 harvestable trees forming dense mirrored jungles, protected starting economies, contested expansion resources, two guarded Yaoguai Dens, and a clickable fog-aware tactical minimap. Standing trees block movement and construction; logging them opens permanent shortcuts and new build sites. Every new unit requires Food, supplied by space-efficient Rice Farms or faster Hunter's Lodges. Neutral Jadeclaws guard each den and drop mixed resource bounties when hunted. Clear the pack, hold the capture ring, and the den becomes a forward production point for player-aligned monsters. The computer commander starts with the same resources and workers as the player, harvests every construction resource, builds its War Camp and food infrastructure through normal rules, then hunts, captures, recaptures, and produces without periodic resource grants.
+The current release is a focused one-versus-one vertical slice played on **The Jade Divide**, an 80 × 64 battlefield with four times the previous map area. Its three-route layout uses a diagonal river with two outer crossings and no central bridge, 2,224 harvestable trees forming dense mirrored jungles and an irregular wooded perimeter, protected starting economies, contested expansion resources, two guarded Yaoguai Dens, and a clickable fog-aware tactical minimap. Standing trees block movement and construction; logging them opens permanent shortcuts and new build sites. Every new unit requires Food, supplied by space-efficient Rice Farms or faster Hunter's Lodges. Neutral Jadeclaws guard each den and drop mixed resource bounties when hunted. Clear the pack, hold the capture ring, and the den becomes a forward production point for player-aligned monsters. The computer commander builds food infrastructure, hunts, captures, recaptures, and produces through the same simulation rules.
 
 | Unit or structure | Function |
 | --- | --- |
@@ -34,15 +34,20 @@ The current release is a focused one-versus-one vertical slice played on **The J
 
 | Input | Action |
 | --- | --- |
-| Left click | Inspect any visible unit, structure, resource, or objective |
-| Left drag | Box-select friendly units |
-| Right click ground | Move selected units |
-| Right click resource | Assign selected workers to gather |
-| Right click enemy | Focus-fire selected units |
+| Left click | Select a friendly entity or inspect any visible rival, neutral, wildlife, or resource entity; hold `Shift` to toggle friendly selections |
+| Left drag | Box-select friendly units; hold `Shift` to add them |
+| Right click ground | Move selected units; hold `Shift` to queue the order |
+| Right click resource | Assign selected workers to gather; hold `Shift` to queue the source |
+| Right click enemy | Focus-fire selected units; hold `Shift` to queue the target |
+| Right click damaged allied structure | Repair it with selected workers |
 | Right click Yaoguai Den | Hunt its guardians, move into its capture ring, or set its rally point when owned and selected |
 | Right click with structure selected | Set rally point |
-| `F`, then left click | Attack-move |
-| `X` | Stop selected units |
+| `F`, then left click | Attack-move; hold `Shift` while arming or confirming to queue it |
+| `T`, then left click | Patrol repeatedly between the unit's position and the destination |
+| `R`, then left click | Repair a damaged allied structure with selected workers |
+| `Ctrl/Cmd` + `0–9` | Assign the current selection to a control group; add `Shift` to extend it |
+| `0–9` | Recall a control group; add `Shift` to merge it with the selection; double-tap to center |
+| `X` | Stop selected units and clear queued orders |
 | `Q` | Select all workers |
 | `E` | Select the army |
 | `Space` | Select and center the player Stronghold |
@@ -64,13 +69,13 @@ The current release is a focused one-versus-one vertical slice played on **The J
 
 ## Architecture
 
-The simulation stores positions in continuous grid coordinates. `IsoProjection` converts those coordinates to a 2:1 diamond view and performs inverse picking. `RtsSimulation` owns all resources, food harvest timers, entities, persistent attack-move destinations, line-of-sight, local unit separation, orders, navigation, gathering, queues, combat, AI, and outcome state. Every public command requires an explicit issuer team and rejects cross-team entities or structures. `Battlefield` translates player input into those authority- and bounds-checked commands; it batches authored terrain, screen-culls entities before sorting, renders each swaying tree once, and uses image-backed minimap layers. `main.gd` owns the application screens and heads-up display.
+The simulation stores positions in continuous grid coordinates. `IsoProjection` converts those coordinates to a 2:1 diamond view and performs inverse picking. `RtsSimulation` owns all resources, food harvest timers, entities, active and queued orders, repair costs, patrol routes, production refunds, navigation, gathering, line-of-sight combat, AI, and outcome state. Every mutable command requires an explicit issuer team and rejects foreign unit, worker, structure, queue, cargo, or rally IDs before mutation. `Battlefield` reads that state, owns local control-group selection shortcuts, renders the match, and translates input into player-authorized simulation commands. Its 2,224-tree renderer batches authored terrain and fog, culls entities before sorting, uses strategic tree/grid level-of-detail, and caps ambient redraws at 30 Hz; the minimap composites cached image layers. `main.gd` owns the application screens and heads-up display.
 
 The design borrows the clean model/view boundary from [`junnyboi/proto-td`](https://github.com/junnyboi/proto-td), but the terrain renderer, map, factions, economy, simulation, controls, assets, interface, and gameplay are original to this repository.
 
 ## Generated asset pipeline
 
-All representational game art was generated specifically for this project with **GPT Image 2**. The active runtime manifest contains 42 optimized derivatives generated from immutable masters under `assets/source/`; retired seasonal tree masters remain there for provenance but are excluded from the build. The repeatable processing tool removes the isolation background, preserves transparent silhouettes, resizes by asset category, and writes SHA-256 hashes.
+All representational game art was generated specifically for this project with **GPT Image 2**. The active runtime manifest contains 50 optimized derivatives generated from immutable masters under `assets/source/`; retired concepts and seasonal tree masters remain outside the runtime build. The repeatable processing tool removes the isolation background, preserves transparent silhouettes, resizes by asset category, and writes SHA-256 hashes.
 
 ```bash
 python3 -m venv .venv
@@ -88,7 +93,7 @@ Run the focused suite:
 tools/run_tests.sh
 ```
 
-The suite verifies the expanded map's size, symmetry, startup invariants, crossings, clearable grove density and connectivity, cave placement, tree-blocked paths, projection round trips, all 42 runtime asset paths, fog and minimap visibility, generic structure placement, Food costs and harvest cadence, naturally funded AI construction, attack-move persistence (including external-kill races), arbitrary and capacity-limited formations, live-unit placement blocking, local separation, line-of-sight, selection pruning, cross-team command rejection, command bounds, keyboard focus, interactions, monster bounties, cave capture, Jadeclaw production, economy, combat, and match victory. It also enforces a 16.7 ms p95 CPU draw budget for both the 1,016-tree Battlefield and minimap in fogged and full-map views. A native visual harness captures the title, faction selection, normal fogged skirmish, food economy, monster-cave close-up, and full map overview screens:
+The 13-suite runner verifies the expanded map's size, symmetry, crossings, 2,224-tree grove density and connectivity, mirrored wildlife herds, cave placement, tree-blocked paths, projection round trips, all runtime asset paths, cursor and HUD state, fog and minimap visibility, control groups, Shift-queued orders, repair, patrol, production cancellation, explicit cross-team command authority, live-unit placement rejection, scalable formations, persistent attack-move, terrain-aware combat sight, fair AI economy, faction food restrictions, contextual hunting, prey flight, boar/bear retaliation, Food bounties, AI hunting, harvest cadence, cave capture, combat, match victory, and instrumented Battlefield/minimap draw budgets. A native visual harness also captures the faction-specific food economy and a live wildlife hunt:
 
 ```bash
 /Applications/Godot.app/Contents/MacOS/Godot --path . --script tests/visual_capture.gd
@@ -112,4 +117,4 @@ python3 -m http.server 8060 --directory build/web
 
 ## Design documents
 
-The authored scope and implementation contract are in [`docs/GAME_PROPOSAL.md`](docs/GAME_PROPOSAL.md) and [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md). The wide genre benchmark, prioritized roadmap, and five GPT Image 2 concept designs are in [`docs/RTS_GAMEPLAY_RESEARCH_AND_FEATURE_PROPOSAL.md`](docs/RTS_GAMEPLAY_RESEARCH_AND_FEATURE_PROPOSAL.md). Implemented feature proposals are in [`docs/FOOD_SYSTEM_PROPOSAL.md`](docs/FOOD_SYSTEM_PROPOSAL.md), [`docs/MAP_REDESIGN_PROPOSAL.md`](docs/MAP_REDESIGN_PROPOSAL.md), [`docs/LUMBER_DESIGN_PROPOSAL.md`](docs/LUMBER_DESIGN_PROPOSAL.md), and [`docs/MONSTER_CAVES_PROPOSAL.md`](docs/MONSTER_CAVES_PROPOSAL.md). Generated-art review and provenance are in [`docs/ASSET_REVIEW.md`](docs/ASSET_REVIEW.md), [`assets/source/FOOD_BUILDING_GENERATION_PROMPTS.md`](assets/source/FOOD_BUILDING_GENERATION_PROMPTS.md), [`assets/source/GENERATED_ASSET_PROVENANCE.md`](assets/source/GENERATED_ASSET_PROVENANCE.md), [`assets/source/TREE_GENERATION_PROMPTS.md`](assets/source/TREE_GENERATION_PROMPTS.md), [`assets/source/EVERGREEN_TREE_GENERATION_PROMPTS.md`](assets/source/EVERGREEN_TREE_GENERATION_PROMPTS.md), and [`assets/source/MONSTER_CAVE_GENERATION_PROMPTS.md`](assets/source/MONSTER_CAVE_GENERATION_PROMPTS.md).
+The authored scope and implementation contract are in [`docs/GAME_PROPOSAL.md`](docs/GAME_PROPOSAL.md) and [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md). The wide RTS benchmark, prioritized feature roadmap, and five GPT Image 2 concept designs are in [`docs/RTS_GAMEPLAY_RESEARCH_AND_FEATURE_PROPOSAL.md`](docs/RTS_GAMEPLAY_RESEARCH_AND_FEATURE_PROPOSAL.md). Implemented feature proposals are in [`docs/COMMAND_SYSTEM_IMPLEMENTATION_PLAN.md`](docs/COMMAND_SYSTEM_IMPLEMENTATION_PLAN.md), [`docs/COMMAND_VISUALIZATION_IMPLEMENTATION_PLAN.md`](docs/COMMAND_VISUALIZATION_IMPLEMENTATION_PLAN.md), [`docs/CURSOR_SYSTEM_PROPOSAL.md`](docs/CURSOR_SYSTEM_PROPOSAL.md), [`docs/HUD_REVAMP_IMPLEMENTATION_PLAN.md`](docs/HUD_REVAMP_IMPLEMENTATION_PLAN.md), [`docs/FOOD_SYSTEM_PROPOSAL.md`](docs/FOOD_SYSTEM_PROPOSAL.md), [`docs/WILDLIFE_HUNTING_PROPOSAL.md`](docs/WILDLIFE_HUNTING_PROPOSAL.md), [`docs/MAP_REDESIGN_PROPOSAL.md`](docs/MAP_REDESIGN_PROPOSAL.md), [`docs/LUMBER_DESIGN_PROPOSAL.md`](docs/LUMBER_DESIGN_PROPOSAL.md), and [`docs/MONSTER_CAVES_PROPOSAL.md`](docs/MONSTER_CAVES_PROPOSAL.md). Generated-art review and provenance are in [`docs/ASSET_REVIEW.md`](docs/ASSET_REVIEW.md), [`assets/source/FOOD_BUILDING_GENERATION_PROMPTS.md`](assets/source/FOOD_BUILDING_GENERATION_PROMPTS.md), [`assets/source/GENERATED_ASSET_PROVENANCE.md`](assets/source/GENERATED_ASSET_PROVENANCE.md), [`assets/source/TREE_GENERATION_PROMPTS.md`](assets/source/TREE_GENERATION_PROMPTS.md), [`assets/source/EVERGREEN_TREE_GENERATION_PROMPTS.md`](assets/source/EVERGREEN_TREE_GENERATION_PROMPTS.md), and [`assets/source/MONSTER_CAVE_GENERATION_PROMPTS.md`](assets/source/MONSTER_CAVE_GENERATION_PROMPTS.md).

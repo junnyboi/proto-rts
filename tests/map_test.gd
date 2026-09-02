@@ -47,21 +47,25 @@ func _run() -> void:
 		failures.append("painted forest still creates permanent unclearable blockers")
 	if int(terrain_counts[&"water"]) < 280:
 		failures.append("river does not form a substantial player separator")
-	if int(terrain_counts[&"bridge"]) != 72:
-		failures.append("expected 72 bridge cells across three scaled crossings")
-	for expected_row in [10, 11, 12, 13, 30, 31, 32, 33, 50, 51, 52, 53]:
+	if int(terrain_counts[&"bridge"]) != 48:
+		failures.append("expected 48 bridge cells across two scaled outer crossings")
+	for expected_row in [10, 11, 12, 13, 50, 51, 52, 53]:
 		if not bridge_rows.has(expected_row):
 			failures.append("crossing is missing bridge row %d" % expected_row)
+	for removed_row in [30, 31, 32, 33]:
+		if bridge_rows.has(removed_row):
+			failures.append("removed central crossing still has a bridge on row %d" % removed_row)
 
 	var trees := MapCatalog.tree_definitions()
 	var tree_cells: Dictionary = {}
 	var expected_tree_variants := {
-		&"lumber_pine": 320,
-		&"lumber_cedar": 224,
-		&"lumber_fir": 224,
-		&"lumber_juniper": 248,
+		&"lumber_pine": 688,
+		&"lumber_cedar": 496,
+		&"lumber_fir": 520,
+		&"lumber_juniper": 520,
 	}
 	var tree_variant_counts: Dictionary = {}
+	var perimeter_tree_counts := {"top": 0, "bottom": 0, "left": 0, "right": 0}
 	for tree in trees:
 		var tree_cell := tree["cell"] as Vector2i
 		var tree_variant := tree.get("variant", &"") as StringName
@@ -75,8 +79,20 @@ func _run() -> void:
 			failures.append("tree at %s has invalid Lumber data" % tree_cell)
 		if not MapCatalog.is_buildable(tree_cell):
 			failures.append("harvestable tree is not rooted in meadow at %s" % tree_cell)
-	if trees.size() != 1016:
-		failures.append("expected 1,016 trees across the scaled clearable groves")
+		if tree_cell.y < 6:
+			perimeter_tree_counts["top"] += 1
+		if tree_cell.y >= MapCatalog.SIZE.y - 6:
+			perimeter_tree_counts["bottom"] += 1
+		if tree_cell.x < 6:
+			perimeter_tree_counts["left"] += 1
+		if tree_cell.x >= MapCatalog.SIZE.x - 6:
+			perimeter_tree_counts["right"] += 1
+	if trees.size() != 2224:
+		failures.append("expected 2,224 trees across the groves and organic perimeter woodland")
+	for side in perimeter_tree_counts:
+		var minimum := 300 if side in ["top", "bottom"] else 250
+		if int(perimeter_tree_counts[side]) < minimum:
+			failures.append("%s map side does not have a dense tree perimeter" % side)
 	for variant in expected_tree_variants:
 		if int(tree_variant_counts.get(variant, 0)) != int(expected_tree_variants[variant]):
 			failures.append(
@@ -90,6 +106,46 @@ func _run() -> void:
 			failures.append("tree at %s has no rotational counterpart" % tree_cell)
 		elif tree_cells[counterpart].get("variant") != tree.get("variant"):
 			failures.append("tree variants are not symmetric at %s" % tree_cell)
+
+	if MapCatalog.WILDLIFE_HERDS.size() != 10:
+		failures.append("expected ten mirrored wildlife herds")
+	var herd_species_counts: Dictionary = {}
+	var animal_count := 0
+	var total_food := 0
+	for herd in MapCatalog.WILDLIFE_HERDS:
+		var herd_kind := herd.get("kind", &"") as StringName
+		var herd_center := herd["center"] as Vector2i
+		var herd_count := int(herd.get("count", 0))
+		var herd_radius := float(herd.get("radius", 0.0))
+		herd_species_counts[herd_kind] = int(herd_species_counts.get(herd_kind, 0)) + 1
+		animal_count += herd_count
+		total_food += herd_count * int(FactionCatalog.stats(herd_kind, &"neutral").get("food_bounty", 0))
+		if herd_kind not in FactionCatalog.WILDLIFE_KINDS:
+			failures.append("unsupported wildlife herd kind %s" % herd_kind)
+		if not MapCatalog.is_static_walkable(herd_center) or tree_cells.has(herd_center):
+			failures.append("wildlife herd center is blocked at %s" % herd_center)
+		if herd_count <= 0 or herd_radius <= 0.0:
+			failures.append("wildlife herd at %s has invalid size or radius" % herd_center)
+		var counterpart_center := MapCatalog.SIZE - Vector2i.ONE - herd_center
+		var found_herd_counterpart := false
+		for candidate in MapCatalog.WILDLIFE_HERDS:
+			if (
+				candidate.get("kind") == herd_kind
+				and (candidate["center"] as Vector2i) == counterpart_center
+				and int(candidate.get("count", 0)) == herd_count
+				and is_equal_approx(float(candidate.get("radius", 0.0)), herd_radius)
+			):
+				found_herd_counterpart = true
+				break
+		if not found_herd_counterpart:
+			failures.append("wildlife herd at %s has no matching counterpart" % herd_center)
+	if animal_count != 34:
+		failures.append("expected 34 wildlife members, found %d" % animal_count)
+	if total_food != 1448:
+		failures.append("wildlife roster contains %d Food instead of 1,448" % total_food)
+	for wildlife_kind in FactionCatalog.WILDLIFE_KINDS:
+		if int(herd_species_counts.get(wildlife_kind, 0)) != 2:
+			failures.append("expected two mirrored %s herds" % wildlife_kind)
 
 	for origin in [MapCatalog.PLAYER_STRONGHOLD, MapCatalog.ENEMY_STRONGHOLD]:
 		for cell in MapCatalog.footprint_cells(origin, Vector2i(2, 2)):
@@ -127,7 +183,9 @@ func _run() -> void:
 	if MapCatalog.is_buildable(Vector2i(8, 58)):
 		failures.append("Meridian roads must remain non-buildable")
 	if not MapCatalog.is_static_walkable(Vector2i(16, 10)) or MapCatalog.is_buildable(Vector2i(16, 10)):
-		failures.append("Moon Gate bridge must be walkable but non-buildable")
+		failures.append("outer bridge must be walkable but non-buildable")
+	if MapCatalog.terrain_at(Vector2i(38, 30)) != &"water":
+		failures.append("central Moon Gate must be water after bridge removal")
 
 	var start := MapCatalog.PLAYER_WORKERS[0]
 	var destination := MapCatalog.ENEMY_WORKERS[0]
@@ -149,7 +207,7 @@ func _run() -> void:
 		failures.append("the river and tree groves disconnect the two starting armies")
 
 	if failures.is_empty():
-		print("PASS map_test: size, symmetry, river crossings, clearable groves, economy, connectivity")
+		print("PASS map_test: size, symmetry, river crossings, clearable groves, wildlife, economy, connectivity")
 		quit(0)
 	else:
 		for failure in failures:
