@@ -53,6 +53,7 @@ const AI_INITIAL_ASSAULT_DELAY := 20.0
 const AI_ASSAULT_INTERVAL := 28.0
 const AI_ASSAULT_MIN_READY_UNITS := 4
 const AI_ASSAULT_WAVE_SIZE := 3
+const AI_SKILL_TEST_TIME_SECONDS := 60.0 * 60.0
 const HERD_SPAWN_OFFSETS: Array[Vector2i] = [
 	Vector2i.ZERO,
 	Vector2i(1, 0),
@@ -85,6 +86,7 @@ var _ai_attack_timer := AI_INITIAL_ASSAULT_DELAY
 var _ai_cave_timer := 3.0
 var _ai_hunt_timer := 4.0
 var _ai_training_flip := false
+var _ai_skill_test_launched := false
 var _ai_enabled := true
 var _line_of_sight_blockers: Dictionary = {}
 var _visible_cells_by_team: Array[Dictionary] = []
@@ -106,6 +108,7 @@ func setup(player_faction: StringName, enable_ai: bool = true) -> void:
 	_ai_cave_timer = 3.0
 	_ai_hunt_timer = 4.0
 	_ai_training_flip = false
+	_ai_skill_test_launched = false
 	_wander_rng.seed = GUARDIAN_WANDER_SEED
 	_wildlife_rng.seed = WILDLIFE_WANDER_SEED
 	_hunter_rng.seed = HUNTER_WANDER_SEED
@@ -1896,6 +1899,8 @@ func _advance_ai(delta: float) -> void:
 	_ai_attack_timer -= delta
 	_ai_cave_timer -= delta
 	_ai_hunt_timer -= delta
+	if not _ai_skill_test_launched and elapsed_time >= AI_SKILL_TEST_TIME_SECONDS:
+		_ai_skill_test_launched = _issue_ai_skill_test_invasion()
 	if _ai_strategy_timer > 0.0:
 		return
 	_ai_strategy_timer = 1.4
@@ -1924,7 +1929,7 @@ func _advance_ai(delta: float) -> void:
 			command_train(TEAM_ENEMY, int(cave["id"]), &"jadeclaw")
 	var army := _team_military(TEAM_ENEMY)
 	var needs_cave := captured_cave_count(TEAM_ENEMY) == 0
-	if needs_cave and army.size() >= 3:
+	if not _ai_skill_test_launched and needs_cave and army.size() >= 3:
 		if _ai_cave_timer <= 0.0:
 			_ai_cave_timer = 6.0
 			_issue_ai_cave_order(army)
@@ -1955,6 +1960,28 @@ func _issue_ai_base_assault(ready_units: Array[Dictionary]) -> void:
 	else:
 		command_move(TEAM_ENEMY, ids, player_hold["cell"] as Vector2i, true)
 	_ai_attack_timer = AI_ASSAULT_INTERVAL
+
+
+func _issue_ai_skill_test_invasion() -> bool:
+	var army := _team_military(TEAM_ENEMY)
+	var player_hold := _stronghold_for_team(TEAM_PLAYER)
+	if army.is_empty() or player_hold.is_empty():
+		return false
+	var ids: Array[int] = []
+	for unit in army:
+		ids.append(int(unit["id"]))
+	var issued := false
+	if is_entity_visible_to_team(TEAM_ENEMY, player_hold):
+		issued = command_attack(TEAM_ENEMY, ids, int(player_hold["id"]))
+	else:
+		issued = command_move(TEAM_ENEMY, ids, player_hold["cell"] as Vector2i, true)
+	if issued:
+		_ai_attack_timer = AI_ASSAULT_INTERVAL
+		battle_notice.emit(
+			"The rival has committed its entire reserve army. Your Stronghold is under attack!",
+			TEAM_ENEMY,
+		)
+	return issued
 
 
 func _issue_ai_cave_order(army: Array[Dictionary]) -> void:

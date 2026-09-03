@@ -532,6 +532,40 @@ func _test_ai_base_assault_waves(failures: Array[String]) -> void:
 		failures.append("a large computer army bypassed the base-assault cooldown")
 
 
+func _test_ai_skill_test_invasion(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human")
+	var invasion_ids: Array[int] = []
+	for offset in range(6):
+		invasion_ids.append(simulation._spawn_unit(
+			RtsSimulation.TEAM_ENEMY,
+			&"vanguard",
+			MapCatalog.ENEMY_STRONGHOLD + Vector2i(-2 - offset, 2),
+		))
+	simulation.command_move(
+		RtsSimulation.TEAM_ENEMY,
+		[invasion_ids[0], invasion_ids[1]],
+		MapCatalog.ENEMY_STRONGHOLD + Vector2i(-8, 4),
+	)
+	simulation._ai_strategy_timer = 999.0
+	simulation.elapsed_time = RtsSimulation.AI_SKILL_TEST_TIME_SECONDS - 0.01
+	simulation._advance_ai(RtsSimulation.TICK_SECONDS)
+	if simulation._ai_skill_test_launched:
+		failures.append("computer launched the skill-test invasion before the one-hour mark")
+	simulation.elapsed_time = RtsSimulation.AI_SKILL_TEST_TIME_SECONDS
+	simulation._advance_ai(RtsSimulation.TICK_SECONDS)
+	if not simulation._ai_skill_test_launched:
+		failures.append("computer did not launch the skill-test invasion at the one-hour mark")
+	for unit_id in invasion_ids:
+		if simulation.entity(unit_id).get("order") not in [&"attack", &"attack_move"]:
+			failures.append("skill-test invasion did not commit the entire reserve army")
+			break
+	simulation.command_stop(RtsSimulation.TEAM_ENEMY, [invasion_ids[0]])
+	simulation._advance_ai(RtsSimulation.TICK_SECONDS)
+	if simulation.entity(invasion_ids[0]).get("order") != &"idle":
+		failures.append("skill-test invasion was issued more than once")
+
+
 func _test_faction_food_traditions(failures: Array[String]) -> void:
 	var expectations := {
 		&"celestial": {"farm": true, "hunt": false},
@@ -706,6 +740,7 @@ func _run() -> void:
 	_test_food_building(&"hunters_lodge", failures)
 	_test_ai_food_economy(failures)
 	_test_ai_base_assault_waves(failures)
+	_test_ai_skill_test_invasion(failures)
 	_test_faction_food_traditions(failures)
 	_test_wildlife_hunting(failures)
 	_test_idle_hunter_wandering(failures)
@@ -962,7 +997,7 @@ func _run() -> void:
 			failures.append("destroying the enemy Stronghold did not produce victory")
 
 	if failures.is_empty():
-		print("PASS simulation_test: deposits, cargo integrity, attack-move, formations, harmless-wildlife pass-through, hostile separation, Food costs and producers, AI food economy and assault waves, guardian wandering, tree retargeting, monster bounties, cave capture and recapture, Jadeclaw production, economy, construction, combat, victory")
+		print("PASS simulation_test: deposits, cargo integrity, attack-move, formations, harmless-wildlife pass-through, hostile separation, Food costs and producers, AI food economy, assault waves, and one-hour skill test, guardian wandering, tree retargeting, monster bounties, cave capture and recapture, Jadeclaw production, economy, construction, combat, victory")
 		quit(0)
 	else:
 		for failure in failures:
