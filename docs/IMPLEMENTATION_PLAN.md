@@ -75,7 +75,7 @@ Dictionaries are acceptable for the vertical slice because their serialization s
 
 An `AStarGrid2D` instance will cover the authored map region. It will use four-directional movement, a Manhattan heuristic, and solid points for water, ridges, structures, and reserved resource cells. Godot’s grid A* API is designed for this exact partial-grid use case and supports changing point solidity without rebuilding graph edges manually.[3]
 
-Movement commands calculate paths from the entity’s current cell to the requested destination. If the target is occupied, the simulation searches outward for the nearest walkable cell within a bounded radius. Unit-to-unit collision uses lightweight local separation rather than dynamic path obstacles. This avoids expensive graph mutation for every moving entity while preventing complete visual overlap.
+Movement commands calculate paths from the entity’s current cell to the requested destination. If the target is occupied, the simulation searches outward for the nearest walkable cell within a bounded radius. Allied structures are temporarily removed from A* solidity while an allied unit calculates its route, and moving allied units may pass through one another instead of becoming dynamic path obstacles. The deterministic local solver restores separation as soon as both allied units are stationary, so armies spread into readable idle positions without creating friendly traffic jams. Hostile and neutral unit pairs continue to separate normally.
 
 ## 8. Input and Camera
 

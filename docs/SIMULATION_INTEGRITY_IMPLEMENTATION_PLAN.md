@@ -65,7 +65,7 @@ An attack-move order owns a final destination independently from its transient c
 
 ### Invariant
 
-Every commandable unit in a group receives a unique walkable destination when enough walkable map cells exist, and alive units are kept from occupying an identical local position whenever nearby walkable space permits.
+Every commandable unit in a group receives a unique walkable destination when enough walkable map cells exist. Actively moving allied units and allied building footprints do not block one another, but allied units that have both stopped spread apart whenever nearby walkable space permits. Hostile and neutral unit pairs remain locally separated.
 
 ### Implementation
 
@@ -73,11 +73,17 @@ Every commandable unit in a group receives a unique walkable destination when en
 - Filter ring candidates for map bounds, static walkability, and uniqueness before assignment.
 - Run a deterministic pairwise separation pass after movement. Accumulate symmetric displacements, apply them simultaneously, and reject candidates that enter static obstacles or leave the map.
 - Use stable unit-id ordering and deterministic fallback directions for exact overlaps so fixed-tick results remain reproducible.
+- Temporarily remove allied structures from A* solidity while calculating an allied unit's route, then restore the shared grid immediately after the path is captured.
+- Skip local separation for same-team pairs while either unit has an active path; resume separation on the first tick where both paths are exhausted.
+- Apply the policy uniformly to Workers, Hunters, Vanguards, Mystics, and aligned Jadeclaws while retaining separation against enemies and neutral wildlife.
 
 ### Regression coverage
 
 - A group larger than nine receives unique saved destinations and paths.
-- Units spawned at the exact same position separate after a simulation tick.
+- Every playable unit class can traverse a line containing every friendly unit class without displacing idle blockers.
+- Every pair of idle friendly unit classes spawned at the exact same position separates after a simulation tick.
+- Every playable unit class routes through an allied structure, while an enemy structure remains path-blocking.
+- A Worker and enemy unit spawned together still separate.
 
 ## 5. Simulation-authoritative fog and knowledge
 

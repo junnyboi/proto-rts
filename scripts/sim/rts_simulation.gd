@@ -2234,7 +2234,7 @@ func _resolve_unit_separation() -> void:
 			for second_index in range(first_index + 1, unit_ids.size()):
 				var second_id := unit_ids[second_index]
 				var second := entity(second_id)
-				if _worker_passes_through_friendly_unit(first, second):
+				if _moving_friendly_units_can_overlap(first, second):
 					continue
 				var delta := (second["position"] as Vector2) - (first["position"] as Vector2)
 				var distance := delta.length()
@@ -2260,13 +2260,18 @@ func _resolve_unit_separation() -> void:
 				unit["cell"] = Vector2i(proposed.round())
 
 
-func _worker_passes_through_friendly_unit(first: Dictionary, second: Dictionary) -> bool:
+func _moving_friendly_units_can_overlap(first: Dictionary, second: Dictionary) -> bool:
 	var first_team := int(first.get("team", TEAM_NEUTRAL))
 	return (
 		first_team >= 0
 		and first_team == int(second.get("team", TEAM_NEUTRAL))
-		and (first.get("kind") == &"worker" or second.get("kind") == &"worker")
+		and (_has_active_path(first) or _has_active_path(second))
 	)
+
+
+func _has_active_path(entity_state: Dictionary) -> bool:
+	var path := entity_state.get("path", []) as Array
+	return not path.is_empty() and int(entity_state.get("path_index", 0)) < path.size()
 
 
 func _is_walkable_unit_position(position: Vector2) -> bool:

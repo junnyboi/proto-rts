@@ -177,49 +177,76 @@ func _test_large_formations_and_separation(failures: Array[String]) -> void:
 
 
 func _test_units_pass_through_friendly_structures(failures: Array[String]) -> void:
-	var simulation := RtsSimulation.new()
-	simulation.setup(&"human")
-	var structure_cell := MapCatalog.PLAYER_BUILD_TEST_SITE
-	var structure_id := simulation._spawn_structure(
-		RtsSimulation.TEAM_PLAYER,
+	var unit_kinds: Array[StringName] = [&"worker", &"hunter", &"vanguard", &"mystic", &"jadeclaw"]
+	for unit_kind in unit_kinds:
+		var simulation := RtsSimulation.new()
+		simulation.setup(&"human", false)
+		simulation.entities.clear()
+		simulation.players[RtsSimulation.TEAM_PLAYER]["population"] = 0
+		simulation.players[RtsSimulation.TEAM_ENEMY]["population"] = 0
+		simulation._next_entity_id = 1
+		simulation._rebuild_pathfinding()
+		var structure_cell := MapCatalog.PLAYER_BUILD_TEST_SITE
+		var structure_id := simulation._spawn_structure(
+			RtsSimulation.TEAM_PLAYER,
+			&"rice_farm",
+			structure_cell,
+			true,
+		)
+		var structure := simulation.entity(structure_id)
+		var footprint_cells := MapCatalog.footprint_cells(
+			structure_cell,
+			structure["footprint"] as Vector2i,
+		)
+		var start := structure_cell + Vector2i(-2, 0)
+		var destination := structure_cell + Vector2i(3, 0)
+		var unit_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, unit_kind, start)
+		var unit := simulation.entity(unit_id)
+		simulation._rebuild_pathfinding()
+		simulation._set_path(unit, destination)
+		var friendly_path := unit.get("path", []) as Array
+		var crosses_friendly_structure := false
+		for point in friendly_path:
+			if Vector2i(point as Vector2) in footprint_cells:
+				crosses_friendly_structure = true
+				break
+		if not crosses_friendly_structure:
+			failures.append("%s path did not pass through its friendly structure" % unit_kind)
+		unit["order"] = &"move"
+		_advance(simulation, 8.0)
+		if (unit["position"] as Vector2).distance_to(Vector2(destination)) > 0.05:
+			failures.append("%s did not reach its destination through a friendly structure" % unit_kind)
+
+	var enemy_simulation := RtsSimulation.new()
+	enemy_simulation.setup(&"human", false)
+	enemy_simulation.entities.clear()
+	enemy_simulation.players[RtsSimulation.TEAM_PLAYER]["population"] = 0
+	enemy_simulation.players[RtsSimulation.TEAM_ENEMY]["population"] = 0
+	enemy_simulation._next_entity_id = 1
+	enemy_simulation._rebuild_pathfinding()
+	var enemy_structure_cell := MapCatalog.PLAYER_BUILD_TEST_SITE
+	var enemy_structure_id := enemy_simulation._spawn_structure(
+		RtsSimulation.TEAM_ENEMY,
 		&"rice_farm",
-		structure_cell,
+		enemy_structure_cell,
 		true,
 	)
-	var structure := simulation.entity(structure_id)
-	var footprint_cells := MapCatalog.footprint_cells(
-		structure_cell,
-		structure["footprint"] as Vector2i,
+	var enemy_structure := enemy_simulation.entity(enemy_structure_id)
+	var enemy_footprint_cells := MapCatalog.footprint_cells(
+		enemy_structure_cell,
+		enemy_structure["footprint"] as Vector2i,
 	)
-	var start := structure_cell + Vector2i(-2, 0)
-	var destination := structure_cell + Vector2i(3, 0)
-	var unit_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", start)
-	var unit := simulation.entity(unit_id)
-	simulation._rebuild_pathfinding()
-	simulation._set_path(unit, destination)
-	var friendly_path := unit.get("path", []) as Array
-	var crosses_friendly_structure := false
-	for point in friendly_path:
-		if Vector2i(point as Vector2) in footprint_cells:
-			crosses_friendly_structure = true
-			break
-	if not crosses_friendly_structure:
-		failures.append("a unit path did not pass through its friendly structure")
-	unit["order"] = &"move"
-	_advance(simulation, 4.0)
-	if (unit["position"] as Vector2).distance_to(Vector2(destination)) > 0.05:
-		failures.append("a unit did not reach its destination through a friendly structure")
-
-	structure["team"] = RtsSimulation.TEAM_ENEMY
-	unit["position"] = Vector2(start)
-	unit["cell"] = start
-	simulation._rebuild_pathfinding()
-	simulation._set_path(unit, destination)
-	var enemy_path := unit.get("path", []) as Array
+	var enemy_start := enemy_structure_cell + Vector2i(-2, 0)
+	var enemy_destination := enemy_structure_cell + Vector2i(3, 0)
+	var player_unit_id := enemy_simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", enemy_start)
+	var player_unit := enemy_simulation.entity(player_unit_id)
+	enemy_simulation._rebuild_pathfinding()
+	enemy_simulation._set_path(player_unit, enemy_destination)
+	var enemy_path := player_unit.get("path", []) as Array
 	if enemy_path.is_empty():
 		failures.append("an enemy structure prevented pathfinding around its footprint")
 	for point in enemy_path:
-		if Vector2i(point as Vector2) in footprint_cells:
+		if Vector2i(point as Vector2) in enemy_footprint_cells:
 			failures.append("a unit path passed through an enemy structure")
 			break
 

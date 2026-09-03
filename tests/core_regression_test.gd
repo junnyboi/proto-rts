@@ -90,61 +90,68 @@ func _test_live_placement_occupancy(failures: Array[String]) -> void:
 	_expect(not simulation.can_place_structure(RtsSimulation.TEAM_PLAYER, &"rice_farm", farm_origin), "multi-cell structure footprint accepted a live-unit overlap", failures)
 
 
-func _test_worker_friendly_passthrough_and_unit_separation(failures: Array[String]) -> void:
-	var simulation := _blank_simulation()
+func _test_friendly_passthrough_and_idle_spacing(failures: Array[String]) -> void:
+	var friendly_kinds: Array[StringName] = [&"worker", &"hunter", &"vanguard", &"mystic", &"jadeclaw"]
 	var lane_y := 54
-	var moving_worker_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", Vector2i(8, lane_y))
-	var friendly_worker_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", Vector2i(11, lane_y))
-	var friendly_vanguard_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", Vector2i(14, lane_y))
-	var friendly_worker_start := simulation.entity(friendly_worker_id)["position"] as Vector2
-	var friendly_vanguard_start := simulation.entity(friendly_vanguard_id)["position"] as Vector2
 	var destination := Vector2i(18, lane_y)
-	_expect(
-		simulation.command_move(RtsSimulation.TEAM_PLAYER, [moving_worker_id], destination),
-		"worker traversal command was rejected",
-		failures,
-	)
-	_advance(simulation, 12.0)
-	_expect(
-		(simulation.entity(moving_worker_id)["position"] as Vector2).distance_to(Vector2(destination)) < 0.15,
-		"worker did not pass through friendly units to reach its destination",
-		failures,
-	)
-	_expect(
-		(simulation.entity(friendly_worker_id)["position"] as Vector2).is_equal_approx(friendly_worker_start),
-		"passing worker displaced a friendly worker",
-		failures,
-	)
-	_expect(
-		(simulation.entity(friendly_vanguard_id)["position"] as Vector2).is_equal_approx(friendly_vanguard_start),
-		"passing worker displaced a friendly military unit",
-		failures,
-	)
+	for moving_kind in friendly_kinds:
+		var traversal_simulation := _blank_simulation()
+		var moving_id := traversal_simulation._spawn_unit(
+			RtsSimulation.TEAM_PLAYER,
+			moving_kind,
+			Vector2i(8, lane_y),
+		)
+		var blocker_positions: Dictionary = {}
+		for blocker_index in range(friendly_kinds.size()):
+			var blocker_id := traversal_simulation._spawn_unit(
+				RtsSimulation.TEAM_PLAYER,
+				friendly_kinds[blocker_index],
+				Vector2i(9 + blocker_index * 2, lane_y),
+			)
+			blocker_positions[blocker_id] = traversal_simulation.entity(blocker_id)["position"]
+		_expect(
+			traversal_simulation.command_move(RtsSimulation.TEAM_PLAYER, [moving_id], destination),
+			"%s traversal command was rejected" % moving_kind,
+			failures,
+		)
+		_advance(traversal_simulation, 12.0)
+		_expect(
+			(traversal_simulation.entity(moving_id)["position"] as Vector2).distance_to(Vector2(destination)) < 0.15,
+			"%s did not pass through the complete friendly unit line" % moving_kind,
+			failures,
+		)
+		for blocker_id in blocker_positions:
+			_expect(
+				(traversal_simulation.entity(int(blocker_id))["position"] as Vector2).is_equal_approx(
+					blocker_positions[blocker_id] as Vector2
+				),
+				"moving %s displaced an idle friendly unit" % moving_kind,
+				failures,
+			)
 
 	var overlap_cell := Vector2i(24, lane_y)
-	var overlapping_worker_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", overlap_cell)
-	var overlapping_friendly_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", overlap_cell)
-	simulation._resolve_unit_separation()
-	_expect(
-		(simulation.entity(overlapping_worker_id)["position"] as Vector2).is_equal_approx(
-			simulation.entity(overlapping_friendly_id)["position"] as Vector2
-		),
-		"worker could not overlap a friendly unit while passing through",
-		failures,
-	)
-
-	var military_simulation := _blank_simulation()
-	var first_military_id := military_simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", overlap_cell)
-	var second_military_id := military_simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"mystic", overlap_cell)
-	military_simulation._resolve_unit_separation()
-	var military_distance := (
-		military_simulation.entity(first_military_id)["position"] as Vector2
-	).distance_to(military_simulation.entity(second_military_id)["position"] as Vector2)
-	_expect(
-		military_distance >= RtsSimulation.UNIT_SEPARATION_DISTANCE - 0.001,
-		"friendly military units stopped separating",
-		failures,
-	)
+	for first_index in range(friendly_kinds.size()):
+		for second_index in range(first_index, friendly_kinds.size()):
+			var idle_simulation := _blank_simulation()
+			var first_idle_id := idle_simulation._spawn_unit(
+				RtsSimulation.TEAM_PLAYER,
+				friendly_kinds[first_index],
+				overlap_cell,
+			)
+			var second_idle_id := idle_simulation._spawn_unit(
+				RtsSimulation.TEAM_PLAYER,
+				friendly_kinds[second_index],
+				overlap_cell,
+			)
+			idle_simulation._resolve_unit_separation()
+			var idle_distance := (
+				idle_simulation.entity(first_idle_id)["position"] as Vector2
+			).distance_to(idle_simulation.entity(second_idle_id)["position"] as Vector2)
+			_expect(
+				idle_distance >= RtsSimulation.UNIT_SEPARATION_DISTANCE - 0.001,
+				"idle %s and %s units did not spread apart" % [friendly_kinds[first_index], friendly_kinds[second_index]],
+				failures,
+			)
 
 	var hostile_simulation := _blank_simulation()
 	var worker_id := hostile_simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", overlap_cell)
@@ -298,12 +305,12 @@ func _run() -> void:
 	_test_attack_move_external_kill(failures)
 	_test_scalable_and_partial_formations(failures)
 	_test_live_placement_occupancy(failures)
-	_test_worker_friendly_passthrough_and_unit_separation(failures)
+	_test_friendly_passthrough_and_idle_spacing(failures)
 	_test_ai_natural_construction_and_fallback(failures)
 	_test_line_of_sight_and_invalid_commands(failures)
 	_test_command_authority(failures)
 	if failures.is_empty():
-		print("PASS core_regression_test: attack-move race, scalable/partial formations, occupancy, worker passthrough, separation, fair AI economy, sight, bounds, authority")
+		print("PASS core_regression_test: attack-move race, scalable/partial formations, occupancy, friendly passthrough, idle spacing, hostile separation, fair AI economy, sight, bounds, authority")
 		quit(0)
 		return
 	for failure in failures:
