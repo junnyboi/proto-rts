@@ -9,9 +9,9 @@
     "source_duration_seconds": 145.658708,
     "source_sha256": "b022d8176a0b16abf0f047674ad21871555d48cf17e7366a42750c337d490007"
   },
-  "generated_at": "2026-09-03T06:02:25.206593+00:00",
+  "generated_at": "2026-09-03T09:05:55.536596+00:00",
   "generator": "Built-in ElevenLabs via Manus generate_music/generate_sound_effect",
-  "selection_policy": "Highest technical score across equal-third A/B/C reel windows",
+  "selection_policy": "Highest technical score unless an explicit reviewed A/B/C override is supplied",
   "sfx": {
     "attack_beast": {
       "candidates": {
@@ -824,42 +824,43 @@
     "unit_ready": {
       "candidates": {
         "A": {
-          "active_ratio": 0.9802846223161297,
-          "duration_seconds": 2.6819166666666665,
+          "active_ratio": 0.9418326445639001,
+          "duration_seconds": 2.0114375,
           "path": "/home/ubuntu/proto-rts-audio-candidates/sfx/unit_ready_A.mp3",
-          "peak_dbfs": -0.5962734521720143,
-          "rms_dbfs": -14.017080863296645,
-          "score": -7.155088507083737,
-          "sha256": "a0f096b72b6139ff920067712b1cf5f64559c0045452db4c8ef2f25728a73f72"
+          "peak_dbfs": 0.0,
+          "rms_dbfs": -16.875030085893936,
+          "score": -16.282201573946637,
+          "sha256": "ac5277299c011cb75dac422a7c5320b0de8c82ffe311f3dd0a4cd84c5756f454"
         },
         "B": {
-          "active_ratio": 0.9282307429388186,
-          "duration_seconds": 2.6819166666666665,
+          "active_ratio": 0.47475375198085945,
+          "duration_seconds": 2.0114375,
           "path": "/home/ubuntu/proto-rts-audio-candidates/sfx/unit_ready_B.mp3",
-          "peak_dbfs": -0.47000480766327724,
-          "rms_dbfs": -18.120969728518375,
-          "score": -11.623354527946645,
-          "sha256": "dfcd69c1e6f5babf891ab85fe6039bef01aa1bc57627a3a8cbd4e8784575b492"
+          "peak_dbfs": -24.756814413112536,
+          "rms_dbfs": -39.410692329153065,
+          "score": -36.08741606528705,
+          "sha256": "d9e43657f5216f02430c58b29a709126ad26a358016c84dda8932a3f1295bff8"
         },
         "C": {
-          "active_ratio": 0.14530022601906148,
-          "duration_seconds": 2.6362083333333333,
+          "active_ratio": 7.375952288125771e-05,
+          "duration_seconds": 1.9771458333333334,
           "path": "/home/ubuntu/proto-rts-audio-candidates/sfx/unit_ready_C.mp3",
-          "peak_dbfs": -30.47561855159539,
-          "rms_dbfs": -48.909102863211366,
-          "score": -47.89200128107794,
-          "sha256": "f3a74f1474ad70b1be6d53f6293c5f43e9e1b34e9c3dcb385339cceec66671d2"
+          "peak_dbfs": -43.0744419788425,
+          "rms_dbfs": -62.93160331054624,
+          "score": -67.72813661297081,
+          "sha256": "4f7d19e7d624d246df36a25368f8eb3cba689e733cda89156a898f9c57fe86cc"
         }
       },
-      "runtime_duration_seconds": 2.661917,
+      "runtime_duration_seconds": 1.969958,
       "runtime_path": "/home/ubuntu/proto-rts-source/assets/runtime/audio/sfx/unit_ready.ogg",
-      "runtime_sha256": "548b8926f0d06a0423a02964b91055a15f28618ce5e7bdae9f1f5903ab0e3f6d",
-      "runtime_size_bytes": 48272,
-      "selected_candidate": "A",
-      "selected_source": "/home/ubuntu/proto-rts-audio-candidates/sfx/unit_ready_A.mp3",
-      "selected_source_sha256": "a0f096b72b6139ff920067712b1cf5f64559c0045452db4c8ef2f25728a73f72",
+      "runtime_sha256": "85b2683cfc87690dbfdf445c9864220554e15958cde86bd951fb3908e0288133",
+      "runtime_size_bytes": 35772,
+      "selected_candidate": "B",
+      "selected_source": "/home/ubuntu/proto-rts-audio-candidates/sfx/unit_ready_B.mp3",
+      "selected_source_sha256": "d9e43657f5216f02430c58b29a709126ad26a358016c84dda8932a3f1295bff8",
+      "selection_method": "reviewed_override",
       "source_reel": "/home/ubuntu/proto-rts-audio-candidates/reels/unit_ready.mp3",
-      "source_reel_sha256": "a264fd962e4e7dd741914b0561827767cdf4b1e30036208cd31767d6a2bb12e9"
+      "source_reel_sha256": "9ea15d51389bdcaf732b41fe587db6effd291a023fb0cfb1ec911aa7153330fb"
     },
     "unit_select": {
       "candidates": {

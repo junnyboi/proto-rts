@@ -275,7 +275,24 @@ def main() -> None:
         action="store_true",
         help="Preserve the existing BGM derivative and report entry.",
     )
+    parser.add_argument(
+        "--select-candidate",
+        action="append",
+        default=[],
+        metavar="NAME=LETTER",
+        help="Select a reviewed A/B/C candidate for a named SFX instead of the technical-score winner.",
+    )
     args = parser.parse_args()
+
+    candidate_overrides: dict[str, str] = {}
+    for specification in args.select_candidate:
+        if "=" not in specification:
+            raise RuntimeError(f"Invalid candidate override: {specification}")
+        cue_name, letter = specification.split("=", 1)
+        letter = letter.upper()
+        if not cue_name or letter not in LETTERS:
+            raise RuntimeError(f"Invalid candidate override: {specification}")
+        candidate_overrides[cue_name] = letter
 
     candidate_root = args.candidates.resolve()
     runtime_root = args.runtime.resolve()
@@ -298,7 +315,7 @@ def main() -> None:
         report = {"sfx": {}}
     report["generated_at"] = datetime.now(timezone.utc).isoformat()
     report["generator"] = "Built-in ElevenLabs via Manus generate_music/generate_sound_effect"
-    report["selection_policy"] = "Highest technical score across equal-third A/B/C reel windows"
+    report["selection_policy"] = "Highest technical score unless an explicit reviewed A/B/C override is supplied"
     report.setdefault("sfx", {})
 
     reels = [
@@ -315,16 +332,25 @@ def main() -> None:
         reels = [reel for reel in reels if reel.stem in requested]
     for reel in reels:
         candidates = split_reel(reel, split_dir)
-        selected_letter, selected_path, selected_metrics = max(
-            candidates,
-            key=lambda item: item[2].score,
-        )
+        selected_letter = candidate_overrides.get(reel.stem)
+        if selected_letter is None:
+            selected_letter, selected_path, selected_metrics = max(
+                candidates,
+                key=lambda item: item[2].score,
+            )
+            selection_method = "technical_score"
+        else:
+            selected_letter, selected_path, selected_metrics = next(
+                candidate for candidate in candidates if candidate[0] == selected_letter
+            )
+            selection_method = "reviewed_override"
         runtime_path = sfx_dir / f"{reel.stem}.ogg"
         runtime_duration = process_sfx(selected_path, runtime_path, work_dir)
         report["sfx"][reel.stem] = {
             "source_reel": str(reel),
             "source_reel_sha256": sha256(reel),
             "selected_candidate": selected_letter,
+            "selection_method": selection_method,
             "selected_source": str(selected_path),
             "selected_source_sha256": sha256(selected_path),
             "runtime_path": str(runtime_path),
