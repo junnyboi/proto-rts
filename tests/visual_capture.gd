@@ -25,9 +25,19 @@ func _run() -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(OUTPUT))
 	var scene := load("res://scenes/main.tscn") as PackedScene
 	var game := scene.instantiate()
+	var leaderboard_save_path := "user://visual_leaderboard_test.json"
+	_cleanup_leaderboard(leaderboard_save_path)
+	game.leaderboard_save_path = leaderboard_save_path
 	root.add_child(game)
 	await _settle()
 	_capture("title")
+	game.leaderboard_store.set_callsign("JADE GENERAL")
+	game.leaderboard_store.record_match(6840, &"victory", &"human", 502)
+	game.leaderboard_store.record_match(5210, &"defeat", &"beast", 417)
+	game._leaderboard_button.pressed.emit()
+	await _settle(2)
+	_capture("leaderboard-title")
+	game._leaderboard_dialog.close_dialog()
 	game.call("_show_faction_select")
 	await _settle()
 	_capture("faction-select")
@@ -138,6 +148,11 @@ func _run() -> void:
 		worker_kinds,
 	)
 	var selected_worker_ids: Array[int] = [player_worker_ids[0]]
+	game.simulation.command_assign_farm_worker(
+		RtsSimulation.TEAM_PLAYER,
+		selected_worker_ids,
+		farm_id,
+	)
 	live_battlefield.select_entities(selected_worker_ids)
 	game.battlefield.camera_scale = 0.72
 	game.battlefield.center_on_cell(farm_site)
@@ -228,10 +243,49 @@ func _run() -> void:
 	game.call("_update_hud")
 	await _settle(2)
 	_capture("command-visualization")
-	game.battlefield.camera_scale = 0.15
+	var shenlong: Dictionary = game.simulation.shenlong_guardian()
+	var shenlong_egg: Dictionary = game.simulation.shenlong_egg()
+	live_battlefield.select_entities([int(shenlong_egg["id"])])
+	live_battlefield.camera_scale = 0.72
+	live_battlefield.center_on_cell(MapCatalog.SHENLONG_EGG_CELL)
+	game.call("_update_hud")
+	await _settle(2)
+	_capture("shenlong-objective")
+	game.simulation._kill(shenlong, hunter)
+	var egg_worker_id: int = player_worker_ids[0]
+	var egg_worker_ids: Array[int] = [egg_worker_id]
+	var egg_worker: Dictionary = game.simulation.entity(egg_worker_id)
+	game.simulation.command_stop(RtsSimulation.TEAM_PLAYER, egg_worker_ids)
+	egg_worker["cell"] = MapCatalog.SHENLONG_EGG_CELL + Vector2i(0, 1)
+	egg_worker["position"] = Vector2(egg_worker["cell"] as Vector2i)
+	game.simulation._refresh_visibility()
+	game.simulation.command_claim_egg(
+		RtsSimulation.TEAM_PLAYER,
+		egg_worker_ids,
+		int(shenlong_egg["id"]),
+	)
+	game.simulation.advance(RtsSimulation.TICK_SECONDS * 2.0)
+	live_battlefield.select_entities(egg_worker_ids)
+	live_battlefield.camera_scale = 0.86
+	live_battlefield.center_on_cell(MapCatalog.SHENLONG_EGG_CELL)
+	game.call("_update_hud")
+	await _settle(2)
+	_capture("dragon-egg-carrier")
+	game._toast_panel.visible = false
+	live_battlefield.select_entities([])
+	game.call("_update_hud")
+	game.battlefield.camera_scale = 0.105
 	game.battlefield.center_on_cell(MapCatalog.SIZE / 2)
+	game.battlefield.camera_offset.y -= 76.0
 	await _settle(2)
 	_capture("map-overview")
+	game.call("_on_match_ended", &"victory")
+	await _settle(2)
+	_capture("result")
+	game._result_leaderboard_button.pressed.emit()
+	await _settle(2)
+	_capture("leaderboard-result")
+	game._leaderboard_dialog.close_dialog()
 	var director := game.audio_director as AudioDirector
 	director._music_player.stop()
 	for player in director._players:
@@ -243,5 +297,12 @@ func _run() -> void:
 	root.remove_child(game)
 	game.free()
 	await process_frame
-	print("PASS visual_capture: title, faction-select, skirmish, worker cargo icons, pause, settings, enemy inspection, caves, production queue, armed command, multi-selection, food economy, wildlife hunt, command visualization, map overview")
+	_cleanup_leaderboard(leaderboard_save_path)
+	print("PASS visual_capture: title, title/result leaderboards, faction-select, skirmish, worker cargo icons, pause, settings, enemy inspection, caves, production queue, armed command, multi-selection, food economy, wildlife hunt, command visualization, Shenlong objective, egg carrier, map overview, and result")
 	quit(0)
+
+
+func _cleanup_leaderboard(save_path: String) -> void:
+	for path in [save_path, "%s.bak" % save_path, "%s.tmp" % save_path]:
+		if FileAccess.file_exists(path):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(path))

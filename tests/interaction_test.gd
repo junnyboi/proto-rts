@@ -18,7 +18,7 @@ func _run() -> void:
 	_verify_smooth_camera_pan(battlefield, failures)
 	_verify_zoom_input(battlefield, failures)
 	_verify_deterministic_entity_depth_sort(battlefield, failures)
-	_verify_static_sprite_grounding(battlefield, simulation, failures)
+	_verify_entity_sprite_grounding(battlefield, simulation, failures)
 	_verify_worker_cargo_icon_mapping(battlefield, failures)
 
 	var workers := simulation.team_entity_ids(RtsSimulation.TEAM_PLAYER, [&"worker"])
@@ -41,6 +41,14 @@ func _run() -> void:
 	battlefield.call("_select_in_rect", worker_selection_rect, true)
 	if not battlefield.selected_ids.has(worker_id) or not battlefield.selected_ids.has(second_worker_id):
 		failures.append("Shift-drag selection did not preserve and extend its typed unit selection")
+	var busy_worker := simulation.entity(second_worker_id)
+	busy_worker["order"] = &"move"
+	battlefield.select_all_idle_workers()
+	var expected_idle_workers: Array[int] = workers.duplicate()
+	expected_idle_workers.erase(second_worker_id)
+	if battlefield.selected_ids != expected_idle_workers:
+		failures.append("idle Worker selection did not include every idle Worker and exclude busy Workers")
+	busy_worker["order"] = &"idle"
 
 	battlefield.call("_handle_left_press", Vector2(-1000.0, -1000.0))
 	battlefield.call("_handle_left_release", Vector2(-1000.0, -1000.0))
@@ -155,6 +163,37 @@ func _run() -> void:
 		battlefield.begin_structure_placement(&"rice_farm")
 		if battlefield.placement_worker_id >= 0 or not battlefield.placement_kind.is_empty():
 			failures.append("selecting the active Rice Farm command again did not cancel placement mode")
+		var completed_farm_id := simulation.primary_structure_id(
+			RtsSimulation.TEAM_PLAYER,
+			&"rice_farm",
+		)
+		var completed_farm := simulation.entity(completed_farm_id)
+		completed_farm["complete"] = 1.0
+		completed_farm["hp"] = completed_farm["max_hp"]
+		simulation.command_stop(RtsSimulation.TEAM_PLAYER, [worker_id, second_worker_id])
+		worker["position"] = Vector2(MapCatalog.PLAYER_WORKERS[0])
+		worker["cell"] = MapCatalog.PLAYER_WORKERS[0]
+		battlefield.select_entities([worker_id, second_worker_id])
+		battlefield.call(
+			"_handle_right_click",
+			battlefield.entity_screen_position(completed_farm),
+		)
+		if simulation.farm_worker_id(completed_farm_id) != worker_id:
+			failures.append("right-clicking a completed Rice Farm did not assign exactly one selected Worker")
+		if not battlefield.call("_worker_has_farm_assignment", worker):
+			failures.append("an assigned farm Worker did not expose its rice-icon presentation state")
+		battlefield.select_entities([second_worker_id])
+		battlefield.call(
+			"_handle_right_click",
+			battlefield.entity_screen_position(completed_farm),
+		)
+		if simulation.entity(second_worker_id).get("order") == &"farm":
+			failures.append("right-clicking a staffed Rice Farm assigned a second Worker")
+		if battlefield.call(
+			"_worker_has_farm_assignment",
+			simulation.entity(second_worker_id),
+		):
+			failures.append("an unassigned Worker exposed the rice-icon presentation state")
 
 	var hunting_simulation := RtsSimulation.new()
 	hunting_simulation.setup(&"human", false)
@@ -177,11 +216,12 @@ func _run() -> void:
 
 	_verify_procedural_movement_visuals(battlefield, hunting_simulation, hunting_unit_id, wildlife_id, failures)
 	_verify_idle_player_unit_visuals(battlefield, hunting_simulation, hunting_unit_id, wildlife_id, failures)
+	_verify_shenlong_wave_visuals(battlefield, hunting_simulation, failures)
 	_verify_command_visualizations(battlefield, failures)
 
 	battlefield.queue_free()
 	if failures.is_empty():
-		print("PASS interaction_test: camera, selection and inspection, contextual economy, worker cargo icons, building placement, movement and idle visuals, wildlife hunting, and command visualization")
+		print("PASS interaction_test: camera, selection and inspection, contextual economy, worker cargo and farm icons, building placement, movement, idle and Shenlong wave visuals, wildlife hunting, and command visualization")
 		quit(0)
 	else:
 		for failure in failures:
@@ -292,6 +332,53 @@ func _verify_procedural_movement_visuals(
 		failures.append("idle wildlife continued its procedural walking bounce")
 
 
+func _verify_shenlong_wave_visuals(
+	battlefield: Battlefield,
+	simulation: RtsSimulation,
+	failures: Array[String],
+) -> void:
+	var shenlong := simulation.shenlong_guardian()
+	if shenlong.is_empty():
+		failures.append("Shenlong was unavailable for procedural wave verification")
+		return
+	var display_size := Vector2(448.0, 362.0) * battlefield.camera_scale
+	var sample_uv := Vector2(0.2, 0.28)
+	battlefield._wind_animation_time = 0.37
+	var first_offset := battlefield.call(
+		"_shenlong_wave_offset",
+		sample_uv,
+		display_size,
+		int(shenlong["id"]),
+	) as Vector2
+	var repeated_offset := battlefield.call(
+		"_shenlong_wave_offset",
+		sample_uv,
+		display_size,
+		int(shenlong["id"]),
+	) as Vector2
+	if first_offset.is_zero_approx():
+		failures.append("Shenlong's upper body did not receive procedural wave deformation")
+	if not first_offset.is_equal_approx(repeated_offset):
+		failures.append("Shenlong wave deformation was not deterministic within a frame")
+	battlefield._wind_animation_time = 0.91
+	var later_offset := battlefield.call(
+		"_shenlong_wave_offset",
+		sample_uv,
+		display_size,
+		int(shenlong["id"]),
+	) as Vector2
+	if later_offset.is_equal_approx(first_offset):
+		failures.append("Shenlong wave deformation did not evolve over time")
+	var grounded_offset := battlefield.call(
+		"_shenlong_wave_offset",
+		Vector2(0.5, 1.0),
+		display_size,
+		int(shenlong["id"]),
+	) as Vector2
+	if not grounded_offset.is_zero_approx():
+		failures.append("Shenlong wave deformation displaced its ground anchor")
+
+
 func _verify_idle_player_unit_visuals(
 	battlefield: Battlefield,
 	simulation: RtsSimulation,
@@ -350,14 +437,27 @@ func _verify_command_visualizations(
 	var workers := simulation.team_entity_ids(RtsSimulation.TEAM_PLAYER, [&"worker"])
 	var worker_id := workers[0]
 	var worker := simulation.entity(worker_id)
-	var move_destination := simulation._nearest_walkable(
-		(worker["cell"] as Vector2i) + Vector2i(5, -2),
-	)
+	var diagonal_step := _find_open_diagonal_step(simulation)
+	if diagonal_step.is_empty():
+		failures.append("no unobstructed diagonal command visualization area was available")
+		return
+	var move_origin := diagonal_step["origin"] as Vector2i
+	var move_destination := diagonal_step["destination"] as Vector2i
+	worker["position"] = Vector2(move_origin)
+	worker["cell"] = move_origin
 	simulation.command_move(RtsSimulation.TEAM_PLAYER, [worker_id], move_destination)
 	battlefield.select_entities([worker_id])
 	var records: Array = battlefield.call("_command_visualization_records") as Array
 	if records.size() != 1 or (records[0] as Dictionary).get("kind") != &"flag":
 		failures.append("selected move order did not project one destination flag")
+	else:
+		var move_points := (records[0] as Dictionary).get("points", []) as Array
+		if (
+			move_points.size() != 2
+			or not (move_points[0] as Vector2).is_equal_approx(Vector2(move_origin))
+			or not (move_points[1] as Vector2).is_equal_approx(Vector2(move_destination))
+		):
+			failures.append("movement dotted path did not display the direct diagonal route")
 
 	var stronghold_id := simulation.primary_structure_id(RtsSimulation.TEAM_PLAYER, &"stronghold")
 	var stronghold := simulation.entity(stronghold_id)
@@ -478,6 +578,23 @@ func _verify_command_visualizations(
 		failures.append("command visualizations remained after deselection")
 
 
+func _find_open_diagonal_step(simulation: RtsSimulation) -> Dictionary:
+	for y in range(MapCatalog.SIZE.y - 1):
+		for x in range(MapCatalog.SIZE.x - 1):
+			var origin := Vector2i(x, y)
+			if (
+				not simulation._astar.is_point_solid(origin)
+				and not simulation._astar.is_point_solid(origin + Vector2i.RIGHT)
+				and not simulation._astar.is_point_solid(origin + Vector2i.DOWN)
+				and not simulation._astar.is_point_solid(origin + Vector2i.ONE)
+			):
+				return {
+					"origin": origin,
+					"destination": origin + Vector2i.ONE,
+				}
+	return {}
+
+
 func _verify_camera_input_bindings(failures: Array[String]) -> void:
 	var expected_bindings := {
 		&"camera_up": KEY_W,
@@ -543,7 +660,7 @@ func _verify_zoom_input(battlefield: Battlefield, failures: Array[String]) -> vo
 		failures.append("trackpad pinch gesture did not zoom out")
 
 
-func _verify_static_sprite_grounding(
+func _verify_entity_sprite_grounding(
 	battlefield: Battlefield,
 	simulation: RtsSimulation,
 	failures: Array[String],
@@ -551,10 +668,10 @@ func _verify_static_sprite_grounding(
 	var checks: Array[Dictionary] = []
 	for raw_entity in simulation.entities.values():
 		var entity_state := raw_entity as Dictionary
-		if entity_state.get("category") != &"unit":
+		if entity_state.get("category") not in [&"unit", &"wildlife"]:
 			continue
 		checks.append({
-			"label": "%s %s unit" % [
+			"label": "%s %s" % [
 				String(entity_state.get("faction", &"neutral")),
 				String(entity_state.get("kind", &"unknown")),
 			],
@@ -594,18 +711,45 @@ func _verify_static_sprite_grounding(
 			failures.append("%s was unavailable for sprite grounding" % label)
 			continue
 		var logical_center := battlefield.entity_screen_position(entity_state)
+		var ring_center: Vector2 = battlefield.call("_selection_ring_screen_position", entity_state)
 		var sprite_center: Vector2 = battlefield.call("_grounded_sprite_screen_position", entity_state)
 		var footprint := entity_state["footprint"] as Vector2i
-		var expected_drop := (
+		var is_movable: bool = entity_state.get("category") in [&"unit", &"wildlife"]
+		var expected_drop := 0.0 if is_movable else (
 			float(footprint.x + footprint.y)
 			* IsoProjection.TILE_HEIGHT
 			* 0.25
 			* battlefield.camera_scale
 		)
+		if not ring_center.is_equal_approx(logical_center):
+			failures.append("%s selection ring was not centered on its tile" % label)
 		if not is_equal_approx(sprite_center.x, logical_center.x):
 			failures.append("%s sprite was not horizontally centered on its footprint" % label)
 		if not is_equal_approx(sprite_center.y, logical_center.y + expected_drop):
-			failures.append("%s sprite was not grounded at its footprint's lower edge" % label)
+			var grounding_failure := (
+				"%s feet were not centered on its selection ring"
+				if is_movable
+				else "%s sprite was not grounded at its footprint's lower edge"
+			)
+			failures.append(grounding_failure % label)
+		if is_movable:
+			var texture := battlefield.call(
+				"_entity_texture",
+				entity_state.get("faction", &"neutral") as StringName,
+				entity_state.get("kind", &"") as StringName,
+			) as Texture2D
+			if texture == null:
+				failures.append("%s art was unavailable for foot alignment" % label)
+				continue
+			var margin := float(battlefield.call("_character_art_bottom_margin", texture))
+			var display_size := Vector2(94.0, 104.0) * battlefield.camera_scale
+			var rect: Rect2 = battlefield.call("_world_texture_rect", texture, display_size, margin)
+			var content_bottom := (
+				rect.position.y
+				+ rect.size.y * (1.0 - margin / float(texture.get_height()))
+			)
+			if not is_zero_approx(content_bottom):
+				failures.append("%s art padding displaced its feet from the shared center" % label)
 
 
 func _verify_worker_cargo_icon_mapping(battlefield: Battlefield, failures: Array[String]) -> void:

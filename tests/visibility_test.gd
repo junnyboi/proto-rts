@@ -26,6 +26,12 @@ func _run() -> void:
 		failures.append("the enemy team did not receive its own Stronghold vision")
 	if simulation.is_cell_visible_to_team(RtsSimulation.TEAM_ENEMY, MapCatalog.PLAYER_STRONGHOLD):
 		failures.append("team visibility was shared across opposing teams")
+	if not simulation.is_cell_visible_to_team(RtsSimulation.TEAM_RIVAL_TWO, MapCatalog.RIVAL_TWO_STRONGHOLD):
+		failures.append("second rival did not receive its own Stronghold vision")
+	if not simulation.is_cell_visible_to_team(RtsSimulation.TEAM_RIVAL_THREE, MapCatalog.RIVAL_THREE_STRONGHOLD):
+		failures.append("third rival did not receive its own Stronghold vision")
+	if simulation.is_cell_visible_to_team(RtsSimulation.TEAM_RIVAL_TWO, MapCatalog.RIVAL_THREE_STRONGHOLD):
+		failures.append("extra rival teams shared fog state")
 	if not battlefield.is_cell_visible(MapCatalog.PLAYER_STRONGHOLD):
 		failures.append("the player Stronghold did not reveal its own cell")
 	if battlefield.is_cell_explored(MapCatalog.ENEMY_STRONGHOLD):
@@ -108,11 +114,49 @@ func _run() -> void:
 	await process_frame
 	if minimap.battlefield != battlefield:
 		failures.append("the minimap did not retain its battlefield")
+	var map_rect: Rect2 = minimap.call("_map_rect")
+	var map_center := Vector2(MapCatalog.SIZE - Vector2i.ONE) * 0.5
+	var minimap_center: Vector2 = minimap.call("_map_to_local_position", map_center, map_rect)
+	var right_world_delta := IsoProjection.unproject(Vector2(16.0, 0.0))
+	var left_world_delta := IsoProjection.unproject(Vector2(-16.0, 0.0))
+	var up_world_delta := IsoProjection.unproject(Vector2(0.0, -16.0))
+	var down_world_delta := IsoProjection.unproject(Vector2(0.0, 16.0))
+	var minimap_right: Vector2 = minimap.call(
+		"_map_to_local_position",
+		map_center + right_world_delta,
+		map_rect,
+	)
+	var minimap_left: Vector2 = minimap.call(
+		"_map_to_local_position",
+		map_center + left_world_delta,
+		map_rect,
+	)
+	var minimap_up: Vector2 = minimap.call(
+		"_map_to_local_position",
+		map_center + up_world_delta,
+		map_rect,
+	)
+	var minimap_down: Vector2 = minimap.call(
+		"_map_to_local_position",
+		map_center + down_world_delta,
+		map_rect,
+	)
+	if minimap_right.x <= minimap_center.x or not is_equal_approx(minimap_right.y, minimap_center.y):
+		failures.append("screen-right camera movement did not move right on the minimap")
+	if minimap_left.x >= minimap_center.x or not is_equal_approx(minimap_left.y, minimap_center.y):
+		failures.append("screen-left camera movement did not move left on the minimap")
+	if minimap_up.y >= minimap_center.y or not is_equal_approx(minimap_up.x, minimap_center.x):
+		failures.append("screen-up camera movement did not move up on the minimap")
+	if minimap_down.y <= minimap_center.y or not is_equal_approx(minimap_down.x, minimap_center.x):
+		failures.append("screen-down camera movement did not move down on the minimap")
+	var round_trip: Vector2 = minimap.call("_local_to_map_position", minimap_center, map_rect)
+	if not round_trip.is_equal_approx(map_center):
+		failures.append("screen-oriented minimap click mapping did not round-trip")
 
 	battlefield.queue_free()
 	minimap.queue_free()
 	if failures.is_empty():
-		print("PASS visibility_test: authoritative team vision, hidden-target rejection, exploration, rendering toggle, minimap binding")
+		print("PASS visibility_test: authoritative team vision, hidden-target rejection, exploration, rendering toggle, and screen-oriented minimap mapping")
 		quit(0)
 	else:
 		for failure in failures:

@@ -20,6 +20,20 @@ func _run() -> void:
 	for bus_name in [&"Music", &"SFX", &"UI"]:
 		if AudioServer.get_bus_index(bus_name) < 0:
 			failures.append("missing audio bus: %s" % bus_name)
+	var expected_bus_gains := {
+		&"Music": 10.0,
+		&"SFX": 5.0,
+		&"UI": 0.0,
+	}
+	for bus_name in expected_bus_gains:
+		var bus_index := AudioServer.get_bus_index(bus_name)
+		if bus_index >= 0 and not is_equal_approx(
+			AudioServer.get_bus_volume_db(bus_index),
+			float(expected_bus_gains[bus_name])
+		):
+			failures.append(
+				"%s bus base gain is not %.1f dB" % [bus_name, expected_bus_gains[bus_name]]
+			)
 
 	var representative_events := {
 		&"structure_placed": {"type": &"build"},

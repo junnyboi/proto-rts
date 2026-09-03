@@ -1,6 +1,6 @@
 {
   "generator": "GPT Image 2",
-  "runtime_asset_count": 80,
+  "runtime_asset_count": 94,
   "assets": [
     {
       "path": "assets/runtime/ui/mandate_of_myth_title.webp",
@@ -453,6 +453,42 @@
       "sha256": "beba2e04e326f4540a4682b90f5199b42cd201f50ab4919d299ff1732cec1fae"
     },
     {
+      "path": "assets/runtime/buildings/celestial_wall.png",
+      "source": "assets/source/buildings/celestial_wall.png",
+      "width": 192,
+      "height": 160,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "1ce1e3c9b7749e174b69a5fabb05e1fd1708327b2cd51ab585d8cc512a3363e3"
+    },
+    {
+      "path": "assets/runtime/buildings/celestial_gate.png",
+      "source": "assets/source/buildings/celestial_gate.png",
+      "width": 400,
+      "height": 272,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "f2b11d2e7f8382eb43ccf6b814ce07706d86fd9a3313055c304c6229e61ff730"
+    },
+    {
+      "path": "assets/runtime/buildings/celestial_sentry_tower.png",
+      "source": "assets/source/buildings/celestial_sentry_tower.png",
+      "width": 304,
+      "height": 288,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "91a13ced3362d56a804affde8e95ac0d818b52866ee8d82635118e4ccd776f73"
+    },
+    {
       "path": "assets/runtime/portraits/demon.webp",
       "source": "assets/source/factions/demon_portrait.png",
       "width": 360,
@@ -532,6 +568,42 @@
         255
       ],
       "sha256": "81c324b96401b13b73f45fe382fdb4d0174dffe994e4a28255976bff3a899ad5"
+    },
+    {
+      "path": "assets/runtime/buildings/demon_wall.png",
+      "source": "assets/source/buildings/demon_wall.png",
+      "width": 192,
+      "height": 160,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "6191d820cfc6c959f53831cf125d8e5aecceb1f3b8750bfdbf15ac21c78338ff"
+    },
+    {
+      "path": "assets/runtime/buildings/demon_gate.png",
+      "source": "assets/source/buildings/demon_gate.png",
+      "width": 400,
+      "height": 272,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "cd0be620dc54234fa4220bfeac7c88344f1013a915c5d5fad8caa9ce9b53cbfa"
+    },
+    {
+      "path": "assets/runtime/buildings/demon_sentry_tower.png",
+      "source": "assets/source/buildings/demon_sentry_tower.png",
+      "width": 304,
+      "height": 288,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "7baec308f0a1da2905aee79c92392ee51d95d7c62fd9f835615865db14fa1933"
     },
     {
       "path": "assets/runtime/portraits/beast.webp",
@@ -615,6 +687,42 @@
       "sha256": "1dff6f367d18de42f6a6f07a3c52d7266cd66989fc9825fd5f8ff69696432733"
     },
     {
+      "path": "assets/runtime/buildings/beast_wall.png",
+      "source": "assets/source/buildings/beast_wall.png",
+      "width": 192,
+      "height": 160,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "f4b38b5db022b64e0871c4ed46f43a33b4ccc7facc7cee55aa7a20b6e9d03805"
+    },
+    {
+      "path": "assets/runtime/buildings/beast_gate.png",
+      "source": "assets/source/buildings/beast_gate.png",
+      "width": 400,
+      "height": 272,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "a613a6576ba707fbd34364471c770662e9a0bd3b1c9a1f498cd4a98a8f3668f5"
+    },
+    {
+      "path": "assets/runtime/buildings/beast_sentry_tower.png",
+      "source": "assets/source/buildings/beast_sentry_tower.png",
+      "width": 304,
+      "height": 288,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "9950801743205f9c13dc8367d2a85424ac968761b9fc06a6f6ff505a2665ef82"
+    },
+    {
       "path": "assets/runtime/portraits/human.webp",
       "source": "assets/source/factions/human_portrait.png",
       "width": 360,
@@ -696,6 +804,42 @@
       "sha256": "f53d6290667d8f14b135bdba420c050b4427f7d7fa731ba0671be2ed4ae28cf8"
     },
     {
+      "path": "assets/runtime/buildings/human_wall.png",
+      "source": "assets/source/buildings/human_wall.png",
+      "width": 192,
+      "height": 160,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "ac586b18fc1fb6417588d7a0c33f93744a134a357743256e8398d14c921e5ae4"
+    },
+    {
+      "path": "assets/runtime/buildings/human_gate.png",
+      "source": "assets/source/buildings/human_gate.png",
+      "width": 400,
+      "height": 272,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "50a167b97d07c5c0fa2d44bdb0c0216e1bb89e16452caf6249fb929ea4629c3e"
+    },
+    {
+      "path": "assets/runtime/buildings/human_sentry_tower.png",
+      "source": "assets/source/buildings/human_sentry_tower.png",
+      "width": 304,
+      "height": 288,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "6ca1f96ab84bf090b9c78151bdc92202bea08a184e2be78f4a16cd6c93a676cf"
+    },
+    {
       "path": "assets/runtime/units/neutral_jadeclaw.png",
       "source": "assets/source/units/neutral_jadeclaw.png",
       "width": 192,
@@ -706,6 +850,30 @@
         255
       ],
       "sha256": "cd4c19816573c003b2adea0c47cbaad16e63db5fe011911862b77727e14dcfd7"
+    },
+    {
+      "path": "assets/runtime/units/neutral_shenlong.png",
+      "source": "assets/source/units/neutral_shenlong.png",
+      "width": 336,
+      "height": 272,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "ee74c874ed0a9bfc5feb44600097dcbaf75d6bde1ab9d4a334f409c51ad266c0"
+    },
+    {
+      "path": "assets/runtime/objectives/shenlong_egg.png",
+      "source": "assets/source/objectives/shenlong_egg.png",
+      "width": 176,
+      "height": 176,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "3675a79ec20e5e6aa777c298da0d8648b421fa38676711b064ece21f3701edac"
     },
     {
       "path": "assets/runtime/wildlife/chicken.png",

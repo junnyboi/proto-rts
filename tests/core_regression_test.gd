@@ -28,10 +28,11 @@ func _blank_simulation() -> RtsSimulation:
 
 func _test_attack_move_external_kill(failures: Array[String]) -> void:
 	var simulation := _blank_simulation()
-	var attacker_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", Vector2i(8, 54))
-	var killer_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"mystic", Vector2i(12, 54))
-	var target_id := simulation._spawn_unit(RtsSimulation.TEAM_ENEMY, &"worker", Vector2i(13, 54))
-	var destination := Vector2i(20, 54)
+	var attacker_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", Vector2i(24, 40))
+	var killer_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"mystic", Vector2i(28, 40))
+	var target_id := simulation._spawn_unit(RtsSimulation.TEAM_ENEMY, &"worker", Vector2i(29, 40))
+	var destination := Vector2i(36, 40)
+	simulation._refresh_visibility()
 	_expect(simulation.command_move(RtsSimulation.TEAM_PLAYER, [attacker_id], destination, true), "valid attack-move command was rejected", failures)
 	_advance(simulation, 0.25)
 	var attacker := simulation.entity(attacker_id)
@@ -43,12 +44,61 @@ func _test_attack_move_external_kill(failures: Array[String]) -> void:
 	_expect(attacker.get("order") == &"idle", "attack-move did not complete after reaching its original destination", failures)
 
 
+func _test_ranged_repositioning_between_attacks(failures: Array[String]) -> void:
+	var simulation := _blank_simulation()
+	var attacker_id := simulation._spawn_unit(
+		RtsSimulation.TEAM_PLAYER,
+		&"mystic",
+		Vector2i(24, 40),
+	)
+	var target_id := simulation._spawn_unit(
+		RtsSimulation.TEAM_ENEMY,
+		&"vanguard",
+		Vector2i(27, 40),
+	)
+	var attacker := simulation.entity(attacker_id)
+	var target := simulation.entity(target_id)
+	target["acquire_range"] = 0.0
+	target["hp"] = float(target["max_hp"]) * 10.0
+	simulation._refresh_visibility()
+	_expect(
+		simulation.command_attack(RtsSimulation.TEAM_PLAYER, [attacker_id], target_id),
+		"ranged repositioning fixture rejected its attack command",
+		failures,
+	)
+	simulation.advance(RtsSimulation.TICK_SECONDS)
+	var first_attack_hp := float(target["hp"])
+	var attack_position := attacker["position"] as Vector2
+	_expect(
+		int(attacker.get("combat_reposition_target_id", -1)) == target_id,
+		"ranged unit did not plan a reposition after attacking",
+		failures,
+	)
+	var attacked_again := false
+	for _step in range(int(ceil(2.0 / RtsSimulation.TICK_SECONDS))):
+		simulation.advance(RtsSimulation.TICK_SECONDS)
+		_expect(
+			simulation._combat_distance(attacker, target) <= float(attacker["range"]) + 0.001,
+			"ranged unit left attack range while repositioning",
+			failures,
+		)
+		if float(target["hp"]) < first_attack_hp:
+			attacked_again = true
+			break
+	_expect(
+		(attacker["position"] as Vector2).distance_to(attack_position) > 0.5,
+		"ranged unit remained stationary between attacks",
+		failures,
+	)
+	_expect(attacked_again, "ranged unit failed to keep attacking after repositioning", failures)
+
+
 func _test_scalable_and_partial_formations(failures: Array[String]) -> void:
 	var simulation := _blank_simulation()
 	var ids: Array[int] = []
 	for index in range(RtsSimulation.POPULATION_CAP):
-		ids.append(simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", Vector2i(8 + index % 3, 54 + index / 3)))
-	var destination := Vector2i(30, 40)
+		ids.append(simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", Vector2i(24 + index % 3, 32 + index / 3)))
+	var destination := Vector2i(48, 40)
 	_expect(simulation.command_move(RtsSimulation.TEAM_PLAYER, ids, destination), "24-unit formation command was rejected", failures)
 	var destinations := {}
 	for id in ids:
@@ -80,8 +130,8 @@ func _test_scalable_and_partial_formations(failures: Array[String]) -> void:
 
 func _test_live_placement_occupancy(failures: Array[String]) -> void:
 	var simulation := _blank_simulation()
-	var builder_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", Vector2i(8, 54))
-	var occupied_cell := Vector2i(14, 50)
+	var builder_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", Vector2i(24, 40))
+	var occupied_cell := Vector2i(30, 40)
 	simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", occupied_cell)
 	simulation._rebuild_pathfinding()
 	_expect(not simulation.can_place_structure(RtsSimulation.TEAM_PLAYER, &"war_camp", occupied_cell), "War Camp placement accepted a live-unit overlap", failures)
@@ -103,8 +153,8 @@ func _test_role_movement_profiles(failures: Array[String]) -> void:
 			)
 
 	var simulation := _blank_simulation()
-	var worker_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", Vector2i(8, 54))
-	var vanguard_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", Vector2i(8, 52))
+	var worker_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", Vector2i(24, 40))
+	var vanguard_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", Vector2i(24, 38))
 	var worker := simulation.entity(worker_id)
 	var vanguard := simulation.entity(vanguard_id)
 	var worker_profile := simulation._separation_profile(worker)
@@ -113,31 +163,31 @@ func _test_role_movement_profiles(failures: Array[String]) -> void:
 	_expect(worker_profile.y > combat_profile.y, "Worker separation damping was not stronger than combat damping", failures)
 	_expect(worker_profile.z < combat_profile.z, "Worker separation speed cap was not lower than the combat cap", failures)
 	_expect(
-		simulation.command_move(RtsSimulation.TEAM_PLAYER, [worker_id], Vector2i(18, 54)),
+		simulation.command_move(RtsSimulation.TEAM_PLAYER, [worker_id], Vector2i(34, 40)),
 		"Worker speed probe command was rejected",
 		failures,
 	)
 	_expect(
-		simulation.command_move(RtsSimulation.TEAM_PLAYER, [vanguard_id], Vector2i(18, 52)),
+		simulation.command_move(RtsSimulation.TEAM_PLAYER, [vanguard_id], Vector2i(34, 38)),
 		"Vanguard speed probe command was rejected",
 		failures,
 	)
 	_advance(simulation, 1.0)
-	var worker_distance := (worker["position"] as Vector2).distance_to(Vector2(8, 54))
-	var vanguard_distance := (vanguard["position"] as Vector2).distance_to(Vector2(8, 52))
+	var worker_distance := (worker["position"] as Vector2).distance_to(Vector2(24, 40))
+	var vanguard_distance := (vanguard["position"] as Vector2).distance_to(Vector2(24, 38))
 	_expect(vanguard_distance > worker_distance + 0.4, "Vanguard did not visibly outpace the Worker", failures)
 
 	var worker_spread := _blank_simulation()
-	var first_worker_id := worker_spread._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", Vector2i(24, 54))
-	var second_worker_id := worker_spread._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", Vector2i(24, 54))
+	var first_worker_id := worker_spread._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", Vector2i(40, 40))
+	var second_worker_id := worker_spread._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", Vector2i(40, 40))
 	worker_spread._resolve_unit_separation(RtsSimulation.TICK_SECONDS)
 	var worker_first_tick := (
 		worker_spread.entity(first_worker_id)["position"] as Vector2
 	).distance_to(worker_spread.entity(second_worker_id)["position"] as Vector2)
 
 	var combat_spread := _blank_simulation()
-	var first_combat_id := combat_spread._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", Vector2i(24, 54))
-	var second_combat_id := combat_spread._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", Vector2i(24, 54))
+	var first_combat_id := combat_spread._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", Vector2i(40, 40))
+	var second_combat_id := combat_spread._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", Vector2i(40, 40))
 	combat_spread._resolve_unit_separation(RtsSimulation.TICK_SECONDS)
 	var combat_first_tick := (
 		combat_spread.entity(first_combat_id)["position"] as Vector2
@@ -147,14 +197,14 @@ func _test_role_movement_profiles(failures: Array[String]) -> void:
 
 func _test_friendly_passthrough_and_idle_spacing(failures: Array[String]) -> void:
 	var friendly_kinds: Array[StringName] = [&"worker", &"hunter", &"vanguard", &"mystic", &"jadeclaw"]
-	var lane_y := 54
-	var destination := Vector2i(18, lane_y)
+	var lane_y := 40
+	var destination := Vector2i(36, lane_y)
 	for moving_kind in friendly_kinds:
 		var traversal_simulation := _blank_simulation()
 		var moving_id := traversal_simulation._spawn_unit(
 			RtsSimulation.TEAM_PLAYER,
 			moving_kind,
-			Vector2i(8, lane_y),
+			Vector2i(24, lane_y),
 		)
 		if moving_kind == &"hunter":
 			traversal_simulation.entity(moving_id)["wander_timer"] = 999.0
@@ -163,7 +213,7 @@ func _test_friendly_passthrough_and_idle_spacing(failures: Array[String]) -> voi
 			var blocker_id := traversal_simulation._spawn_unit(
 				RtsSimulation.TEAM_PLAYER,
 				friendly_kinds[blocker_index],
-				Vector2i(9 + blocker_index * 2, lane_y),
+				Vector2i(25 + blocker_index * 2, lane_y),
 			)
 			if friendly_kinds[blocker_index] == &"hunter":
 				traversal_simulation.entity(blocker_id)["wander_timer"] = 999.0
@@ -188,7 +238,7 @@ func _test_friendly_passthrough_and_idle_spacing(failures: Array[String]) -> voi
 				failures,
 			)
 
-	var overlap_cell := Vector2i(24, lane_y)
+	var overlap_cell := Vector2i(40, lane_y)
 	for first_index in range(friendly_kinds.size()):
 		for second_index in range(first_index, friendly_kinds.size()):
 			var idle_simulation := _blank_simulation()
@@ -379,6 +429,7 @@ func _run() -> void:
 	var failures: Array[String] = []
 	_expect(MapCatalog.validation_errors().is_empty(), "authored map validation reported an error", failures)
 	_test_attack_move_external_kill(failures)
+	_test_ranged_repositioning_between_attacks(failures)
 	_test_scalable_and_partial_formations(failures)
 	_test_live_placement_occupancy(failures)
 	_test_role_movement_profiles(failures)
@@ -387,7 +438,7 @@ func _run() -> void:
 	_test_line_of_sight_and_invalid_commands(failures)
 	_test_command_authority(failures)
 	if failures.is_empty():
-		print("PASS core_regression_test: attack-move race, scalable/partial formations, occupancy, role movement profiles, friendly passthrough, idle spacing, hostile separation, fair AI economy, sight, bounds, authority")
+		print("PASS core_regression_test: attack-move race, ranged repositioning, scalable/partial formations, occupancy, role movement profiles, friendly passthrough, idle spacing, hostile separation, fair AI economy, sight, bounds, authority")
 		quit(0)
 		return
 	for failure in failures:

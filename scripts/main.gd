@@ -8,10 +8,16 @@ const TITLE_ART := preload("res://assets/runtime/ui/mandate_of_myth_title.webp")
 const BATTLEFIELD_MINIMAP := preload("res://scripts/view/battlefield_minimap.gd")
 const HUD_ICON := preload("res://scripts/ui/hud_icon.gd")
 const HUD_COMMAND_BUTTON := preload("res://scripts/ui/hud_command_button.gd")
+const LEADERBOARD_STORE_SCRIPT := preload("res://scripts/services/leaderboard_store.gd")
+const LEADERBOARD_BRIDGE_SCRIPT := preload("res://scripts/services/leaderboard_bridge.gd")
+const LEADERBOARD_DIALOG_SCRIPT := preload("res://scripts/ui/leaderboard_dialog.gd")
 const PERSISTENT_COMMAND_IDS: Array[StringName] = [
 	&"build",
 	&"build_farm",
 	&"build_lodge",
+	&"build_wall",
+	&"build_gate",
+	&"build_tower",
 	&"move",
 	&"attack_move",
 	&"patrol",
@@ -84,12 +90,27 @@ var _command_mode_group: ButtonGroup
 var _hud_timer := 0.0
 var _feedback_timer := 0.0
 var _result_overlay: Control
-var _last_queue_focus_id := -1
-var _last_queue_focus_ms := -1000
+var _leaderboard_dialog: LeaderboardDialog
+var _leaderboard_button: Button
+var _result_leaderboard_button: Button
+var _match_score_recorded := false
 var audio_director: AudioDirector
+var leaderboard_store: LeaderboardStore
+var leaderboard_bridge: LeaderboardBridge
+var leaderboard_save_path: String = LeaderboardStore.SAVE_PATH
 
 
 func _ready() -> void:
+	leaderboard_store = LEADERBOARD_STORE_SCRIPT.new() as LeaderboardStore
+	leaderboard_store.name = "LeaderboardStore"
+	add_child(leaderboard_store)
+	leaderboard_store.setup(leaderboard_save_path)
+	leaderboard_bridge = LEADERBOARD_BRIDGE_SCRIPT.new() as LeaderboardBridge
+	leaderboard_bridge.name = "LeaderboardBridge"
+	add_child(leaderboard_bridge)
+	leaderboard_bridge.state_changed.connect(_on_leaderboard_state_changed)
+	leaderboard_bridge.callsign_sync_changed.connect(_on_callsign_sync_changed)
+	leaderboard_bridge.setup(leaderboard_store)
 	audio_director = AudioDirector.new()
 	audio_director.name = "AudioDirector"
 	add_child(audio_director)
@@ -126,6 +147,12 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	if not key.pressed or key.echo:
 		return
 	audio_director.ensure_bgm()
+	if _leaderboard_dialog != null and _leaderboard_dialog.visible:
+		if key.keycode == KEY_ESCAPE:
+			audio_director.play_ui(&"ui_cancel")
+			_leaderboard_dialog.close_dialog()
+		get_viewport().set_input_as_handled()
+		return
 	if key.keycode == KEY_M:
 		_toggle_audio()
 		return
@@ -175,6 +202,9 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		KEY_Q:
 			battlefield.select_all_workers()
 			_show_feedback("All workers selected.", false)
+		KEY_I:
+			battlefield.select_all_idle_workers()
+			_show_feedback("Idle workers selected.", false)
 		KEY_E:
 			battlefield.select_all_army()
 			_show_feedback("Army selected.", false)
@@ -256,8 +286,9 @@ func _clear_screen() -> void:
 	_command_buttons.clear()
 	_command_mode_group = null
 	_result_overlay = null
-	_last_queue_focus_id = -1
-	_last_queue_focus_ms = -1000
+	_leaderboard_dialog = null
+	_leaderboard_button = null
+	_result_leaderboard_button = null
 
 
 func _make_screen() -> Control:
@@ -297,9 +328,9 @@ func _show_title() -> void:
 	_add_title_background(root, 0.42)
 
 	var content := VBoxContainer.new()
-	content.custom_minimum_size = Vector2(520, 140)
+	content.custom_minimum_size = Vector2(520, 218)
 	content.set_anchors_preset(Control.PRESET_CENTER)
-	content.position = Vector2(-260, -70)
+	content.position = Vector2(-260, -109)
 	content.alignment = BoxContainer.ALIGNMENT_CENTER
 	content.add_theme_constant_override(&"separation", 22)
 	root.add_child(content)
@@ -312,6 +343,13 @@ func _show_title() -> void:
 	play.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_connect_button(play, _show_faction_select)
 	content.add_child(play)
+	_leaderboard_button = ThemeFactory.button("LEADERBOARD", "View local and global rankings")
+	_leaderboard_button.name = "TitleLeaderboardButton"
+	_leaderboard_button.custom_minimum_size = Vector2(340, 48)
+	_leaderboard_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_connect_button(_leaderboard_button, func() -> void: _open_leaderboard(_leaderboard_button))
+	content.add_child(_leaderboard_button)
+	_build_leaderboard_dialog(root)
 	play.grab_focus()
 
 
@@ -321,18 +359,12 @@ func _show_faction_select() -> void:
 	var root := _make_screen()
 	_add_title_background(root, 0.72)
 
-	var title := ThemeFactory.label("CHOOSE YOUR MANDATE", 32, Color("fff0c8"))
+	var title := ThemeFactory.label("CHOOSE YOUR FACTION", 32, Color("fff0c8"))
 	title.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	title.offset_top = 22
 	title.offset_bottom = 64
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	root.add_child(title)
-	var subtitle := ThemeFactory.label("Food traditions differ: Celestials farm, Demons and Beasts hunt, and Humans can do both.", 16, ThemeFactory.MUTED)
-	subtitle.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	subtitle.offset_top = 65
-	subtitle.offset_bottom = 96
-	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	root.add_child(subtitle)
 
 	var card_row := HBoxContainer.new()
 	card_row.name = "FactionCards"
@@ -351,7 +383,7 @@ func _show_faction_select() -> void:
 	_connect_button(back, _show_title, &"ui_cancel")
 	root.add_child(back)
 
-	var controls := ThemeFactory.label("Controls: left select / inspect · drag box-select · right contextual order · Esc clear · F attack-move · X stop · Q workers · E army · Space stronghold · WASD / arrows camera · Cmd+wheel / pinch zoom", 14, ThemeFactory.MUTED)
+	var controls := ThemeFactory.label("Controls: left select / inspect · drag box-select · right contextual order · Esc clear · F attack-move · X stop · Q workers · I idle workers · E army · Space stronghold · WASD / arrows camera · Cmd+wheel / pinch zoom", 14, ThemeFactory.MUTED)
 	controls.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 	controls.offset_left = 120
 	controls.offset_right = -120
@@ -380,9 +412,6 @@ func _make_faction_card(faction_id: StringName) -> PanelContainer:
 	var name_label := ThemeFactory.label(String(definition["name"]), 23, definition["accent"] as Color)
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(name_label)
-	var epithet := ThemeFactory.label(String(definition["epithet"]), 13, ThemeFactory.GOLD)
-	epithet.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	column.add_child(epithet)
 	var identity := ThemeFactory.label(String(definition["identity"]), 15, ThemeFactory.PARCHMENT)
 	identity.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	identity.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -408,6 +437,7 @@ func _start_match(faction_id: StringName) -> void:
 	selected_faction = faction_id
 	state = STATE_MATCH
 	paused = false
+	_match_score_recorded = false
 	audio_director.set_music_state(STATE_MATCH)
 	audio_director.ensure_bgm()
 	simulation = RtsSimulation.new()
@@ -429,6 +459,7 @@ func _start_match(faction_id: StringName) -> void:
 	_build_top_bar(root)
 	_build_bottom_hud(root)
 	_build_help_panel(root)
+	_build_leaderboard_dialog(root)
 	_update_hud()
 	_show_feedback("Harvest resources, build food production, and capture Yaoguai Dens before destroying the rival Stronghold.", false)
 
@@ -562,6 +593,7 @@ func _build_minimap_bay() -> Control:
 	utilities.add_theme_constant_override(&"separation", 3)
 	column.add_child(utilities)
 	utilities.add_child(_make_utility_button("Q", "Select all Workers", func() -> void: battlefield.select_all_workers()))
+	utilities.add_child(_make_utility_button("I", "Select all idle Workers", func() -> void: battlefield.select_all_idle_workers()))
 	utilities.add_child(_make_utility_button("E", "Select the army", func() -> void: battlefield.select_all_army()))
 	utilities.add_child(_make_utility_button("⌂", "Select and center the Stronghold · Space", func() -> void: battlefield.select_player_stronghold()))
 	_fog_button = _make_utility_button("", "Toggle fog of war", _toggle_fog_of_war, &"fog")
@@ -580,7 +612,7 @@ func _make_utility_button(
 	glyph: StringName = &"",
 ) -> Button:
 	var button := ThemeFactory.button(button_text, tooltip)
-	button.custom_minimum_size = Vector2(32.0, 30.0)
+	button.custom_minimum_size = Vector2(28.0, 30.0)
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	button.add_theme_font_size_override(&"font_size", 12)
 	button.add_theme_stylebox_override(&"normal", ThemeFactory.command_button_style(ThemeFactory.BUTTON_SURFACE, ThemeFactory.BUTTON_BORDER))
@@ -653,7 +685,7 @@ func _build_selection_bay() -> Control:
 	_selection_order = ThemeFactory.label("SELECT OR INSPECT AN ENTITY", 13, ThemeFactory.IVORY)
 	_selection_order.clip_text = true
 	info.add_child(_selection_order)
-	_selection_meta = ThemeFactory.label("Q WORKERS · E ARMY · SPACE STRONGHOLD", 11, ThemeFactory.JADE)
+	_selection_meta = ThemeFactory.label("Q WORKERS · I IDLE · E ARMY · SPACE STRONGHOLD", 11, ThemeFactory.JADE)
 	_selection_meta.clip_text = true
 	info.add_child(_selection_meta)
 	_selection_detail = ThemeFactory.label("Left-click an entity to select or inspect it. Drag to box-select friendly units.", 11, ThemeFactory.MUTED_SAGE)
@@ -681,10 +713,10 @@ func _build_queue_panel() -> PanelContainer:
 	row.add_child(title_column)
 	var title := ThemeFactory.label("PRODUCTION", 9, ThemeFactory.GOLD)
 	title_column.add_child(title)
-	var hint := ThemeFactory.label("CLICK TO FOCUS", 8, ThemeFactory.MUTED_SAGE)
+	var hint := ThemeFactory.label("CLICK TO CANCEL", 8, ThemeFactory.MUTED_SAGE)
 	title_column.add_child(hint)
 	for index in range(5):
-		var tile := ThemeFactory.button("", "Select this producer")
+		var tile := ThemeFactory.button("", "Cancel this unit for a full refund")
 		tile.name = "QueueTile%d" % index
 		tile.custom_minimum_size = Vector2(84.0, 38.0)
 		tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -704,16 +736,16 @@ func _build_queue_panel() -> PanelContainer:
 func _build_command_bay() -> Control:
 	var panel := PanelContainer.new()
 	panel.name = "CommandCard"
-	panel.custom_minimum_size.x = 326.0
+	panel.custom_minimum_size.x = 424.0
 	panel.add_theme_stylebox_override(&"panel", ThemeFactory.hud_inset_style(ThemeFactory.GOLD))
 	_command_grid = GridContainer.new()
 	_command_mode_group = ButtonGroup.new()
 	_command_mode_group.allow_unpress = true
-	_command_grid.columns = 3
+	_command_grid.columns = 4
 	_command_grid.add_theme_constant_override(&"h_separation", 4)
 	_command_grid.add_theme_constant_override(&"v_separation", 4)
 	panel.add_child(_command_grid)
-	for index in range(9):
+	for index in range(12):
 		var slot := Control.new()
 		slot.name = "CommandSlot%d" % (index + 1)
 		slot.custom_minimum_size = Vector2(98.0, 66.0)
@@ -725,6 +757,9 @@ func _build_command_bay() -> Control:
 	_add_command_button(0, &"build", "WAR CAMP", func() -> void: _command_build(&"war_camp"), load(FactionCatalog.entity_art_path(faction, &"war_camp")) as Texture2D)
 	_add_command_button(1, &"build_farm", "RICE FARM", func() -> void: _command_build(&"rice_farm"), load(FactionCatalog.entity_art_path(faction, &"rice_farm")) as Texture2D)
 	_add_command_button(2, &"build_lodge", "HUNTER LODGE", func() -> void: _command_build(&"hunters_lodge"), load(FactionCatalog.entity_art_path(faction, &"hunters_lodge")) as Texture2D)
+	_add_command_button(3, &"build_wall", "WOOD WALL", func() -> void: _command_build(&"wall"), load(FactionCatalog.entity_art_path(faction, &"wall")) as Texture2D)
+	_add_command_button(4, &"build_gate", "WOOD GATE", func() -> void: _command_build(&"gate"), load(FactionCatalog.entity_art_path(faction, &"gate")) as Texture2D)
+	_add_command_button(5, &"build_tower", "SENTRY TOWER", func() -> void: _command_build(&"sentry_tower"), load(FactionCatalog.entity_art_path(faction, &"sentry_tower")) as Texture2D)
 	_add_command_button(0, &"worker", "WORKER", func() -> void: _command_train(&"worker"), load(FactionCatalog.entity_art_path(faction, &"worker")) as Texture2D)
 	var hunter_icon: Texture2D = null
 	if FactionCatalog.can_train_unit(faction, &"hunter"):
@@ -733,28 +768,28 @@ func _build_command_bay() -> Control:
 	_add_command_button(0, &"vanguard", "VANGUARD", func() -> void: _command_train(&"vanguard"), load(FactionCatalog.entity_art_path(faction, &"vanguard")) as Texture2D)
 	_add_command_button(1, &"mystic", "MYSTIC", func() -> void: _command_train(&"mystic"), load(FactionCatalog.entity_art_path(faction, &"mystic")) as Texture2D)
 	_add_command_button(0, &"jadeclaw", "JADECLAW", func() -> void: _command_train(&"jadeclaw"), load(FactionCatalog.entity_art_path(faction, &"jadeclaw")) as Texture2D)
-	_add_command_button(3, &"move", "MOVE", func() -> void:
+	_add_command_button(6, &"move", "MOVE", func() -> void:
 		battlefield.begin_move(Input.is_key_pressed(KEY_SHIFT))
 		_update_armed_command_styles()
 	, null, &"move")
-	_add_command_button(4, &"attack_move", "ATTACK-MOVE", func() -> void:
+	_add_command_button(7, &"attack_move", "ATTACK-MOVE", func() -> void:
 		battlefield.begin_attack_move(Input.is_key_pressed(KEY_SHIFT))
 		_update_armed_command_styles()
 	, null, &"attack_move", "F")
-	_add_command_button(5, &"patrol", "PATROL", func() -> void:
+	_add_command_button(8, &"patrol", "PATROL", func() -> void:
 		battlefield.begin_patrol(Input.is_key_pressed(KEY_SHIFT))
 		_update_armed_command_styles()
 	, null, &"patrol", "T")
-	_add_command_button(5, &"repair", "REPAIR", func() -> void:
+	_add_command_button(9, &"repair", "REPAIR", func() -> void:
 		battlefield.begin_repair(Input.is_key_pressed(KEY_SHIFT))
 		_update_armed_command_styles()
 	, null, &"repair", "R")
-	_add_command_button(3, &"rally", "RALLY", func() -> void:
+	_add_command_button(10, &"rally", "RALLY", func() -> void:
 		battlefield.begin_rally()
 		_update_armed_command_styles()
 	, null, &"rally")
-	_add_command_button(6, &"stop", "STOP", _command_stop, null, &"stop", "X")
-	_add_command_button(6, &"cancel_queue", "CANCEL LAST", _command_cancel_training, null, &"cancel")
+	_add_command_button(11, &"stop", "STOP", _command_stop, null, &"stop", "X")
+	_add_command_button(11, &"cancel_queue", "CANCEL LAST", _command_cancel_training, null, &"cancel")
 	return panel
 
 
@@ -912,7 +947,7 @@ func _build_help_panel(root: Control) -> void:
 	_objective_panel = PanelContainer.new()
 	_objective_panel.name = "Objective"
 	_objective_panel.position = Vector2(10, 64)
-	_objective_panel.size = Vector2(326, 132)
+	_objective_panel.size = Vector2(326, 154)
 	_objective_panel.add_theme_stylebox_override(&"panel", ThemeFactory.objective_style(true))
 	root.add_child(_objective_panel)
 	var column := VBoxContainer.new()
@@ -925,7 +960,7 @@ func _build_help_panel(root: Control) -> void:
 	_objective_toggle.add_theme_stylebox_override(&"normal", ThemeFactory.command_button_style(ThemeFactory.BUTTON_SURFACE, ThemeFactory.GOLD))
 	_objective_toggle.pressed.connect(_toggle_objectives)
 	column.add_child(_objective_toggle)
-	for index in range(3):
+	for index in range(4):
 		var label := ThemeFactory.label("", 11, ThemeFactory.IVORY)
 		label.name = "ObjectiveRow%d" % (index + 1)
 		label.custom_minimum_size.y = 20.0
@@ -989,7 +1024,7 @@ func _toggle_objectives() -> void:
 
 
 func _update_objectives() -> void:
-	if _objective_panel == null or _objective_rows.size() < 3:
+	if _objective_panel == null or _objective_rows.size() < 4:
 		return
 	var food_buildings := 0
 	for raw_entity in simulation.entities.values():
@@ -1002,16 +1037,16 @@ func _update_objectives() -> void:
 		):
 			food_buildings += 1
 	var dens := simulation.captured_cave_count(RtsSimulation.TEAM_PLAYER)
-	var enemy_stronghold_id := simulation.primary_structure_id(RtsSimulation.TEAM_ENEMY, &"stronghold")
-	var enemy_stronghold := simulation.entity(enemy_stronghold_id)
-	var stronghold_destroyed := enemy_stronghold.is_empty() or not bool(enemy_stronghold.get("alive", false))
-	var completed: Array[bool] = [food_buildings > 0, dens > 0, stronghold_destroyed]
+	var player_shenlongs := simulation.team_entity_ids(RtsSimulation.TEAM_PLAYER, [&"shenlong"])
+	var rivals_defeated := RtsSimulation.TEAM_COUNT - 1 - simulation.living_rival_count()
+	var completed: Array[bool] = [food_buildings > 0, dens > 0, not player_shenlongs.is_empty(), simulation.living_rival_count() == 0]
 	var copy: Array[String] = [
 		"Build Food Supply  %d/1" % mini(food_buildings, 1),
 		"Capture a Yaoguai Den  %d/%d" % [dens, MapCatalog.CAVES.size()],
-		"Destroy the Rival Stronghold",
+		"Hatch the Dragon Egg  %d/1" % mini(player_shenlongs.size(), 1),
+		"Defeat Rival Strongholds  %d/3" % rivals_defeated,
 	]
-	var next_index := 2
+	var next_index := 3
 	for index in range(completed.size()):
 		if not completed[index]:
 			next_index = index
@@ -1024,7 +1059,7 @@ func _update_objectives() -> void:
 			ThemeFactory.MUTED_SAGE if completed[index] else ThemeFactory.IVORY,
 		)
 		row.visible = not _objective_collapsed or index == next_index
-	_objective_panel.size.y = 58.0 if _objective_collapsed else 132.0
+	_objective_panel.size.y = 58.0 if _objective_collapsed else 154.0
 	_objective_panel.add_theme_stylebox_override(&"panel", ThemeFactory.objective_style(not completed.all(func(value: bool) -> bool: return value)))
 	_objective_toggle.text = "OBJECTIVES    ▾" if _objective_collapsed else "OBJECTIVES    ▴"
 
@@ -1053,7 +1088,7 @@ func _update_selection_panel() -> void:
 		_selection_health.visible = false
 		_selection_health_label.visible = false
 		_selection_order.text = "SELECT OR INSPECT AN ENTITY"
-		_selection_meta.text = "Q WORKERS · E ARMY · SPACE STRONGHOLD"
+		_selection_meta.text = "Q WORKERS · I IDLE · E ARMY · SPACE STRONGHOLD"
 		_selection_detail.text = "Left-click an entity to select or inspect it. Drag to box-select friendly units."
 		return
 	if ids.size() > 1:
@@ -1067,7 +1102,7 @@ func _update_selection_panel() -> void:
 	var accent := ThemeFactory.GOLD
 	if team == RtsSimulation.TEAM_PLAYER:
 		accent = FactionCatalog.definition(selected_faction)["accent"] as Color
-	elif team == RtsSimulation.TEAM_ENEMY:
+	elif team > RtsSimulation.TEAM_PLAYER:
 		accent = ThemeFactory.DANGER
 	_selection_portrait_frame.add_theme_stylebox_override(&"panel", ThemeFactory.portrait_style(accent))
 	match entity_state.get("category"):
@@ -1078,6 +1113,8 @@ func _update_selection_panel() -> void:
 		_:
 			if entity_state.get("kind") == &"yaoguai_den":
 				_update_den_selection(entity_state)
+			elif entity_state.get("kind") == &"shenlong_egg":
+				_update_egg_selection(entity_state)
 			else:
 				_update_owned_selection(entity_state)
 
@@ -1132,6 +1169,14 @@ func _update_group_selection(ids: Array[int]) -> void:
 
 func _select_subgroup(ids: Array[int]) -> void:
 	battlefield.select_entities(ids)
+
+
+func _on_garrison_unit_pressed(tower_id: int, unit_id: int) -> void:
+	if simulation.command_ungarrison(RtsSimulation.TEAM_PLAYER, tower_id, unit_id):
+		audio_director.play_ui(&"ui_confirm")
+		_show_feedback("Unit ungarrisoned at the base of the Sentry Tower.", false)
+	else:
+		_show_feedback("That unit can no longer be ungarrisoned from this tower.", true)
 
 
 func _update_resource_selection(entity_state: Dictionary) -> void:
@@ -1189,11 +1234,11 @@ func _update_den_selection(entity_state: Dictionary) -> void:
 		_selection_status.text = "CONTESTED"
 	elif owner == RtsSimulation.TEAM_PLAYER:
 		_selection_status.text = "CONTROLLED"
-	elif owner == RtsSimulation.TEAM_ENEMY:
+	elif owner > RtsSimulation.TEAM_PLAYER:
 		_selection_status.text = "RIVAL"
 	else:
 		_selection_status.text = "CLEARED"
-	var status_color := ThemeFactory.DANGER if contested or owner == RtsSimulation.TEAM_ENEMY else ThemeFactory.GOLD if owner == RtsSimulation.TEAM_NEUTRAL else ThemeFactory.JADE
+	var status_color := ThemeFactory.DANGER if contested or owner > RtsSimulation.TEAM_PLAYER else ThemeFactory.GOLD if owner == RtsSimulation.TEAM_NEUTRAL else ThemeFactory.JADE
 	_selection_status.add_theme_color_override(&"font_color", status_color)
 	if progress > 0.0 or contested:
 		_set_selection_progress(progress, RtsSimulation.CAVE_CAPTURE_SECONDS, "CAPTURE %d%%" % int(100.0 * progress / RtsSimulation.CAVE_CAPTURE_SECONDS), status_color)
@@ -1218,6 +1263,32 @@ func _update_den_selection(entity_state: Dictionary) -> void:
 		_selection_detail.text = "Produces Jadeclaws when controlled · rally %s" % _cell_label(entity_state.get("rally_cell", Vector2i.ZERO) as Vector2i)
 
 
+func _update_egg_selection(entity_state: Dictionary) -> void:
+	var carrier := simulation.entity(int(entity_state.get("carried_by", -1)))
+	_selection_title.text = "SHENLONG DRAGON EGG"
+	_selection_status.text = "LOCKED"
+	_selection_status.add_theme_color_override(&"font_color", ThemeFactory.GOLD)
+	_selection_health.visible = false
+	_selection_health_label.visible = false
+	if not carrier.is_empty():
+		var carrier_team := int(carrier.get("team", RtsSimulation.TEAM_NEUTRAL))
+		_selection_status.text = "YOUR CARRIER" if carrier_team == RtsSimulation.TEAM_PLAYER else "RIVAL CARRIER"
+		_selection_status.add_theme_color_override(&"font_color", ThemeFactory.JADE if carrier_team == RtsSimulation.TEAM_PLAYER else ThemeFactory.DANGER)
+		_selection_order.text = "RETURNING TO A STRONGHOLD"
+		_selection_meta.text = "INTERCEPTABLE OBJECTIVE"
+		_selection_detail.text = "Defeat the carrier to drop the egg and make it claimable again."
+	elif bool(entity_state.get("claimable", false)):
+		_selection_status.text = "CLAIMABLE"
+		_selection_status.add_theme_color_override(&"font_color", ThemeFactory.JADE)
+		_selection_order.text = "AWAITING AN EMPTY-HANDED WORKER"
+		_selection_meta.text = "CENTRAL MYTHIC OBJECTIVE"
+		_selection_detail.text = "Select a Worker and right-click the egg, then escort it home to hatch Shenlong."
+	else:
+		_selection_order.text = "GUARDED BY SHENLONG"
+		_selection_meta.text = "CENTRAL MYTHIC OBJECTIVE"
+		_selection_detail.text = "Defeat the neutral Shenlong to unlock this egg for every player."
+
+
 func _update_owned_selection(entity_state: Dictionary) -> void:
 	var kind := entity_state["kind"] as StringName
 	var faction := entity_state.get("faction", selected_faction) as StringName
@@ -1230,7 +1301,7 @@ func _update_owned_selection(entity_state: Dictionary) -> void:
 	if team == RtsSimulation.TEAM_PLAYER:
 		affiliation = "YOUR"
 		status_color = ThemeFactory.JADE
-	elif team == RtsSimulation.TEAM_ENEMY:
+	elif team > RtsSimulation.TEAM_PLAYER:
 		affiliation = "ENEMY"
 		status_color = ThemeFactory.DANGER
 	_selection_title.text = String(stats["name"]).to_upper()
@@ -1244,10 +1315,40 @@ func _update_owned_selection(entity_state: Dictionary) -> void:
 	if entity_state.get("category") == &"structure":
 		var queue := entity_state.get("queue", []) as Array
 		_selection_meta.text = "QUEUE %d · RALLY %s" % [queue.size(), _cell_label(entity_state.get("rally_cell", Vector2i.ZERO) as Vector2i)]
-		if kind in RtsSimulation.FOOD_PRODUCER_KINDS and completion >= 1.0:
+		if kind == &"sentry_tower" and completion >= 1.0:
+			var occupants := entity_state.get("garrisoned_unit_ids", []) as Array
+			_selection_order.text = "MANNED" if not occupants.is_empty() else "AWAITING GARRISON"
+			_selection_meta.text = "GARRISON %d/%d · DOUBLE OCCUPANT RANGE" % [occupants.size(), int(entity_state.get("garrison_capacity", 1))]
+			_selection_detail.text = "Right-click with a Hunter or Mystic to garrison. Click the occupant below to deploy them at the tower base."
+			if team == RtsSimulation.TEAM_PLAYER and not occupants.is_empty():
+				_selection_stacks.visible = true
+				for raw_id in occupants:
+					var occupant := simulation.entity(int(raw_id))
+					if occupant.is_empty():
+						continue
+					var occupant_name := String(FactionCatalog.stats(occupant["kind"] as StringName, occupant["faction"] as StringName)["name"])
+					var button := ThemeFactory.button("%s  ·  UNGARRISON" % occupant_name.to_upper(), "Deploy this unit at the tower base")
+					button.name = "GarrisonUnitButton"
+					button.custom_minimum_size = Vector2(190.0, 30.0)
+					button.add_theme_font_size_override(&"font_size", 9)
+					button.icon = _selection_art_texture(occupant)
+					button.expand_icon = true
+					button.pressed.connect(_on_garrison_unit_pressed.bind(int(entity_state["id"]), int(occupant["id"])))
+					_selection_stacks.add_child(button)
+		elif kind in RtsSimulation.FOOD_PRODUCER_KINDS and completion >= 1.0:
 			var interval := float(stats.get("food_interval", 1.0))
 			var next_harvest := maxf(0.0, interval - float(entity_state.get("food_timer", 0.0)))
-			_selection_detail.text = "+%d Food every %.0fs · next harvest in %.1fs" % [int(stats.get("food_yield", 0)), interval, next_harvest]
+			var harvest_yield := simulation.structure_food_yield(int(entity_state["id"]))
+			if kind == &"rice_farm":
+				var farmer_id := simulation.farm_worker_id(int(entity_state["id"]))
+				var farm_state := "PASSIVE"
+				if farmer_id >= 0:
+					farm_state = "STAFFED" if simulation.is_farm_staffed(int(entity_state["id"])) else "WORKER EN ROUTE"
+				_selection_order.text = farm_state
+				_selection_meta.text = "FARMER %d/1 · %.1f FOOD/S" % [1 if farmer_id >= 0 else 0, float(harvest_yield) / interval]
+				_selection_detail.text = "+%d Food every %.0fs · next harvest in %.1fs · right-click with an empty Worker to staff" % [harvest_yield, interval, next_harvest]
+			else:
+				_selection_detail.text = "+%d passive Food every %.0fs · next harvest in %.1fs · Hunters earn one-time wildlife bounties" % [harvest_yield, interval, next_harvest]
 		elif not queue.is_empty():
 			var item := queue[0] as Dictionary
 			_selection_detail.text = "Training %s · %.1fs remaining" % [String(item.get("kind", &"unit")).capitalize(), float(item.get("remaining", 0.0))]
@@ -1255,7 +1356,9 @@ func _update_owned_selection(entity_state: Dictionary) -> void:
 			_selection_detail.text = String(stats["role"])
 	else:
 		var command_queue := entity_state.get("command_queue", []) as Array
-		if kind == &"worker" and float(entity_state.get("cargo_amount", 0.0)) > 0.0:
+		if kind == &"worker" and bool(entity_state.get("carrying_egg", false)):
+			_selection_meta.text = "CARRYING THE DRAGON EGG"
+		elif kind == &"worker" and float(entity_state.get("cargo_amount", 0.0)) > 0.0:
 			_selection_meta.text = "CARRYING %d/%d %s" % [int(entity_state["cargo_amount"]), int(RtsSimulation.CARGO_CAPACITY), String(entity_state.get("cargo_kind", &"")).to_upper()]
 		else:
 			_selection_meta.text = "DAMAGE %d · RANGE %.1f · QUEUED %d" % [int(stats.get("damage", 0)), float(stats.get("range", 0.0)), command_queue.size()]
@@ -1271,8 +1374,13 @@ func _order_label(entity_state: Dictionary) -> String:
 		&"gather":
 			var source := simulation.entity(int(entity_state.get("gather_source_id", -1)))
 			return "Gathering %s" % String(source.get("resource_kind", &"resources")).capitalize()
+		&"farm": return "Working farm"
 		&"return": return "Returning cargo"
+		&"claim_egg": return "Claiming Dragon Egg"
+		&"return_egg": return "Returning Dragon Egg"
 		&"repair": return "Repairing"
+		&"garrison": return "Entering tower"
+		&"garrisoned": return "Garrisoned"
 		&"patrol": return "Patrolling"
 		&"construct": return "Constructing"
 		&"constructing": return "Constructing"
@@ -1319,20 +1427,15 @@ func _update_production_queue() -> void:
 	var queue_items: Array[Dictionary] = []
 	for producer in producers:
 		var queue := producer.get("queue", []) as Array
-		var index := 0
-		while index < queue.size():
+		for index in range(queue.size()):
 			var item := queue[index] as Dictionary
-			var kind := item.get("kind", &"unit") as StringName
-			var count := 1
-			while index + count < queue.size() and (queue[index + count] as Dictionary).get("kind") == kind:
-				count += 1
 			queue_items.append({
 				"producer_id": int(producer["id"]),
-				"kind": kind,
-				"count": count,
+				"queue_index": index,
+				"order_id": int(item.get("order_id", -1)),
+				"kind": item.get("kind", &"unit") as StringName,
 				"remaining": float(item.get("remaining", 0.0)),
 			})
-			index += count
 	for tile_index in range(_queue_tiles.size()):
 		var tile := _queue_tiles[tile_index]
 		tile.visible = tile_index < queue_items.size()
@@ -1342,23 +1445,21 @@ func _update_production_queue() -> void:
 		var kind := item["kind"] as StringName
 		var producer_id := int(item["producer_id"])
 		tile.set_meta(&"producer_id", producer_id)
+		tile.set_meta(&"queue_index", int(item["queue_index"]))
+		tile.set_meta(&"order_id", int(item["order_id"]))
 		tile.icon = load(FactionCatalog.entity_art_path(selected_faction, kind)) as Texture2D
-		tile.text = "%s%s\n%.1fs" % [String(kind).replace("_", " ").capitalize(), " ×%d" % int(item["count"]) if int(item["count"]) > 1 else "", float(item["remaining"])]
-		tile.tooltip_text = "Select producer %d · click again to center" % producer_id
+		tile.text = "%s\n%.1fs" % [String(kind).replace("_", " ").capitalize(), float(item["remaining"])]
+		tile.tooltip_text = "Cancel this %s for a full refund" % String(kind).replace("_", " ").capitalize()
 	_queue_panel.visible = not queue_items.is_empty()
 
 
 func _on_queue_tile_pressed(tile: Button) -> void:
 	var producer_id := int(tile.get_meta(&"producer_id", -1))
-	if producer_id < 0 or simulation.entity(producer_id).is_empty():
+	var queue_index := int(tile.get_meta(&"queue_index", -1))
+	var order_id := int(tile.get_meta(&"order_id", -1))
+	if producer_id < 0 or queue_index < 0 or order_id < 0 or simulation.entity(producer_id).is_empty():
 		return
-	var now := Time.get_ticks_msec()
-	var should_center := producer_id == _last_queue_focus_id and now - _last_queue_focus_ms <= 500
-	battlefield.select_entities([producer_id])
-	if should_center:
-		battlefield.center_on_selection()
-	_last_queue_focus_id = producer_id
-	_last_queue_focus_ms = now
+	_cancel_training_order(producer_id, queue_index, order_id)
 
 
 func _update_commands() -> void:
@@ -1384,6 +1485,9 @@ func _update_commands() -> void:
 		&"build": &"war_camp",
 		&"build_farm": &"rice_farm",
 		&"build_lodge": &"hunters_lodge",
+		&"build_wall": &"wall",
+		&"build_gate": &"gate",
+		&"build_tower": &"sentry_tower",
 	}
 	for button_id in build_commands:
 		var structure_kind := build_commands[button_id] as StringName
@@ -1494,6 +1598,9 @@ func _update_armed_command_styles() -> void:
 		&"build": battlefield.placement_kind == &"war_camp",
 		&"build_farm": battlefield.placement_kind == &"rice_farm",
 		&"build_lodge": battlefield.placement_kind == &"hunters_lodge",
+		&"build_wall": battlefield.placement_kind == &"wall",
+		&"build_gate": battlefield.placement_kind == &"gate",
+		&"build_tower": battlefield.placement_kind == &"sentry_tower",
 	}
 	for button_id in active:
 		var button := _command_buttons[button_id] as HudCommandButton
@@ -1570,12 +1677,23 @@ func _command_cancel_training() -> void:
 	if structure_id < 0:
 		_show_feedback("Select a production structure with a queued unit.", true)
 		return
+	_cancel_training_order(structure_id)
+
+
+func _cancel_training_order(
+	structure_id: int,
+	queue_index: int = -1,
+	expected_order_id: int = -1,
+) -> void:
 	var cancelled := simulation.command_cancel_training(
 		RtsSimulation.TEAM_PLAYER,
 		structure_id,
+		queue_index,
+		expected_order_id,
 	)
 	if cancelled.is_empty():
-		_show_feedback("There is no queued unit to cancel.", true)
+		_show_feedback("That unit is no longer in the production queue.", true)
+		_update_hud()
 		return
 	audio_director.play_ui(&"ui_cancel")
 	var costs := cancelled.get("costs", {}) as Dictionary
@@ -1589,18 +1707,22 @@ func _command_cancel_training() -> void:
 		var amount := int(costs.get(definition[0], 0))
 		if amount > 0:
 			refund_parts.append("%d%s" % [amount, definition[1]])
+	var refund_text := " · ".join(refund_parts) if not refund_parts.is_empty() else "no resources (free unit)"
 	_show_feedback(
-		"Cancelled %s · refunded %s." % [
+		"Cancelled %s · full refund: %s." % [
 			String(cancelled.get("kind", &"unit")).capitalize(),
-			" · ".join(refund_parts),
+			refund_text,
 		],
 		false,
 	)
+	_update_hud()
 
 
 func _on_battle_notice(message: String, team: int) -> void:
-	if team == RtsSimulation.TEAM_PLAYER or message.begins_with("The rival"):
+	if team == RtsSimulation.TEAM_PLAYER or message.begins_with("A rival"):
 		_show_feedback(message, false)
+	elif message.contains("Dragon Egg") or message.contains("Shenlong"):
+		_show_feedback("A rival is contesting the Shenlong objective.", false)
 	elif message.contains("cleared"):
 		_show_feedback("The rival cleared a Yaoguai Den and can now capture it.", false)
 	elif message.contains("Food"):
@@ -1720,6 +1842,17 @@ func _update_audio_controls() -> void:
 
 
 func _on_match_ended(result: StringName) -> void:
+	if _match_score_recorded or simulation == null:
+		return
+	_match_score_recorded = true
+	var final_score := simulation.team_score(RtsSimulation.TEAM_PLAYER)
+	leaderboard_store.record_match(
+		final_score,
+		result,
+		selected_faction,
+		int(simulation.elapsed_time),
+	)
+	leaderboard_bridge.submit_current()
 	paused = true
 	state = STATE_RESULT
 	if _pause_overlay != null:
@@ -1747,7 +1880,7 @@ func _on_match_ended(result: StringName) -> void:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(title)
 	var detail := ThemeFactory.label(
-		"The rival Stronghold has fallen." if result == &"victory" else "Your Stronghold has fallen. Bureaucracy remains undefeated.",
+		"All three rival Strongholds have fallen." if result == &"victory" else "Your Stronghold has fallen. The remaining mandates endure.",
 		17,
 		ThemeFactory.PARCHMENT,
 	)
@@ -1758,9 +1891,17 @@ func _on_match_ended(result: StringName) -> void:
 	var time_label := ThemeFactory.label("Skirmish time: %02d:%02d" % [elapsed_minutes, elapsed_seconds % 60], 15, ThemeFactory.MUTED)
 	time_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(time_label)
+	var result_score := ThemeFactory.label("SCORE: %d" % final_score, 23, ThemeFactory.GOLD)
+	result_score.name = "ResultScore"
+	result_score.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(result_score)
 	var rematch := ThemeFactory.button("REMATCH")
 	_connect_button(rematch, func() -> void: _start_match(selected_faction))
 	column.add_child(rematch)
+	_result_leaderboard_button = ThemeFactory.button("LEADERBOARD", "View local and global rankings")
+	_result_leaderboard_button.name = "ResultLeaderboardButton"
+	_connect_button(_result_leaderboard_button, func() -> void: _open_leaderboard(_result_leaderboard_button))
+	column.add_child(_result_leaderboard_button)
 	var choose := ThemeFactory.button("CHOOSE ANOTHER FACTION")
 	_connect_button(choose, _show_faction_select)
 	column.add_child(choose)
@@ -1768,6 +1909,35 @@ func _on_match_ended(result: StringName) -> void:
 	_connect_button(title_button, _show_title, &"ui_cancel")
 	column.add_child(title_button)
 	rematch.grab_focus()
+
+
+func _build_leaderboard_dialog(root: Control) -> void:
+	_leaderboard_dialog = LEADERBOARD_DIALOG_SCRIPT.new() as LeaderboardDialog
+	root.add_child(_leaderboard_dialog)
+	_leaderboard_dialog.configure(leaderboard_store)
+	_leaderboard_dialog.set_global_state(
+		leaderboard_bridge.state,
+		leaderboard_bridge.entries,
+		leaderboard_bridge.personal_rank,
+	)
+	_leaderboard_dialog.global_refresh_requested.connect(leaderboard_bridge.request_list)
+	_leaderboard_dialog.callsign_saved.connect(leaderboard_bridge.update_callsign)
+
+
+func _open_leaderboard(source_button: Button) -> void:
+	if _leaderboard_dialog == null:
+		return
+	_leaderboard_dialog.open(source_button)
+
+
+func _on_leaderboard_state_changed(next_state: StringName, entries: Array, personal_rank: Dictionary) -> void:
+	if _leaderboard_dialog != null:
+		_leaderboard_dialog.set_global_state(next_state, entries, personal_rank)
+
+
+func _on_callsign_sync_changed(sync_state: StringName) -> void:
+	if _leaderboard_dialog != null and _leaderboard_dialog.visible:
+		_leaderboard_dialog.set_callsign_sync_state(sync_state)
 
 
 func _connect_button(button: Button, action: Callable, cue: StringName = &"ui_confirm") -> void:

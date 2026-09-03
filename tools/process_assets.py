@@ -79,8 +79,14 @@ def save_isolated(
     bottom_margin: int,
     feather_end: float = 145.0,
     decontaminate_edge: bool = False,
+    preserve_source_alpha: bool = False,
 ) -> dict:
-    image = remove_magenta(Image.open(source), feather_end, decontaminate_edge)
+    source_image = Image.open(source)
+    image = (
+        source_image.convert("RGBA")
+        if preserve_source_alpha
+        else remove_magenta(source_image, feather_end, decontaminate_edge)
+    )
     alpha = image.getchannel("A")
     bbox = alpha.point(lambda value: 255 if value > 8 else 0).getbbox()
     if bbox is None:
@@ -302,6 +308,22 @@ def main() -> None:
                     8,
                 )
             )
+        for kind, canvas_size, content_size in (
+            ("wall", (192, 160), (180, 148)),
+            ("gate", (400, 272), (384, 256)),
+            ("sentry_tower", (304, 288), (288, 272)),
+        ):
+            records.append(
+                save_isolated(
+                    SOURCE / "buildings" / f"{faction}_{kind}.png",
+                    RUNTIME / "buildings" / f"{faction}_{kind}.png",
+                    canvas_size,
+                    content_size,
+                    8,
+                    decontaminate_edge=True,
+                    preserve_source_alpha=faction == "demon" and kind == "wall",
+                )
+            )
 
     records.append(
         save_isolated(
@@ -310,6 +332,28 @@ def main() -> None:
             (192, 176),
             (180, 164),
             6,
+        )
+    )
+    records.append(
+        save_isolated(
+            SOURCE / "units" / "neutral_shenlong.png",
+            RUNTIME / "units" / "neutral_shenlong.png",
+            (336, 272),
+            (320, 256),
+            6,
+            220.0,
+            True,
+        )
+    )
+    records.append(
+        save_isolated(
+            SOURCE / "objectives" / "shenlong_egg.png",
+            RUNTIME / "objectives" / "shenlong_egg.png",
+            (176, 176),
+            (160, 160),
+            6,
+            220.0,
+            True,
         )
     )
 

@@ -23,6 +23,8 @@ func _run() -> void:
 		"res://assets/runtime/resources/lumber_fir.png",
 		"res://assets/runtime/resources/lumber_juniper.png",
 		FactionCatalog.entity_art_path(&"neutral", &"jadeclaw"),
+		FactionCatalog.entity_art_path(&"neutral", &"shenlong"),
+		FactionCatalog.entity_art_path(&"neutral", &"shenlong_egg"),
 		FactionCatalog.entity_art_path(&"neutral", &"yaoguai_den"),
 		FactionCatalog.entity_art_path(&"human", &"rice_farm"),
 		FactionCatalog.entity_art_path(&"beast", &"hunters_lodge"),
@@ -60,10 +62,10 @@ func _run() -> void:
 	var retired_gather_sfx := "res://assets/runtime/audio/sfx/gather_resource.ogg"
 	if ResourceLoader.exists(retired_gather_sfx):
 		failures.append("retired worker gather SFX still exists: %s" % retired_gather_sfx)
-	if paths.size() != 104:
-		failures.append("expected 104 runtime assets, enumerated %d" % paths.size())
+	if paths.size() != 106:
+		failures.append("expected 106 runtime assets, enumerated %d" % paths.size())
 	if failures.is_empty():
-		print("PASS assets_test: 104 generated runtime assets resolve")
+		print("PASS assets_test: 106 generated runtime assets resolve")
 		quit(0)
 	else:
 		for failure in failures:

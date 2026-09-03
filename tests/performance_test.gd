@@ -2,7 +2,7 @@ extends SceneTree
 
 const MAX_BATTLEFIELD_P95_DRAW_US := 33_300
 const MAX_MINIMAP_P95_DRAW_US := 16_700
-const EXPECTED_TREE_COUNT := 2224
+const EXPECTED_TREE_COUNT := 255
 
 class PerfBattlefield extends Battlefield:
 	var draw_durations: Array[int] = []
@@ -97,7 +97,7 @@ func _run() -> void:
 	battlefield.queue_free()
 	minimap.queue_free()
 	if failures.is_empty():
-		print("PASS performance_test: 2,224-tree Battlefield stays within its 33.3 ms redraw budget; minimap stays within 16.7 ms")
+		print("PASS performance_test: 255-tree four-player Battlefield stays within its 33.3 ms redraw budget; minimap stays within 16.7 ms")
 		quit(0)
 		return
 	for failure in failures:

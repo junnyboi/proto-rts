@@ -55,10 +55,12 @@ for test_script in \
 	  tests/assets_test.gd \
 	  tests/audio_test.gd \
 	  tests/cursor_test.gd \
+	  tests/leaderboard_test.gd \
 	  tests/hud_test.gd \
 	  tests/interaction_test.gd \
   tests/command_system_test.gd \
   tests/visibility_test.gd \
+	  tests/view_overlay_test.gd \
   tests/simulation_test.gd \
 	  tests/core_regression_test.gd \
 	  tests/battlefield_regression_test.gd \

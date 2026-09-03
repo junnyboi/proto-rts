@@ -68,11 +68,15 @@ func _test_cargo_reassignment_preserves_kind(failures: Array[String]) -> void:
 	var worker_id := simulation.team_entity_ids(RtsSimulation.TEAM_PLAYER, [&"worker"])[0]
 	var worker := simulation.entity(worker_id)
 	var jade: Dictionary = {}
+	var jade_distance := INF
 	for raw_entity in simulation.entities.values():
 		var entity_state := raw_entity as Dictionary
 		if entity_state.get("resource_kind") == &"jade":
+			var distance := (entity_state["position"] as Vector2).distance_to(worker["position"] as Vector2)
+			if distance >= jade_distance:
+				continue
+			jade_distance = distance
 			jade = entity_state
-			break
 	if jade.is_empty():
 		failures.append("no Jade node was available for the cargo reassignment test")
 		return
@@ -141,6 +145,63 @@ func _test_attack_move_resumes_destination(failures: Array[String]) -> void:
 		failures.append("attack-move did not resume progress toward its saved destination")
 	if bool(attacker.get("attack_move", false)) and attacker.get("attack_move_destination") != saved_destination:
 		failures.append("attack-move lost its final destination after combat")
+
+
+func _test_diagonal_pathfinding(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human", false)
+	simulation.entities.clear()
+	simulation._rebuild_pathfinding()
+	var origin := Vector2i(-1, -1)
+	for y in range(MapCatalog.SIZE.y - 1):
+		for x in range(MapCatalog.SIZE.x - 1):
+			var candidate := Vector2i(x, y)
+			if (
+				not simulation._astar.is_point_solid(candidate)
+				and not simulation._astar.is_point_solid(candidate + Vector2i.RIGHT)
+				and not simulation._astar.is_point_solid(candidate + Vector2i.DOWN)
+				and not simulation._astar.is_point_solid(candidate + Vector2i.ONE)
+			):
+				origin = candidate
+				break
+		if origin.x >= 0:
+			break
+	if origin.x < 0:
+		failures.append("no unobstructed diagonal test area was available")
+		return
+
+	var destination := origin + Vector2i.ONE
+	var unit_kinds: Array[StringName] = [
+		&"worker",
+		&"hunter",
+		&"vanguard",
+		&"mystic",
+		&"jadeclaw",
+		&"shenlong",
+	]
+	for unit_kind in unit_kinds:
+		var unit_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, unit_kind, origin)
+		var unit := simulation.entity(unit_id)
+		simulation._set_path(unit, destination)
+		var path := unit.get("path", []) as Array
+		if path.size() != 1 or not (path[0] as Vector2).is_equal_approx(Vector2(destination)):
+			failures.append("%s did not receive a direct unobstructed diagonal path" % unit_kind)
+		else:
+			for _step in range(int(2.0 / RtsSimulation.TICK_SECONDS)):
+				simulation._advance_path(unit, RtsSimulation.TICK_SECONDS)
+				if (unit["position"] as Vector2).is_equal_approx(Vector2(destination)):
+					break
+			if not (unit["position"] as Vector2).is_equal_approx(Vector2(destination)):
+				failures.append("%s did not move onto its diagonal destination tile" % unit_kind)
+		simulation.entities.erase(unit_id)
+
+	var corner_test_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", origin)
+	var corner_test_unit := simulation.entity(corner_test_id)
+	simulation._astar.set_point_solid(origin + Vector2i.RIGHT, true)
+	simulation._set_path(corner_test_unit, destination)
+	var corner_path := corner_test_unit.get("path", []) as Array
+	if not corner_path.is_empty() and (corner_path[0] as Vector2).is_equal_approx(Vector2(destination)):
+		failures.append("a diagonal path cut through an obstructed corner")
 
 
 func _test_large_formations_and_separation(failures: Array[String]) -> void:
@@ -361,6 +422,58 @@ func _test_unit_food_costs(failures: Array[String]) -> void:
 			failures.append("%s does not require Food" % String(kind).capitalize())
 
 
+func _test_targeted_production_cancellation(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human")
+	var team := RtsSimulation.TEAM_PLAYER
+	for resource_kind in [&"jade", &"lumber", &"essence", &"food"]:
+		simulation.players[team][String(resource_kind)] = 2000
+	var camp_id := simulation._spawn_structure(
+		team,
+		&"war_camp",
+		MapCatalog.PLAYER_BUILD_TEST_SITE,
+		true,
+	)
+	if (
+		not simulation.command_train(team, camp_id, &"vanguard")
+		or not simulation.command_train(team, camp_id, &"mystic")
+		or not simulation.command_train(team, camp_id, &"vanguard")
+	):
+		failures.append("targeted cancellation test could not build a mixed production queue")
+		return
+	var queue := simulation.entity(camp_id).get("queue", []) as Array
+	var expected_costs := ((queue[1] as Dictionary).get("costs", {}) as Dictionary).duplicate()
+	var target_order_id := int((queue[1] as Dictionary).get("order_id", -1))
+	var resources_before: Dictionary = {}
+	for resource_kind in [&"jade", &"lumber", &"essence", &"food"]:
+		resources_before[resource_kind] = int(simulation.players[team][String(resource_kind)])
+	var population_before := int(simulation.players[team]["population"])
+	var cancelled := simulation.command_cancel_training(team, camp_id, 1, target_order_id)
+	if cancelled.get("kind") != &"mystic":
+		failures.append("targeted production cancellation removed the wrong queue order")
+	queue = simulation.entity(camp_id).get("queue", []) as Array
+	if (
+		queue.size() != 2
+		or (queue[0] as Dictionary).get("kind") != &"vanguard"
+		or (queue[1] as Dictionary).get("kind") != &"vanguard"
+	):
+		failures.append("targeted production cancellation did not preserve the surrounding orders")
+	for resource_kind in [&"jade", &"lumber", &"essence", &"food"]:
+		var resource_key := String(resource_kind)
+		var expected_amount := int(resources_before[resource_kind]) + int(expected_costs.get(resource_key, 0))
+		if int(simulation.players[team][resource_key]) != expected_amount:
+			failures.append("targeted production cancellation did not fully refund %s" % resource_key.capitalize())
+	var expected_population := population_before - int(cancelled.get("reserved_population", 0))
+	if int(simulation.players[team]["population"]) != expected_population:
+		failures.append("targeted production cancellation did not release reserved population")
+	if not simulation.command_cancel_training(team, camp_id, 0, target_order_id).is_empty():
+		failures.append("a stale production order identity cancelled a different unit")
+	if not simulation.command_cancel_training(team, camp_id, 2).is_empty():
+		failures.append("an out-of-range production cancellation was accepted")
+	if (simulation.entity(camp_id).get("queue", []) as Array).size() != 2:
+		failures.append("an out-of-range production cancellation mutated the queue")
+
+
 func _test_free_worker_recovery(failures: Array[String]) -> void:
 	var simulation := RtsSimulation.new()
 	simulation.setup(&"human")
@@ -437,15 +550,167 @@ func _test_food_building(
 		failures.append("%s did not finish construction" % String(structure_kind))
 		return
 	var stats := FactionCatalog.stats(structure_kind, &"human")
-	var expected_yield := int(stats.get("food_yield", 0))
+	var expected_yield := simulation.structure_food_yield(structure_id)
 	var interval := float(stats.get("food_interval", 0.0))
 	var food_before_harvest := int(simulation.players[RtsSimulation.TEAM_PLAYER]["food"])
-	_advance(simulation, interval + RtsSimulation.TICK_SECONDS * 2.0)
+	simulation._advance_food_production(interval + RtsSimulation.TICK_SECONDS * 2.0)
 	if int(simulation.players[RtsSimulation.TEAM_PLAYER]["food"]) != food_before_harvest + expected_yield:
 		failures.append("%s did not deliver its exact Food harvest" % String(structure_kind))
 	var expected_rate := float(expected_yield) / interval
 	if not is_equal_approx(simulation.food_income_per_second(RtsSimulation.TEAM_PLAYER), expected_rate):
 		failures.append("%s reported an incorrect Food income rate" % String(structure_kind))
+	var expected_interval := 40.0 if structure_kind == &"rice_farm" else 50.0
+	if not is_equal_approx(interval, expected_interval):
+		failures.append("%s passive Food production was not reduced to one tenth" % String(structure_kind))
+
+
+func _test_farm_worker_assignment(failures: Array[String]) -> void:
+	var construction_simulation := RtsSimulation.new()
+	construction_simulation.setup(&"human", false)
+	var construction_team := RtsSimulation.TEAM_PLAYER
+	var construction_site := construction_simulation._find_build_site(
+		construction_team,
+		&"rice_farm",
+		MapCatalog.PLAYER_STRONGHOLD,
+	)
+	if construction_site.x < 0:
+		failures.append("no valid automatic Rice Farm staffing test site was found")
+		return
+	var incomplete_farm_id := construction_simulation._spawn_structure(
+		construction_team,
+		&"rice_farm",
+		construction_site,
+		false,
+	)
+	construction_simulation._rebuild_pathfinding()
+	var construction_workers := construction_simulation.team_entity_ids(
+		construction_team,
+		[&"worker"],
+	)
+	var build_cell := construction_simulation._nearest_walkable_around(construction_site, 3)
+	for worker_id in construction_workers:
+		var builder := construction_simulation.entity(worker_id)
+		construction_simulation.command_stop(construction_team, [worker_id])
+		builder["position"] = Vector2(build_cell)
+		builder["cell"] = build_cell
+	if not construction_simulation.command_construct(
+		construction_team,
+		construction_workers,
+		incomplete_farm_id,
+	):
+		failures.append("Workers could not be assigned to the automatic Rice Farm staffing test")
+		return
+	var incomplete_farm := construction_simulation.entity(incomplete_farm_id)
+	incomplete_farm["complete"] = 0.999
+	construction_simulation._advance_construction(RtsSimulation.TICK_SECONDS)
+	var assigned_farmers := 0
+	for worker_id in construction_workers:
+		var builder := construction_simulation.entity(worker_id)
+		if builder.get("order") == &"farm":
+			assigned_farmers += 1
+			if int(builder.get("target_id", -1)) != incomplete_farm_id:
+				failures.append("the automatic Farmer targeted the wrong Rice Farm")
+		elif builder.get("order") != &"idle":
+			failures.append("an extra Rice Farm builder did not become idle after completion")
+	if assigned_farmers != 1:
+		failures.append("Rice Farm completion assigned %d builders instead of exactly one" % assigned_farmers)
+	if construction_simulation.farm_worker_id(incomplete_farm_id) < 0:
+		failures.append("the completed Rice Farm did not retain its automatic Farmer")
+
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human", false)
+	var team := RtsSimulation.TEAM_PLAYER
+	var farm_site := simulation._find_build_site(team, &"rice_farm", MapCatalog.PLAYER_STRONGHOLD)
+	if farm_site.x < 0:
+		failures.append("no valid staffed Rice Farm test site was found")
+		return
+	var farm_id := simulation._spawn_structure(team, &"rice_farm", farm_site, true)
+	simulation._rebuild_pathfinding()
+	var workers := simulation.team_entity_ids(team, [&"worker"])
+	if workers.size() < 3:
+		failures.append("staffed Rice Farm test requires three Workers")
+		return
+	for worker_id in workers:
+		simulation.command_stop(team, [worker_id])
+	var first_worker := simulation.entity(workers[0])
+	var staffed_cell := simulation._nearest_walkable_around(farm_site, 3)
+	first_worker["position"] = Vector2(staffed_cell)
+	first_worker["cell"] = staffed_cell
+	if not simulation.command_assign_farm_worker(team, [workers[0]], farm_id):
+		failures.append("an empty-handed Worker could not be assigned to a completed Rice Farm")
+		return
+	if simulation.farm_worker_id(farm_id) != workers[0]:
+		failures.append("Rice Farm did not retain its assigned Worker")
+	if simulation.command_assign_farm_worker(team, [workers[1]], farm_id):
+		failures.append("Rice Farm accepted more than its maximum of one Worker")
+	if not simulation.is_farm_staffed(farm_id):
+		failures.append("a Worker beside the Rice Farm did not begin staffing it")
+	var stats := FactionCatalog.stats(&"rice_farm", &"human")
+	var passive_yield := int(stats.get("food_yield", 0))
+	var expected_staffed_yield := passive_yield * RtsSimulation.FARM_WORKER_FOOD_MULTIPLIER
+	if simulation.structure_food_yield(farm_id) != expected_staffed_yield:
+		failures.append("an assigned Worker did not multiply Rice Farm production by exactly five")
+	var food_before_harvest := int(simulation.players[team]["food"])
+	simulation._advance_food_production(
+		float(stats["food_interval"]) + RtsSimulation.TICK_SECONDS * 2.0
+	)
+	if int(simulation.players[team]["food"]) != food_before_harvest + expected_staffed_yield:
+		failures.append("staffed Rice Farm did not deliver its fivefold harvest")
+	simulation.command_move(team, [workers[0]], first_worker["cell"] as Vector2i + Vector2i(1, 0))
+	if simulation.farm_worker_id(farm_id) >= 0:
+		failures.append("reassigning a Farmer did not release the Rice Farm slot")
+	if not simulation.command_assign_farm_worker(team, [workers[1]], farm_id):
+		failures.append("Rice Farm slot could not be reassigned after its Worker left")
+	simulation._kill(simulation.entity(workers[1]), {})
+	if simulation.farm_worker_id(farm_id) >= 0:
+		failures.append("a defeated Farmer did not release the Rice Farm slot")
+	if not simulation.command_assign_farm_worker(team, [workers[2]], farm_id):
+		failures.append("Rice Farm slot could not be reassigned after its Worker was defeated")
+	simulation._kill(simulation.entity(farm_id), {})
+	if simulation.entity(workers[2]).get("order") == &"farm":
+		failures.append("destroying a Rice Farm left its Worker in a farm order")
+
+
+func _test_food_strategy_balance(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human", false)
+	var total_wildlife_bounty := 0
+	for wildlife_id in simulation.wildlife_ids():
+		total_wildlife_bounty += int(simulation.entity(wildlife_id).get("food_bounty", 0))
+	var farm_stats := FactionCatalog.stats(&"rice_farm", &"human")
+	var lodge_stats := FactionCatalog.stats(&"hunters_lodge", &"human")
+	var farm_food := (
+		float(farm_stats["food_yield"])
+		* RtsSimulation.FARM_WORKER_FOOD_MULTIPLIER
+		/ float(farm_stats["food_interval"])
+		* RtsSimulation.FOOD_BALANCE_HORIZON_SECONDS
+	)
+	var hunting_food := (
+		float(total_wildlife_bounty) / RtsSimulation.TEAM_COUNT
+		+ float(lodge_stats["food_yield"])
+		/ float(lodge_stats["food_interval"])
+		* RtsSimulation.FOOD_BALANCE_HORIZON_SECONDS
+	)
+	if absf(farm_food - hunting_food) > farm_food * 0.01:
+		failures.append(
+			"12-minute farming and hunting paths differ by more than one percent (%0.1f vs %0.1f Food)"
+			% [farm_food, hunting_food]
+		)
+	var lodge_site := simulation._find_build_site(
+		RtsSimulation.TEAM_PLAYER,
+		&"hunters_lodge",
+		MapCatalog.PLAYER_STRONGHOLD,
+	)
+	var lodge_id := simulation._spawn_structure(
+		RtsSimulation.TEAM_PLAYER,
+		&"hunters_lodge",
+		lodge_site,
+		true,
+	)
+	var passive_lodge_yield := simulation.structure_food_yield(lodge_id)
+	simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"hunter", lodge_site + Vector2i(1, 0))
+	if simulation.structure_food_yield(lodge_id) != passive_lodge_yield:
+		failures.append("training a Hunter passively increased Hunter's Lodge Food production")
 
 
 func _test_ai_food_economy(failures: Array[String]) -> void:
@@ -454,8 +719,18 @@ func _test_ai_food_economy(failures: Array[String]) -> void:
 	simulation.players[RtsSimulation.TEAM_ENEMY]["jade"] = 1000
 	simulation.players[RtsSimulation.TEAM_ENEMY]["lumber"] = 1000
 	simulation._try_expand_ai_food_economy()
-	if simulation.primary_structure_id(RtsSimulation.TEAM_ENEMY, &"rice_farm") < 0:
+	var ai_farm_id := simulation.primary_structure_id(RtsSimulation.TEAM_ENEMY, &"rice_farm")
+	if ai_farm_id < 0:
 		failures.append("computer commander did not establish a Rice Farm")
+	else:
+		var ai_farm := simulation.entity(ai_farm_id)
+		ai_farm["complete"] = 1.0
+		ai_farm["hp"] = ai_farm["max_hp"]
+		for worker_id in simulation.team_entity_ids(RtsSimulation.TEAM_ENEMY, [&"worker"]):
+			simulation.command_stop(RtsSimulation.TEAM_ENEMY, [worker_id])
+		simulation._try_assign_ai_farmer()
+		if simulation.farm_worker_id(ai_farm_id) < 0:
+			failures.append("computer farming faction did not assign a Worker to its Rice Farm")
 	var resources_before_strategy := simulation.players[RtsSimulation.TEAM_ENEMY].duplicate(true)
 	simulation._ai_strategy_timer = 999.0
 	simulation._advance_ai(RtsSimulation.TICK_SECONDS)
@@ -530,6 +805,72 @@ func _test_ai_base_assault_waves(failures: Array[String]) -> void:
 			units_committed_during_cooldown += 1
 	if units_committed_during_cooldown != RtsSimulation.AI_ASSAULT_WAVE_SIZE:
 		failures.append("a large computer army bypassed the base-assault cooldown")
+
+
+func _test_ai_avoids_shenlong_until_ten_minutes(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human", false)
+	var guardian := simulation.shenlong_guardian()
+	if guardian.is_empty():
+		failures.append("Shenlong was unavailable for the computer avoidance test")
+		return
+	var guardian_id := int(guardian["id"])
+	var army: Array[Dictionary] = []
+	for offset in range(RtsSimulation.AI_SHENLONG_MIN_READY_UNITS):
+		var spawn_cell := MapCatalog.SHENLONG_CELL + Vector2i(2 + offset, 0)
+		var unit_id := simulation._spawn_unit(RtsSimulation.TEAM_ENEMY, &"vanguard", spawn_cell)
+		army.append(simulation.entity(unit_id))
+	simulation._refresh_visibility()
+	var nearby_attacker := army[0]
+	if simulation.command_attack(
+		RtsSimulation.TEAM_ENEMY,
+		[int(nearby_attacker["id"])],
+		guardian_id,
+	):
+		failures.append("computer units could explicitly target Shenlong before ten minutes")
+	if simulation._nearest_enemy(nearby_attacker, 4.0, true) == guardian_id:
+		failures.append("computer units automatically acquired Shenlong before ten minutes")
+	if simulation._issue_ai_shenlong_order(RtsSimulation.TEAM_ENEMY, army):
+		failures.append("computer strategy pursued Shenlong before ten minutes")
+
+	var pathfinder := army.back() as Dictionary
+	pathfinder["position"] = Vector2(MapCatalog.SHENLONG_EGG_CELL + Vector2i(-16, 0))
+	pathfinder["cell"] = Vector2i((pathfinder["position"] as Vector2).round())
+	simulation._set_path(pathfinder, MapCatalog.SHENLONG_EGG_CELL + Vector2i(16, 0))
+	var avoidance_path := pathfinder.get("path", []) as Array
+	if avoidance_path.is_empty():
+		failures.append("computer Shenlong avoidance could not find an alternate central route")
+	for raw_point in avoidance_path:
+		if (
+			(raw_point as Vector2).distance_to(Vector2(MapCatalog.SHENLONG_EGG_CELL))
+			<= RtsSimulation.AI_SHENLONG_AVOID_RADIUS
+		):
+			failures.append("computer path entered Shenlong's avoidance zone before ten minutes")
+			break
+
+	simulation.elapsed_time = RtsSimulation.AI_SHENLONG_UNLOCK_TIME_SECONDS
+	if not simulation.command_attack(
+		RtsSimulation.TEAM_ENEMY,
+		[int(nearby_attacker["id"])],
+		guardian_id,
+	):
+		failures.append("computer units could not target Shenlong at the ten-minute mark")
+	if not simulation._issue_ai_shenlong_order(RtsSimulation.TEAM_ENEMY, army):
+		failures.append("computer strategy did not unlock Shenlong at the ten-minute mark")
+
+	var player_attacker_id := simulation._spawn_unit(
+		RtsSimulation.TEAM_PLAYER,
+		&"vanguard",
+		MapCatalog.SHENLONG_CELL + Vector2i(-2, 0),
+	)
+	simulation.elapsed_time = 0.0
+	simulation._refresh_visibility()
+	if not simulation.command_attack(
+		RtsSimulation.TEAM_PLAYER,
+		[player_attacker_id],
+		guardian_id,
+	):
+		failures.append("the computer-only Shenlong lock prevented a player attack")
 
 
 func _test_ai_skill_test_invasion(failures: Array[String]) -> void:
@@ -632,8 +973,8 @@ func _test_faction_food_traditions(failures: Array[String]) -> void:
 func _test_wildlife_hunting(failures: Array[String]) -> void:
 	var simulation := RtsSimulation.new()
 	simulation.setup(&"human")
-	if simulation.wildlife_ids().size() != 34:
-		failures.append("simulation did not spawn all 34 wildlife members")
+	if simulation.wildlife_ids().size() != 68:
+		failures.append("simulation did not spawn all 68 wildlife members")
 	for kind in FactionCatalog.WILDLIFE_KINDS:
 		if simulation.wildlife_ids(kind).is_empty():
 			failures.append("simulation did not spawn %s wildlife" % kind)
@@ -713,8 +1054,11 @@ func _test_idle_hunter_wandering(failures: Array[String]) -> void:
 	simulation.command_stop(RtsSimulation.TEAM_PLAYER, [hunter_id])
 	hunter["wander_timer"] = 0.0
 	simulation.advance(RtsSimulation.TICK_SECONDS)
-	if hunter.get("order") != &"wander" or (hunter.get("path", []) as Array).is_empty():
-		failures.append("idle Hunter did not begin wandering toward wildlife territory")
+	if hunter.get("order") not in [&"wander", &"attack", &"attack_move"]:
+		failures.append("idle Hunter did not begin scouting or hunting toward wildlife territory")
+		return
+	if hunter.get("order") == &"wander" and (hunter.get("path", []) as Array).is_empty():
+		failures.append("idle Hunter began wandering without a wildlife destination")
 		return
 	var food_before := int(simulation.players[RtsSimulation.TEAM_PLAYER]["food"])
 	for _step in range(int(20.0 / RtsSimulation.TICK_SECONDS)):
@@ -896,8 +1240,190 @@ func _test_resignation_outcome(failures: Array[String]) -> void:
 	enemy_simulation.setup(&"human", false)
 	if not enemy_simulation.command_resign(RtsSimulation.TEAM_ENEMY):
 		failures.append("enemy resignation was rejected")
+	if not enemy_simulation.outcome.is_empty() or enemy_simulation.living_rival_count() != 2:
+		failures.append("one rival resignation ended the four-player match early")
+	enemy_simulation.command_resign(RtsSimulation.TEAM_RIVAL_TWO)
+	if not enemy_simulation.outcome.is_empty():
+		failures.append("two rival resignations ended the four-player match early")
+	enemy_simulation.command_resign(RtsSimulation.TEAM_RIVAL_THREE)
 	if enemy_simulation.outcome != &"victory":
-		failures.append("enemy resignation did not award player victory")
+		failures.append("the final rival resignation did not award victory")
+
+
+func _test_four_player_shenlong_objective(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human", false)
+	if simulation.players.size() != RtsSimulation.TEAM_COUNT:
+		failures.append("simulation did not create four player states")
+	var factions: Dictionary = {}
+	for team in range(simulation.players.size()):
+		factions[simulation.players[team]["faction"]] = true
+		if simulation.primary_structure_id(team, &"stronghold") < 0:
+			failures.append("team %d did not receive a Stronghold" % team)
+		if simulation.team_entity_ids(team, [&"worker"]).size() != 3:
+			failures.append("team %d did not receive three Workers" % team)
+	if factions.size() != RtsSimulation.TEAM_COUNT:
+		failures.append("the four teams did not receive unique factions")
+
+	var egg := simulation.shenlong_egg()
+	var guardian := simulation.shenlong_guardian()
+	if egg.is_empty() or guardian.is_empty() or bool(egg.get("claimable", true)):
+		failures.append("the guarded Dragon Egg did not spawn locked at the center")
+		return
+	var attacker_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", MapCatalog.SHENLONG_CELL + Vector2i(1, 0))
+	simulation._kill(guardian, simulation.entity(attacker_id))
+	if not bool(egg.get("claimable", false)) or not simulation.shenlong_guardian().is_empty():
+		failures.append("defeating guardian Shenlong did not unlock exactly one egg")
+
+	var worker_id := simulation.team_entity_ids(RtsSimulation.TEAM_PLAYER, [&"worker"])[0]
+	var worker := simulation.entity(worker_id)
+	worker["position"] = Vector2(MapCatalog.SHENLONG_EGG_CELL + Vector2i(0, 1))
+	worker["cell"] = MapCatalog.SHENLONG_EGG_CELL + Vector2i(0, 1)
+	simulation.command_stop(RtsSimulation.TEAM_PLAYER, [worker_id])
+	if not simulation.command_move(
+		RtsSimulation.TEAM_PLAYER,
+		[worker_id],
+		egg["cell"] as Vector2i,
+	):
+		failures.append("an empty-handed Worker could not move to the unlocked egg")
+	else:
+		if worker.get("order") != &"claim_egg" or int(worker.get("target_id", -1)) != int(egg["id"]):
+			failures.append("moving a Worker to the unlocked egg did not create a claim order")
+		simulation.advance(RtsSimulation.TICK_SECONDS * 2.0)
+		if not bool(worker.get("carrying_egg", false)) or worker.get("order") != &"return_egg":
+			failures.append("moving to the egg did not claim it and create a physical return order")
+		var rival_attacker_id := simulation._spawn_unit(RtsSimulation.TEAM_ENEMY, &"vanguard", worker["cell"] as Vector2i)
+		simulation._kill(worker, simulation.entity(rival_attacker_id))
+		if not bool(egg.get("claimable", false)) or int(egg.get("carried_by", -1)) >= 0:
+			failures.append("killing the carrier did not drop and unlock the egg")
+
+	var replacement_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", egg["cell"] as Vector2i + Vector2i(0, 1))
+	var replacement := simulation.entity(replacement_id)
+	if not simulation.command_claim_egg(RtsSimulation.TEAM_PLAYER, [replacement_id], int(egg["id"])):
+		failures.append("a dropped egg could not be reclaimed")
+	else:
+		simulation.advance(RtsSimulation.TICK_SECONDS * 2.0)
+		var stronghold := simulation.entity(simulation.primary_structure_id(RtsSimulation.TEAM_PLAYER, &"stronghold"))
+		replacement["position"] = Vector2(stronghold["cell"] as Vector2i + Vector2i(2, 1))
+		replacement["cell"] = Vector2i((replacement["position"] as Vector2).round())
+		simulation.advance(RtsSimulation.TICK_SECONDS * 2.0)
+		if bool(egg.get("alive", true)) or bool(replacement.get("carrying_egg", true)):
+			failures.append("delivering the egg did not consume the carried objective")
+		if simulation.team_entity_ids(RtsSimulation.TEAM_PLAYER, [&"shenlong"]).size() != 1:
+			failures.append("delivering the egg did not hatch exactly one allied Shenlong")
+
+	var victory_simulation := RtsSimulation.new()
+	victory_simulation.setup(&"human", false)
+	var victor_id := victory_simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", MapCatalog.SHENLONG_EGG_CELL)
+	var victor := victory_simulation.entity(victor_id)
+	for team in [RtsSimulation.TEAM_ENEMY, RtsSimulation.TEAM_RIVAL_TWO]:
+		victory_simulation._kill(victory_simulation.entity(victory_simulation.primary_structure_id(team, &"stronghold")), victor)
+		if not victory_simulation.outcome.is_empty():
+			failures.append("destroying fewer than three rival Strongholds ended the match")
+	victory_simulation._kill(victory_simulation.entity(victory_simulation.primary_structure_id(RtsSimulation.TEAM_RIVAL_THREE, &"stronghold")), victor)
+	if victory_simulation.outcome != &"victory":
+		failures.append("destroying all three rival Strongholds did not award victory")
+
+	var defeat_simulation := RtsSimulation.new()
+	defeat_simulation.setup(&"human", false)
+	var defeat_attacker_id := defeat_simulation._spawn_unit(
+		RtsSimulation.TEAM_ENEMY,
+		&"vanguard",
+		MapCatalog.PLAYER_STRONGHOLD + Vector2i(2, 0),
+	)
+	defeat_simulation._kill(
+		defeat_simulation.entity(defeat_simulation.primary_structure_id(RtsSimulation.TEAM_PLAYER, &"stronghold")),
+		defeat_simulation.entity(defeat_attacker_id),
+	)
+	if defeat_simulation.outcome != &"defeat":
+		failures.append("destroying the human Stronghold did not produce defeat")
+
+	var elimination_simulation := RtsSimulation.new()
+	elimination_simulation.setup(&"human", false)
+	var eliminated_unit_id := elimination_simulation._spawn_unit(
+		RtsSimulation.TEAM_ENEMY,
+		&"vanguard",
+		MapCatalog.ENEMY_STRONGHOLD + Vector2i(-1, 0),
+	)
+	var elimination_victor_id := elimination_simulation._spawn_unit(
+		RtsSimulation.TEAM_PLAYER,
+		&"vanguard",
+		MapCatalog.ENEMY_STRONGHOLD + Vector2i(-2, 0),
+	)
+	var eliminated_structure_id := elimination_simulation._spawn_structure(
+		RtsSimulation.TEAM_ENEMY,
+		&"war_camp",
+		MapCatalog.ENEMY_STRONGHOLD + Vector2i(-3, 0),
+		true,
+	)
+	var eliminated_cave := elimination_simulation.entity(elimination_simulation.cave_ids()[0])
+	elimination_simulation._complete_cave_capture(eliminated_cave, RtsSimulation.TEAM_ENEMY)
+	var eliminated_unit := elimination_simulation.entity(eliminated_unit_id)
+	eliminated_unit["order"] = &"attack"
+	eliminated_unit["target_id"] = elimination_victor_id
+	elimination_simulation._kill(
+		elimination_simulation.entity(elimination_simulation.primary_structure_id(RtsSimulation.TEAM_ENEMY, &"stronghold")),
+		elimination_simulation.entity(elimination_victor_id),
+	)
+	if bool(eliminated_unit.get("alive", true)) or eliminated_unit.get("order") != &"idle":
+		failures.append("an eliminated rival retained a living unit")
+	if bool(elimination_simulation.entity(eliminated_structure_id).get("alive", true)):
+		failures.append("an eliminated rival retained a living building")
+	if not elimination_simulation.team_entity_ids(RtsSimulation.TEAM_ENEMY).is_empty():
+		failures.append("an eliminated rival retained owned entities")
+	if int(elimination_simulation.players[RtsSimulation.TEAM_ENEMY]["population"]) != 0:
+		failures.append("an eliminated rival retained population after its units were culled")
+	if (
+		not bool(eliminated_cave.get("alive", false))
+		or int(eliminated_cave.get("team", RtsSimulation.TEAM_ENEMY)) != RtsSimulation.TEAM_NEUTRAL
+	):
+		failures.append("an eliminated rival's captured Yaoguai Den did not return to neutral control")
+
+
+func _test_four_faction_free_for_all(failures: Array[String]) -> void:
+	var expected_factions: Dictionary = {}
+	for faction in FactionCatalog.ORDER:
+		expected_factions[faction] = true
+	for chosen_faction in FactionCatalog.ORDER:
+		var simulation := RtsSimulation.new()
+		simulation.setup(chosen_faction, false)
+		if simulation.players.size() != RtsSimulation.TEAM_COUNT:
+			failures.append("%s match did not create exactly four players" % chosen_faction)
+			continue
+		var match_factions: Dictionary = {}
+		for team in range(RtsSimulation.TEAM_COUNT):
+			var player := simulation.players[team]
+			match_factions[player["faction"]] = true
+			if bool(player.get("is_ai", false)) != (team != RtsSimulation.TEAM_PLAYER):
+				failures.append("%s match assigned the wrong controller to team %d" % [chosen_faction, team])
+			var stronghold := simulation.entity(simulation.primary_structure_id(team, &"stronghold"))
+			var expected_start := MapCatalog.start_definition(team)
+			if stronghold.is_empty() or stronghold.get("cell") != expected_start.get("stronghold"):
+				failures.append("%s match did not place team %d on its own island" % [chosen_faction, team])
+			var expected_worker_cells: Dictionary = {}
+			for raw_cell in expected_start.get("workers", []) as Array:
+				expected_worker_cells[raw_cell as Vector2i] = true
+			var actual_worker_cells: Dictionary = {}
+			for worker_id in simulation.team_entity_ids(team, [&"worker"]):
+				actual_worker_cells[simulation.entity(worker_id)["cell"] as Vector2i] = true
+			if actual_worker_cells != expected_worker_cells:
+				failures.append("%s match did not place team %d Workers on its island" % [chosen_faction, team])
+		if match_factions != expected_factions:
+			failures.append("%s match did not feature all four factions exactly once" % chosen_faction)
+		if simulation.players[RtsSimulation.TEAM_PLAYER]["faction"] != chosen_faction:
+			failures.append("%s selection was not preserved for the human player" % chosen_faction)
+		for first_team in range(RtsSimulation.TEAM_COUNT):
+			for second_team in range(first_team + 1, RtsSimulation.TEAM_COUNT):
+				var first_hold := simulation.entity(simulation.primary_structure_id(first_team, &"stronghold"))
+				var second_hold := simulation.entity(simulation.primary_structure_id(second_team, &"stronghold"))
+				if (
+					not simulation.are_hostile(first_hold, second_hold)
+					or not simulation.are_hostile(second_hold, first_hold)
+				):
+					failures.append(
+						"%s match created an alliance between teams %d and %d"
+						% [chosen_faction, first_team, second_team]
+					)
 
 
 func _run() -> void:
@@ -906,22 +1432,29 @@ func _run() -> void:
 	_test_manual_deposit_requires_range(failures)
 	_test_cargo_reassignment_preserves_kind(failures)
 	_test_attack_move_resumes_destination(failures)
+	_test_diagonal_pathfinding(failures)
 	_test_large_formations_and_separation(failures)
 	_test_hostile_worker_separation(failures)
 	_test_units_pass_through_harmless_wildlife(failures)
 	_test_units_pass_through_friendly_structures(failures)
 	_test_unit_food_costs(failures)
+	_test_targeted_production_cancellation(failures)
 	_test_free_worker_recovery(failures)
 	_test_food_building(&"rice_farm", failures)
 	_test_food_building(&"hunters_lodge", failures)
+	_test_farm_worker_assignment(failures)
+	_test_food_strategy_balance(failures)
 	_test_ai_food_economy(failures)
 	_test_ai_base_assault_waves(failures)
+	_test_ai_avoids_shenlong_until_ten_minutes(failures)
 	_test_ai_skill_test_invasion(failures)
 	_test_faction_food_traditions(failures)
 	_test_wildlife_hunting(failures)
 	_test_idle_hunter_wandering(failures)
 	_test_lifetime_scoring(failures)
 	_test_resignation_outcome(failures)
+	_test_four_faction_free_for_all(failures)
+	_test_four_player_shenlong_objective(failures)
 	var simulation := RtsSimulation.new()
 	simulation.setup(&"human")
 	if int(simulation.players[RtsSimulation.TEAM_PLAYER]["lumber"]) != 30:
@@ -951,8 +1484,8 @@ func _run() -> void:
 			failures.append("Stronghold deposit command did not clear worker cargo")
 
 	var cave_ids := simulation.cave_ids()
-	if cave_ids.size() != 2:
-		failures.append("expected two Yaoguai Dens, got %d" % cave_ids.size())
+	if cave_ids.size() != 4:
+		failures.append("expected four Yaoguai Dens, got %d" % cave_ids.size())
 	else:
 		var cave := simulation.entity(cave_ids[0])
 		if simulation.cave_guardian_count(cave_ids[0]) != 3:
@@ -1043,11 +1576,15 @@ func _run() -> void:
 							failures.append("recapture converted an already-produced Jadeclaw")
 	var jade_before := int(simulation.players[RtsSimulation.TEAM_PLAYER]["jade"])
 	var jade_resource_id := -1
+	var jade_resource_distance := INF
+	var jade_origin := simulation.entity(workers[0])["position"] as Vector2
 	for raw_entity in simulation.entities.values():
 		var entity_state := raw_entity as Dictionary
 		if entity_state.get("resource_kind") == &"jade":
-			jade_resource_id = int(entity_state["id"])
-			break
+			var distance := (entity_state["position"] as Vector2).distance_to(jade_origin)
+			if distance < jade_resource_distance:
+				jade_resource_distance = distance
+				jade_resource_id = int(entity_state["id"])
 	if jade_resource_id < 0:
 		failures.append("no jade resource spawned")
 	else:
@@ -1171,11 +1708,18 @@ func _run() -> void:
 		simulation._refresh_visibility()
 		simulation.command_attack(RtsSimulation.TEAM_PLAYER, [attacker_id], enemy_hold_id)
 		_advance(simulation, 3.0)
+		if not simulation.outcome.is_empty():
+			failures.append("destroying one rival Stronghold ended the match early")
+		for remaining_team in [RtsSimulation.TEAM_RIVAL_TWO, RtsSimulation.TEAM_RIVAL_THREE]:
+			var remaining_hold := simulation.entity(
+				simulation.primary_structure_id(remaining_team, &"stronghold")
+			)
+			simulation._kill(remaining_hold, simulation.entity(attacker_id))
 		if simulation.outcome != &"victory":
-			failures.append("destroying the enemy Stronghold did not produce victory")
+			failures.append("destroying all rival Strongholds did not produce victory")
 
 	if failures.is_empty():
-		print("PASS simulation_test: deposits, cargo integrity, attack-move, formations, harmless-wildlife pass-through, hostile separation, Food costs and producers, AI food economy, assault waves, and one-hour skill test, guardian wandering, tree retargeting, monster bounties, cave capture and recapture, Jadeclaw production, economy, construction, combat, victory, and resignation")
+		print("PASS simulation_test: four-faction free-for-all roster and island starts, deposits, cargo integrity, attack-move, formations, harmless-wildlife pass-through, hostile separation, Food costs and producers, AI food economy, assault waves, and one-hour skill test, guardian wandering, tree retargeting, monster bounties, cave capture and recapture, Jadeclaw production, economy, construction, combat, victory, and resignation")
 		quit(0)
 	else:
 		for failure in failures:

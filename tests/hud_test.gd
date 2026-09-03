@@ -9,8 +9,11 @@ func _run() -> void:
 	var failures: Array[String] = []
 	var scene := load("res://scenes/main.tscn") as PackedScene
 	var game := scene.instantiate()
+	var leaderboard_save_path := "user://hud_leaderboard_test_%d.json" % Time.get_ticks_usec()
+	game.leaderboard_save_path = leaderboard_save_path
 	root.add_child(game)
 	await process_frame
+	_verify_title_leaderboard(game, failures)
 	game.call("_start_match", &"human")
 	await process_frame
 	var battlefield: Battlefield = game.battlefield
@@ -22,7 +25,7 @@ func _run() -> void:
 	_verify_move_and_rally(game, battlefield, simulation, failures)
 	_verify_toast_and_pause_menus(game, battlefield, failures)
 	_verify_free_worker_command(game, battlefield, simulation, failures)
-	_verify_resign(game, simulation, failures)
+	await _verify_resign(game, simulation, failures)
 
 	var director := game.audio_director as AudioDirector
 	director._music_player.stop()
@@ -34,15 +37,39 @@ func _run() -> void:
 	director._music_player.stream = null
 	game.queue_free()
 	await process_frame
+	_cleanup_leaderboard(leaderboard_save_path)
 	if not CursorSystem.is_suspended():
 		failures.append("game shutdown did not release the custom cursor registry")
 	if failures.is_empty():
-		print("PASS hud_test: economy ribbon, objectives, selection states, command card, production queue, armed modes, toasts, pause/settings menus, and resign")
+		print("PASS hud_test: title/result leaderboards, economy ribbon, objectives, selection states, command card, production queue, armed modes, toasts, pause/settings menus, and resign")
 		quit(0)
 	else:
 		for failure in failures:
 			push_error(failure)
 		quit(1)
+
+
+func _verify_title_leaderboard(game: Node, failures: Array[String]) -> void:
+	if game._leaderboard_button == null or game._leaderboard_button.text != "LEADERBOARD":
+		failures.append("title screen did not expose its Leaderboard action")
+		return
+	game._leaderboard_button.pressed.emit()
+	if game._leaderboard_dialog == null or not game._leaderboard_dialog.visible:
+		failures.append("title Leaderboard action did not open the dialog")
+		return
+	if game._leaderboard_dialog.mode != LeaderboardDialog.MODE_LOCAL:
+		failures.append("leaderboard dialog did not open on Local rankings")
+	game._leaderboard_dialog.global_tab.pressed.emit()
+	if game._leaderboard_dialog.mode != LeaderboardDialog.MODE_GLOBAL:
+		failures.append("Global tab did not switch the leaderboard mode")
+	if not game._leaderboard_dialog.status_label.text.contains("GLOBAL"):
+		failures.append("native Global tab did not explain its local fallback")
+	var escape := InputEventKey.new()
+	escape.pressed = true
+	escape.keycode = KEY_ESCAPE
+	game.call("_unhandled_key_input", escape)
+	if game._leaderboard_dialog.visible:
+		failures.append("Esc did not close the title leaderboard dialog")
 
 
 func _verify_economy_and_objectives(game: Node, simulation: RtsSimulation, failures: Array[String]) -> void:
@@ -69,8 +96,10 @@ func _verify_economy_and_objectives(game: Node, simulation: RtsSimulation, failu
 		game.call("_update_hud")
 		if game._score_label.text != "SCORE: 7":
 			failures.append("top-left score label did not bind to the authoritative score")
-	if game._objective_rows.size() != 3:
-		failures.append("objective tracker did not create three checklist rows")
+	if game._objective_rows.size() != 4:
+		failures.append("objective tracker did not create four checklist rows")
+	elif not (game._objective_rows[2] as Label).text.contains("Dragon Egg"):
+		failures.append("objective tracker omitted the Shenlong egg objective")
 	var pause_icon := game._pause_button.get_node_or_null("Icon") as TextureRect if game._pause_button != null else null
 	var audio_icon := game._audio_button.get_node_or_null("Icon") as TextureRect if game._audio_button != null else null
 	if game._pause_button == null or pause_icon == null or not game._pause_button.text.is_empty():
@@ -111,8 +140,21 @@ func _verify_selection_states(
 	game.call("_update_hud")
 	if game._selection_portrait.stretch_mode != TextureRect.STRETCH_KEEP_ASPECT_COVERED:
 		failures.append("Empty selection did not fill the portrait frame with centered faction art")
+	if not game._selection_meta.text.contains("I IDLE"):
+		failures.append("selection help did not advertise the idle Worker hotkey")
 
 	var workers := simulation.team_entity_ids(RtsSimulation.TEAM_PLAYER, [&"worker"])
+	var busy_worker := simulation.entity(workers[1])
+	busy_worker["order"] = &"move"
+	var idle_worker_hotkey := InputEventKey.new()
+	idle_worker_hotkey.pressed = true
+	idle_worker_hotkey.keycode = KEY_I
+	game.call("_unhandled_key_input", idle_worker_hotkey)
+	var expected_idle_workers: Array[int] = workers.duplicate()
+	expected_idle_workers.erase(int(workers[1]))
+	if battlefield.selected_ids != expected_idle_workers:
+		failures.append("I did not select all and only idle Workers")
+	busy_worker["order"] = &"idle"
 	battlefield.select_entities([workers[0]])
 	game.call("_update_hud")
 	if game._selection_title.text != "WORKER" or not game._command_buttons[&"repair"].visible:
@@ -196,16 +238,46 @@ func _verify_commands_and_queue(
 		simulation.players[RtsSimulation.TEAM_PLAYER][String(resource)] = 1000
 	simulation.command_train(RtsSimulation.TEAM_PLAYER, stronghold_id, &"worker")
 	simulation.command_train(RtsSimulation.TEAM_PLAYER, stronghold_id, &"worker")
+	var queue := simulation.entity(stronghold_id).get("queue", []) as Array
+	(queue[0] as Dictionary)["remaining"] = 1.25
+	var second_order_total := float((queue[1] as Dictionary).get("total", 0.0))
 	battlefield.select_entities([stronghold_id])
 	game.call("_update_hud")
-	if not game._queue_panel.visible or not game._queue_tiles[0].visible:
-		failures.append("global production queue did not display queued units")
+	if not game._queue_panel.visible or not game._queue_tiles[0].visible or not game._queue_tiles[1].visible:
+		failures.append("global production queue did not display each queued unit order")
 	if not game._command_buttons[&"cancel_queue"].visible:
 		failures.append("selected producer did not expose Cancel Last")
+	if (
+		int(game._queue_tiles[0].get_meta(&"producer_id", -1)) != stronghold_id
+		or int(game._queue_tiles[0].get_meta(&"queue_index", -1)) != 0
+		or int(game._queue_tiles[1].get_meta(&"queue_index", -1)) != 1
+		or int(game._queue_tiles[0].get_meta(&"order_id", -1)) < 0
+		or int(game._queue_tiles[1].get_meta(&"order_id", -1)) < 0
+	):
+		failures.append("production queue tiles did not retain their exact order locations")
+	if not game._queue_tiles[0].tooltip_text.contains("full refund"):
+		failures.append("production queue tile did not explain click-to-cancel refunds")
+	var player := simulation.players[RtsSimulation.TEAM_PLAYER] as Dictionary
+	var first_order_costs := ((queue[0] as Dictionary).get("costs", {}) as Dictionary).duplicate()
+	var first_order_population := int((queue[0] as Dictionary).get("reserved_population", 0))
+	var resources_before_cancel: Dictionary = {}
+	for resource in [&"jade", &"lumber", &"essence", &"food"]:
+		resources_before_cancel[resource] = int(player[String(resource)])
+	var population_before_cancel := int(player["population"])
 	battlefield.select_entities([])
 	game.call("_on_queue_tile_pressed", game._queue_tiles[0])
-	if battlefield.selected_ids != [stronghold_id]:
-		failures.append("production queue tile did not select its producer")
+	queue = simulation.entity(stronghold_id).get("queue", []) as Array
+	if queue.size() != 1 or not is_equal_approx(float((queue[0] as Dictionary).get("remaining", 0.0)), second_order_total):
+		failures.append("clicking a production queue tile did not cancel that exact order")
+	for resource in [&"jade", &"lumber", &"essence", &"food"]:
+		var resource_key := String(resource)
+		var expected_amount := int(resources_before_cancel[resource]) + int(first_order_costs.get(resource_key, 0))
+		if int(player[resource_key]) != expected_amount:
+			failures.append("production queue tile cancellation did not fully refund %s" % resource_key.capitalize())
+	if int(player["population"]) != population_before_cancel - first_order_population:
+		failures.append("production queue tile cancellation did not release reserved population")
+	if not game._feedback_label.text.contains("full refund"):
+		failures.append("production queue tile cancellation did not confirm the full refund")
 
 	var vanguard_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", MapCatalog.PLAYER_WORKERS[0] + Vector2i(1, 0))
 	battlefield.select_entities([vanguard_id])
@@ -367,6 +439,8 @@ func _verify_free_worker_command(
 
 
 func _verify_resign(game: Node, simulation: RtsSimulation, failures: Array[String]) -> void:
+	var match_count_before := int(game.leaderboard_store.snapshot().get("total_matches", 0))
+	var expected_score := simulation.team_score(RtsSimulation.TEAM_PLAYER)
 	game.call("_toggle_pause")
 	game._resign_button.pressed.emit()
 	if simulation.outcome != &"defeat":
@@ -375,3 +449,60 @@ func _verify_resign(game: Node, simulation: RtsSimulation, failures: Array[Strin
 		failures.append("Resign did not open the match result screen")
 	if game._pause_overlay.visible:
 		failures.append("pause menu remained visible over the resignation result")
+	var result_score := game._result_overlay.find_child("ResultScore", true, false) as Label
+	if result_score == null or result_score.text != "SCORE: %d" % expected_score:
+		failures.append("result screen did not show the authoritative final score")
+	if game._result_leaderboard_button == null or game._result_leaderboard_button.text != "LEADERBOARD":
+		failures.append("result screen did not expose its Leaderboard action")
+	else:
+		game._result_leaderboard_button.pressed.emit()
+		if not game._leaderboard_dialog.visible:
+			failures.append("result Leaderboard action did not open the dialog")
+		await process_frame
+		if game._leaderboard_dialog.get_index() <= game._result_overlay.get_index():
+			failures.append("leaderboard did not move above the result overlay for input handling")
+		if DisplayServer.get_name() != "headless":
+			await _click_control(game._leaderboard_dialog.callsign_edit)
+			if not game._leaderboard_dialog.callsign_edit.has_focus():
+				failures.append("result overlay intercepted leaderboard name-field input")
+			await _click_control(game._leaderboard_dialog.global_tab)
+			if game._leaderboard_dialog.mode != LeaderboardDialog.MODE_GLOBAL:
+				failures.append("result overlay intercepted leaderboard button input")
+		var local_rows: Array = game.leaderboard_store.local_leaderboard()
+		if local_rows.is_empty() or int(local_rows[0].get("score", -1)) != expected_score:
+			failures.append("completed match score was not available in local rankings")
+		if DisplayServer.get_name() == "headless":
+			game._leaderboard_dialog.close_dialog()
+		else:
+			await _click_control(game._leaderboard_dialog.close_button)
+			if game._leaderboard_dialog.visible:
+				failures.append("result overlay intercepted leaderboard Close input")
+	var recorded_profile: Dictionary = game.leaderboard_store.snapshot()
+	if int(recorded_profile.get("total_matches", 0)) != match_count_before + 1:
+		failures.append("match result was not persisted exactly once")
+	game.call("_on_match_ended", &"defeat")
+	if int(game.leaderboard_store.snapshot().get("total_matches", 0)) != match_count_before + 1:
+		failures.append("duplicate match-ended event recorded the same score twice")
+
+
+func _cleanup_leaderboard(save_path: String) -> void:
+	for path in [save_path, "%s.bak" % save_path, "%s.tmp" % save_path]:
+		if FileAccess.file_exists(path):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+func _click_control(control: Control) -> void:
+	var click_position := control.get_global_rect().get_center()
+	var motion := InputEventMouseMotion.new()
+	motion.position = click_position
+	motion.global_position = click_position
+	root.push_input(motion)
+	await process_frame
+	for is_pressed in [true, false]:
+		var click := InputEventMouseButton.new()
+		click.button_index = MOUSE_BUTTON_LEFT
+		click.pressed = is_pressed
+		click.position = click_position
+		click.global_position = click_position
+		root.push_input(click)
+	await process_frame

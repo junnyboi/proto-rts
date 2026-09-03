@@ -34,7 +34,11 @@ const CARGO_ICON_TEXTURES := {
 	&"essence": preload("res://assets/runtime/ui/resource_icons/essence.png"),
 	&"food": preload("res://assets/runtime/ui/resource_icons/food.png"),
 }
+const FARM_WORKER_ICON_TEXTURE := preload("res://assets/runtime/ui/resource_icons/food.png")
 const IDLE_WORKER_ALERT_TEXTURE := preload("res://assets/runtime/ui/idle_worker_alert.png")
+const FOG_MASK_BUILDER_SCRIPT := preload("res://scripts/view/fog_mask_builder.gd")
+const MAP_EDGE_CONTOUR_SCRIPT := preload("res://scripts/view/map_edge_contour.gd")
+const BATTLEFIELD_BACKGROUND_COLOR := Color("071416")
 const PLAYER_COLOR := Color("78dfb7")
 const ENEMY_COLOR := Color("f06656")
 const NEUTRAL_COLOR := Color("d7bd6c")
@@ -47,6 +51,7 @@ const ESSENCE_RESOURCE_COLOR := Color("77c6ff")
 const FOOD_RESOURCE_COLOR := Color("f2c85b")
 const EXPLORED_FOG_COLOR := Color(0.015, 0.055, 0.06, 0.58)
 const UNEXPLORED_FOG_COLOR := Color(0.005, 0.018, 0.022, 0.97)
+const FOG_MASK_PIXELS_PER_CELL := 1
 const VISIBILITY_REFRESH_SECONDS := 0.1
 const WATER_UV_SCALE := 0.33
 const WATER_FLOW_SPEED := Vector2(-0.045, -0.045)
@@ -59,11 +64,15 @@ const WALK_BOUNCE_SPEED := 8.5
 const WALK_MOTION_MEMORY_SECONDS := 0.16
 const WALK_MOTION_EPSILON_SQUARED := 0.000001
 const WALK_FACING_EPSILON := 0.01
-const IDLE_WOBBLE_MIN_WAIT_SECONDS := 12.0
-const IDLE_WOBBLE_MAX_WAIT_SECONDS := 24.0
+const IDLE_WOBBLE_MIN_WAIT_SECONDS := 6.0
+const IDLE_WOBBLE_MAX_WAIT_SECONDS := 12.0
 const IDLE_WOBBLE_DURATION := 0.52
 const IDLE_WOBBLE_ANGLE := 0.0436332313
 const IDLE_WOBBLE_OSCILLATIONS := 2.0
+const SHENLONG_WAVE_MIN_SCALE := 0.28
+const SHENLONG_MESH_COLUMNS := 12
+const SHENLONG_MESH_ROWS := 9
+const SHENLONG_AURA_WISP_COUNT := 5
 const MAX_VISIBLE_COMMAND_PATHS := 10
 const COMMAND_PATH_DOT_SPACING := 16.0
 const COMMAND_PATH_DOT_RADIUS := 2.4
@@ -88,6 +97,7 @@ const NATIVE_RIGHT_FACING_ART := {
 	"neutral:boar": true,
 	"neutral:chicken": true,
 	"neutral:deer": true,
+	"neutral:shenlong": true,
 }
 const WHEEL_ZOOM_STEP := 1.12
 const INITIAL_CAMERA_ZOOM_FACTOR := 1.5
@@ -107,6 +117,7 @@ var repair_armed := false
 var rally_armed := false
 var placement_worker_id := -1
 var placement_kind: StringName = &""
+var placement_orientation: StringName = &"y"
 var fog_enabled := true
 var control_groups: Dictionary = {}
 
@@ -120,16 +131,24 @@ var _selection_dragging := false
 var _selection_start := Vector2.ZERO
 var _selection_current := Vector2.ZERO
 var _selection_additive := false
+var _placement_pressed := false
+var _placement_start_cell := Vector2i(-1, -1)
+var _placement_current_cell := Vector2i(-1, -1)
 var _armed_append := false
 var _last_control_group := -1
 var _last_control_group_recall_ms := -1000
 var _mouse_position := Vector2.ZERO
 var _cursor_state: StringName = &""
 var _texture_cache: Dictionary = {}
+var _texture_bottom_margin_cache: Dictionary = {}
 var _effects: Array[Dictionary] = []
 var _visible_cells: Dictionary = {}
 var _explored_cells: Dictionary = {}
 var _visibility_timer := 0.0
+var _fog_mask_builder
+var _fog_mask_texture: ImageTexture
+var _fog_mask_dirty := true
+var _map_edge_projected_bands: Array[Dictionary] = []
 var _water_animation_time := 0.0
 var _wind_animation_time := 0.0
 var _walk_animation_time := 0.0
@@ -162,6 +181,7 @@ func set_simulation(value: RtsSimulation) -> void:
 	_movement_visuals.clear()
 	_visible_cells.clear()
 	_explored_cells.clear()
+	_fog_mask_dirty = true
 	_refresh_visibility()
 	_fit_camera()
 	queue_redraw()
@@ -212,6 +232,8 @@ func set_fog_enabled(value: bool) -> void:
 	if fog_enabled == value:
 		return
 	fog_enabled = value
+	if fog_enabled:
+		_fog_mask_dirty = true
 	fog_visibility_changed.emit()
 	queue_redraw()
 
@@ -231,7 +253,9 @@ func should_render_entity(entity_state: Dictionary) -> bool:
 	if team == RtsSimulation.TEAM_PLAYER or not fog_enabled:
 		return true
 	var cell := _entity_center_cell(entity_state)
-	if team == RtsSimulation.TEAM_ENEMY:
+	if team >= 0 and team != RtsSimulation.TEAM_PLAYER:
+		return is_cell_visible(cell)
+	if entity_state.get("kind") == &"shenlong_egg" and int(entity_state.get("carried_by", -1)) >= 0:
 		return is_cell_visible(cell)
 	if entity_state.get("category") in [&"unit", &"wildlife"]:
 		return is_cell_visible(cell)
@@ -272,7 +296,11 @@ func _prune_selected_ids() -> void:
 	var next_ids: Array[int] = []
 	for id in selected_ids:
 		var entity_state := simulation.entity(id) if simulation != null else {}
-		if not entity_state.is_empty() and bool(entity_state.get("alive", false)):
+		if (
+			not entity_state.is_empty()
+			and bool(entity_state.get("alive", false))
+			and int(entity_state.get("garrisoned_in", -1)) < 0
+		):
 			next_ids.append(id)
 	if next_ids == selected_ids:
 		return
@@ -290,7 +318,9 @@ func _refresh_visibility() -> void:
 	_visible_cells = next_visible
 	_explored_cells = next_explored
 	if changed:
+		_fog_mask_dirty = true
 		fog_visibility_changed.emit()
+		queue_redraw()
 
 
 func _entity_center_cell(entity_state: Dictionary) -> Vector2i:
@@ -330,6 +360,16 @@ func _gui_input(event: InputEvent) -> void:
 			_selection_current = motion.position
 			_selection_dragging = _selection_current.distance_to(_selection_start) >= 6.0
 			_refresh_cursor()
+			accept_event()
+		elif _placement_pressed:
+			_placement_current_cell = screen_to_cell(motion.position)
+			if placement_kind == &"gate":
+				placement_orientation = simulation.gate_orientation(
+					_placement_start_cell,
+					_placement_current_cell,
+				)
+			_refresh_cursor()
+			queue_redraw()
 			accept_event()
 	elif event is InputEventMagnifyGesture:
 		var magnify := event as InputEventMagnifyGesture
@@ -372,16 +412,10 @@ func _gui_input(event: InputEvent) -> void:
 
 func _handle_left_press(screen_position: Vector2, append: bool = false) -> void:
 	if placement_worker_id >= 0:
-		var cell := screen_to_cell(screen_position)
-		var stats := FactionCatalog.stats(
-			placement_kind,
-			simulation.players[RtsSimulation.TEAM_PLAYER]["faction"] as StringName,
-		)
-		var structure_name := String(stats.get("name", "Structure"))
-		if simulation.command_build(RtsSimulation.TEAM_PLAYER, placement_worker_id, placement_kind, cell):
-			feedback.emit("%s foundation placed." % structure_name, false)
-		else:
-			feedback.emit("That site cannot host a %s." % structure_name, true)
+		_placement_pressed = true
+		_placement_start_cell = screen_to_cell(screen_position)
+		_placement_current_cell = _placement_start_cell
+		placement_orientation = &"y"
 		return
 	if move_armed:
 		var move_cell := screen_to_cell(screen_position)
@@ -446,6 +480,11 @@ func _handle_left_press(screen_position: Vector2, append: bool = false) -> void:
 
 
 func _handle_left_release(screen_position: Vector2) -> void:
+	if _placement_pressed:
+		_placement_pressed = false
+		_placement_current_cell = screen_to_cell(screen_position)
+		_commit_structure_placement()
+		return
 	if not _selection_pressed:
 		return
 	_selection_pressed = false
@@ -469,6 +508,40 @@ func _handle_left_release(screen_position: Vector2) -> void:
 	_selection_additive = false
 
 
+func _commit_structure_placement() -> void:
+	var faction := simulation.players[RtsSimulation.TEAM_PLAYER]["faction"] as StringName
+	var stats := FactionCatalog.stats(placement_kind, faction)
+	var structure_name := String(stats.get("name", "Structure"))
+	if placement_kind == &"wall":
+		var wall_ids := simulation.command_build_wall_line(
+			RtsSimulation.TEAM_PLAYER,
+			placement_worker_id,
+			_placement_start_cell,
+			_placement_current_cell,
+		)
+		if wall_ids.is_empty():
+			feedback.emit("That snapped wall line is blocked or unaffordable.", true)
+		else:
+			feedback.emit("%d Wood Wall foundations placed." % wall_ids.size(), false)
+			audio_cue.emit(&"order_work")
+		return
+	placement_orientation = simulation.gate_orientation(
+		_placement_start_cell,
+		_placement_current_cell,
+	) if placement_kind == &"gate" else &"y"
+	if simulation.command_build(
+		RtsSimulation.TEAM_PLAYER,
+		placement_worker_id,
+		placement_kind,
+		_placement_start_cell,
+		placement_orientation,
+	):
+		feedback.emit("%s foundation placed." % structure_name, false)
+		audio_cue.emit(&"order_work")
+	else:
+		feedback.emit("That site cannot host a %s." % structure_name, true)
+
+
 func _handle_right_click(screen_position: Vector2, append: bool = false) -> void:
 	if selected_ids.is_empty():
 		return
@@ -479,6 +552,35 @@ func _handle_right_click(screen_position: Vector2, append: bool = false) -> void
 	var target_id := entity_at_screen(screen_position, false)
 	if target_id >= 0:
 		var target := simulation.entity(target_id)
+		if (
+			target.get("kind") == &"sentry_tower"
+			and int(target.get("team", RtsSimulation.TEAM_NEUTRAL)) == RtsSimulation.TEAM_PLAYER
+			and float(target.get("complete", 0.0)) >= 1.0
+		):
+			var ranged_units := _selected_garrison_units()
+			if ranged_units.is_empty():
+				feedback.emit("Select a Hunter or Mystic to garrison this tower.", true)
+			elif simulation.command_garrison(
+				RtsSimulation.TEAM_PLAYER,
+				ranged_units,
+				target_id,
+				append,
+			):
+				feedback.emit("Tower garrison queued." if append else "Unit sent to the Sentry Tower.", false)
+				audio_cue.emit(&"order_move")
+			else:
+				feedback.emit("This tower is already occupied.", true)
+			return
+		if target.get("kind") == &"shenlong_egg":
+			var egg_workers := _selected_of_kind(&"worker")
+			if egg_workers.is_empty():
+				feedback.emit("Select an empty-handed Worker to claim the Dragon Egg.", true)
+			elif simulation.command_claim_egg(RtsSimulation.TEAM_PLAYER, egg_workers, target_id, append):
+				feedback.emit("Dragon Egg claim queued." if append else "Worker sent to claim the Dragon Egg.", false)
+				audio_cue.emit(&"order_work")
+			else:
+				feedback.emit("The Dragon Egg is locked, carried, or the Worker has cargo.", true)
+			return
 		if target.get("category") == &"wildlife":
 			var hunters := _selected_of_kind(&"hunter")
 			if hunters.is_empty():
@@ -513,8 +615,37 @@ func _handle_right_click(screen_position: Vector2, append: bool = false) -> void
 		):
 			feedback.emit("Construction queued." if append else "Workers assigned to construction.", false)
 			return
+		var farm_workers := _selected_of_kind(&"worker")
+		if (
+			not farm_workers.is_empty()
+			and target.get("kind") == &"rice_farm"
+			and int(target.get("team", RtsSimulation.TEAM_NEUTRAL)) == RtsSimulation.TEAM_PLAYER
+			and float(target.get("complete", 0.0)) >= 1.0
+			and float(target.get("hp", 0.0)) >= float(target.get("max_hp", 0.0))
+		):
+			if simulation.command_assign_farm_worker(
+				RtsSimulation.TEAM_PLAYER,
+				farm_workers,
+				target_id,
+				append,
+			):
+				feedback.emit("Farm work queued." if append else "Worker assigned to the Rice Farm.", false)
+				audio_cue.emit(&"order_work")
+			elif simulation.farm_worker_id(target_id) >= 0:
+				feedback.emit("This Rice Farm already has its maximum of one Worker.", true)
+			else:
+				feedback.emit("Assign an empty-handed Worker to this Rice Farm.", true)
+			return
 		if target.get("kind") == &"stronghold":
 			var workers := _selected_of_kind(&"worker")
+			var egg_carriers: Array[int] = []
+			for worker_id in workers:
+				if bool(simulation.entity(worker_id).get("carrying_egg", false)):
+					egg_carriers.append(worker_id)
+			if not egg_carriers.is_empty() and simulation.command_return_egg(RtsSimulation.TEAM_PLAYER, egg_carriers, target_id, append):
+				feedback.emit("Dragon Egg return queued." if append else "Dragon Egg carrier returning to the Stronghold.", false)
+				audio_cue.emit(&"order_work")
+				return
 			var carrying_workers: Array[int] = []
 			for worker_id in workers:
 				if float(simulation.entity(worker_id).get("cargo_amount", 0.0)) > 0.0:
@@ -580,6 +711,8 @@ func _select_in_rect(rect: Rect2, additive: bool = false) -> void:
 			continue
 		if entity_state.get("category") != &"unit":
 			continue
+		if int(entity_state.get("garrisoned_in", -1)) >= 0:
+			continue
 		if rect.has_point(entity_screen_position(entity_state)) and not ids.has(int(entity_state["id"])):
 			ids.append(int(entity_state["id"]))
 	select_entities(ids)
@@ -593,6 +726,7 @@ func select_entities(ids: Array[int]) -> void:
 		if (
 			not entity_state.is_empty()
 			and bool(entity_state.get("alive", false))
+			and int(entity_state.get("garrisoned_in", -1)) < 0
 			and not selected_ids.has(id)
 		):
 			selected_ids.append(id)
@@ -605,6 +739,14 @@ func select_entities(ids: Array[int]) -> void:
 
 func select_all_workers() -> void:
 	select_entities(simulation.team_entity_ids(RtsSimulation.TEAM_PLAYER, [&"worker"]))
+
+
+func select_all_idle_workers() -> void:
+	var idle_worker_ids: Array[int] = []
+	for id in simulation.team_entity_ids(RtsSimulation.TEAM_PLAYER, [&"worker"]):
+		if simulation.entity(id).get("order", &"idle") == &"idle":
+			idle_worker_ids.append(id)
+	select_entities(idle_worker_ids)
 
 
 func select_all_army() -> void:
@@ -806,11 +948,19 @@ func begin_structure_placement(structure_kind: StringName) -> void:
 	cancel_modes()
 	placement_worker_id = workers[0]
 	placement_kind = structure_kind
+	placement_orientation = &"y"
 	_refresh_cursor()
 	audio_cue.emit(&"ui_confirm")
 	var faction := simulation.players[RtsSimulation.TEAM_PLAYER]["faction"] as StringName
 	var structure_name := String(FactionCatalog.stats(structure_kind, faction)["name"])
-	feedback.emit("Choose a clear meadow footprint for the %s." % structure_name, false)
+	feedback.emit(
+		"Drag a straight snapped line for the %s." % structure_name
+		if structure_kind == &"wall"
+		else "Drag to orient and place the %s." % structure_name
+		if structure_kind == &"gate"
+		else "Choose a clear meadow footprint for the %s." % structure_name,
+		false,
+	)
 
 
 func cancel_modes() -> void:
@@ -821,6 +971,10 @@ func cancel_modes() -> void:
 	rally_armed = false
 	placement_worker_id = -1
 	placement_kind = &""
+	placement_orientation = &"y"
+	_placement_pressed = false
+	_placement_start_cell = Vector2i(-1, -1)
+	_placement_current_cell = Vector2i(-1, -1)
 	_armed_append = false
 	_refresh_cursor()
 
@@ -829,7 +983,11 @@ func selected_commandable_units() -> Array[int]:
 	var result: Array[int] = []
 	for id in selected_ids:
 		var entity_state := simulation.entity(id)
-		if entity_state.get("category") == &"unit" and int(entity_state.get("team", -1)) == RtsSimulation.TEAM_PLAYER:
+		if (
+			entity_state.get("category") == &"unit"
+			and int(entity_state.get("team", -1)) == RtsSimulation.TEAM_PLAYER
+			and int(entity_state.get("garrisoned_in", -1)) < 0
+		):
 			result.append(id)
 	return result
 
@@ -841,6 +999,7 @@ func selected_military_units() -> Array[int]:
 		if (
 			entity_state.get("kind") in [&"hunter", &"vanguard", &"mystic", &"jadeclaw"]
 			and int(entity_state.get("team", RtsSimulation.TEAM_NEUTRAL)) == RtsSimulation.TEAM_PLAYER
+			and int(entity_state.get("garrisoned_in", -1)) < 0
 		):
 			result.append(id)
 	return result
@@ -858,7 +1017,24 @@ func _selected_of_kind(kind: StringName) -> Array[int]:
 	var result: Array[int] = []
 	for id in selected_ids:
 		var entity_state := simulation.entity(id)
-		if entity_state.get("kind") == kind and int(entity_state.get("team", -1)) == RtsSimulation.TEAM_PLAYER:
+		if (
+			entity_state.get("kind") == kind
+			and int(entity_state.get("team", -1)) == RtsSimulation.TEAM_PLAYER
+			and int(entity_state.get("garrisoned_in", -1)) < 0
+		):
+			result.append(id)
+	return result
+
+
+func _selected_garrison_units() -> Array[int]:
+	var result: Array[int] = []
+	for id in selected_ids:
+		var unit := simulation.entity(id)
+		if (
+			unit.get("kind") in RtsSimulation.GARRISON_UNIT_KINDS
+			and int(unit.get("team", RtsSimulation.TEAM_NEUTRAL)) == RtsSimulation.TEAM_PLAYER
+			and int(unit.get("garrisoned_in", -1)) < 0
+		):
 			result.append(id)
 	return result
 
@@ -881,6 +1057,8 @@ func entity_at_screen(screen_position: Vector2, selectable_only: bool) -> int:
 		var entity_state := raw_entity as Dictionary
 		if not bool(entity_state.get("alive", false)):
 			continue
+		if int(entity_state.get("garrisoned_in", -1)) >= 0:
+			continue
 		if not should_render_entity(entity_state):
 			continue
 		if selectable_only and entity_state.get("category") not in [
@@ -888,6 +1066,7 @@ func entity_at_screen(screen_position: Vector2, selectable_only: bool) -> int:
 			&"structure",
 			&"resource",
 			&"wildlife",
+			&"objective",
 		]:
 			continue
 		var radius := 28.0 * camera_scale
@@ -901,6 +1080,9 @@ func entity_at_screen(screen_position: Vector2, selectable_only: bool) -> int:
 				priority = 0
 			&"wildlife":
 				radius = 38.0 * camera_scale
+				priority = 2
+			&"objective":
+				radius = 54.0 * camera_scale
 				priority = 2
 		var distance := entity_screen_position(entity_state).distance_to(screen_position)
 		if distance <= maxf(radius, 16.0) and (priority > best_priority or (priority == best_priority and distance < best_distance)):
@@ -921,11 +1103,17 @@ func cursor_context_at(screen_position: Vector2) -> Dictionary:
 	var cell := screen_to_cell(screen_position)
 	var target_id := entity_at_screen(screen_position, false)
 	if placement_worker_id >= 0:
-		var can_build := (
-			MapCatalog.in_bounds(cell)
-			and simulation.can_place_structure(RtsSimulation.TEAM_PLAYER, placement_kind, cell)
-			and simulation.can_afford_kind(RtsSimulation.TEAM_PLAYER, placement_kind)
-		)
+		var start_cell := _placement_start_cell if _placement_pressed else cell
+		var can_build := false
+		if placement_kind == &"wall":
+			can_build = simulation.can_place_wall_line(RtsSimulation.TEAM_PLAYER, start_cell, cell)
+		else:
+			var orientation := simulation.gate_orientation(start_cell, cell) if placement_kind == &"gate" else &"y"
+			can_build = (
+				MapCatalog.in_bounds(cell)
+				and simulation.can_place_structure(RtsSimulation.TEAM_PLAYER, placement_kind, start_cell, orientation)
+				and simulation.can_afford_kind(RtsSimulation.TEAM_PLAYER, placement_kind)
+			)
 		return _cursor_context(
 			CursorSystem.BUILD if can_build else CursorSystem.FORBIDDEN,
 			target_id,
@@ -959,6 +1147,16 @@ func cursor_context_at(screen_position: Vector2) -> Dictionary:
 		return _cursor_context(CursorSystem.FORBIDDEN, target_id, false)
 	if target_id >= 0:
 		var target := simulation.entity(target_id)
+		if (
+			target.get("kind") == &"sentry_tower"
+			and int(target.get("team", RtsSimulation.TEAM_NEUTRAL)) == RtsSimulation.TEAM_PLAYER
+			and not _selected_garrison_units().is_empty()
+		):
+			var has_space: bool = (target.get("garrisoned_unit_ids", []) as Array).size() < int(target.get("garrison_capacity", 0))
+			return _cursor_context(CursorSystem.MOVE if has_space else CursorSystem.FORBIDDEN, target_id, has_space)
+		if target.get("kind") == &"shenlong_egg" and not _selected_of_kind(&"worker").is_empty():
+			var can_claim := bool(target.get("claimable", false)) and int(target.get("carried_by", -1)) < 0
+			return _cursor_context(CursorSystem.GATHER_ESSENCE if can_claim else CursorSystem.FORBIDDEN, target_id, can_claim)
 		if target.get("kind") == &"yaoguai_den" and not commandable_units.is_empty():
 			return _cursor_context(CursorSystem.HUNT, target_id)
 		if (
@@ -1037,7 +1235,8 @@ func _cursor_can_construct_target(target_id: int) -> bool:
 
 func _any_worker_carrying(workers: Array[int]) -> bool:
 	for worker_id in workers:
-		if float(simulation.entity(worker_id).get("cargo_amount", 0.0)) > 0.0:
+		var worker := simulation.entity(worker_id)
+		if float(worker.get("cargo_amount", 0.0)) > 0.0 or bool(worker.get("carrying_egg", false)):
 			return true
 	return false
 
@@ -1181,10 +1380,10 @@ func _command_visualization_record(unit: Dictionary) -> Dictionary:
 	):
 		indicator_kind = &"attack"
 		endpoint = _entity_world_center(target)
-	elif order in [&"gather", &"build", &"repair"] and has_live_target:
+	elif order in [&"gather", &"claim_egg", &"build", &"repair"] and has_live_target:
 		indicator_kind = &"interact"
 		endpoint = _entity_world_center(target)
-	elif order == &"return":
+	elif order in [&"return", &"return_egg"]:
 		if not has_live_target:
 			target_id = simulation.primary_structure_id(
 				int(unit.get("team", RtsSimulation.TEAM_NEUTRAL)),
@@ -1348,8 +1547,9 @@ func _command_visualization_color(indicator_kind: StringName) -> Color:
 func _draw() -> void:
 	if simulation == null:
 		return
-	draw_rect(Rect2(Vector2.ZERO, size), Color("071416"))
+	draw_rect(Rect2(Vector2.ZERO, size), BATTLEFIELD_BACKGROUND_COLOR)
 	_draw_terrain()
+	_draw_map_edge_fade()
 	_draw_hover_feedback()
 	_draw_entities()
 	_draw_effects()
@@ -1421,6 +1621,48 @@ func _transformed_block_polygon(cell: Vector2i, extent_cells: int) -> PackedVect
 	])
 
 
+func _transformed_map_polygon() -> PackedVector2Array:
+	var map_size := Vector2(MapCatalog.SIZE)
+	return PackedVector2Array([
+		camera_offset,
+		IsoProjection.project(Vector2(map_size.x, 0.0)) * camera_scale + camera_offset,
+		IsoProjection.project(map_size) * camera_scale + camera_offset,
+		IsoProjection.project(Vector2(0.0, map_size.y)) * camera_scale + camera_offset,
+	])
+
+
+func _draw_map_edge_fade() -> void:
+	_ensure_map_edge_bands()
+	draw_set_transform(camera_offset, 0.0, Vector2.ONE * camera_scale)
+	for band in _map_edge_projected_bands:
+		var color := band["color"] as Color
+		for polygon in band["polygons"] as Array[PackedVector2Array]:
+			draw_colored_polygon(polygon, color)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+func _ensure_map_edge_bands() -> void:
+	if not _map_edge_projected_bands.is_empty():
+		return
+	var contour = MAP_EDGE_CONTOUR_SCRIPT.new(MapCatalog.SIZE)
+	var definitions: Array[Dictionary] = [
+		{"depth": 2.40, "alpha": 0.12},
+		{"depth": 1.35, "alpha": 0.30},
+		{"depth": 0.42, "alpha": 0.94},
+	]
+	for definition in definitions:
+		var projected_polygons: Array[PackedVector2Array] = []
+		for map_polygon in contour.band_polygons(float(definition["depth"])):
+			var projected := PackedVector2Array()
+			for map_point in map_polygon:
+				projected.append(IsoProjection.project(map_point))
+			projected_polygons.append(projected)
+		_map_edge_projected_bands.append({
+			"color": Color(BATTLEFIELD_BACKGROUND_COLOR, float(definition["alpha"])),
+			"polygons": projected_polygons,
+		})
+
+
 func _is_block_on_screen(cell: Vector2i, extent_cells: int) -> bool:
 	var center := camera_offset + IsoProjection.position_center(
 		Vector2(cell) + Vector2.ONE * (float(extent_cells) - 1.0) * 0.5
@@ -1452,26 +1694,45 @@ func _draw_hover_feedback() -> void:
 	var closed := points.duplicate()
 	closed.append(points[0])
 	if placement_worker_id >= 0:
-		var valid := simulation.can_place_structure(RtsSimulation.TEAM_PLAYER, placement_kind, cell)
-		var color := PLAYER_COLOR if valid else ENEMY_COLOR
 		var faction := simulation.players[RtsSimulation.TEAM_PLAYER]["faction"] as StringName
-		var stats := FactionCatalog.stats(placement_kind, faction)
-		var footprint := stats.get("footprint", Vector2i.ONE) as Vector2i
-		for footprint_cell in MapCatalog.footprint_cells(cell, footprint):
-			var footprint_points := IsoProjection.transformed_polygon(footprint_cell, camera_scale, camera_offset)
-			var footprint_closed := footprint_points.duplicate()
-			footprint_closed.append(footprint_points[0])
-			draw_colored_polygon(footprint_points, Color(color, 0.24))
-			draw_polyline(footprint_closed, color, 2.5, true)
 		var texture := _entity_texture(faction, placement_kind)
-		var center_position := Vector2(cell) + (Vector2(footprint) - Vector2.ONE) * 0.5
-		var center := camera_offset + IsoProjection.position_center(center_position) * camera_scale
-		_draw_world_texture(
-			texture,
-			center + _footprint_ground_offset(footprint),
-			_structure_display_size(placement_kind) * 0.78 * camera_scale,
-			Color(1, 1, 1, 0.58 if valid else 0.35),
+		var start_cell := _placement_start_cell if _placement_pressed else cell
+		var preview_cells: Array[Vector2i] = [start_cell]
+		if placement_kind == &"wall":
+			preview_cells = simulation.wall_line_cells(start_cell, cell)
+		var orientation := simulation.gate_orientation(start_cell, cell) if placement_kind == &"gate" else &"y"
+		var valid := (
+			simulation.can_place_wall_line(RtsSimulation.TEAM_PLAYER, start_cell, cell)
+			if placement_kind == &"wall"
+			else simulation.can_place_structure(
+				RtsSimulation.TEAM_PLAYER,
+				placement_kind,
+				start_cell,
+				orientation,
+			) and simulation.can_afford_kind(RtsSimulation.TEAM_PLAYER, placement_kind)
 		)
+		var color := PLAYER_COLOR if valid else ENEMY_COLOR
+		for preview_cell in preview_cells:
+			var footprint := simulation.structure_footprint(
+				RtsSimulation.TEAM_PLAYER,
+				placement_kind,
+				orientation,
+			)
+			for footprint_cell in MapCatalog.footprint_cells(preview_cell, footprint):
+				var footprint_points := IsoProjection.transformed_polygon(footprint_cell, camera_scale, camera_offset)
+				var footprint_closed := footprint_points.duplicate()
+				footprint_closed.append(footprint_points[0])
+				draw_colored_polygon(footprint_points, Color(color, 0.24))
+				draw_polyline(footprint_closed, color, 2.5, true)
+			var center_position := Vector2(preview_cell) + (Vector2(footprint) - Vector2.ONE) * 0.5
+			var ghost_center := camera_offset + IsoProjection.position_center(center_position) * camera_scale
+			_draw_world_texture(
+				texture,
+				ghost_center + _footprint_ground_offset(footprint),
+				_structure_display_size(placement_kind) * 0.78 * camera_scale,
+				Color(1, 1, 1, 0.58 if valid else 0.35),
+				orientation == &"x" and placement_kind == &"gate",
+			)
 	elif move_armed:
 		draw_colored_polygon(points, Color(PLAYER_COLOR, 0.12))
 		draw_polyline(closed, PLAYER_COLOR, 2.0, true)
@@ -1495,6 +1756,8 @@ func _draw_entities() -> void:
 	var renderables: Array[Dictionary] = []
 	for raw_entity in simulation.entities.values():
 		var entity_state := raw_entity as Dictionary
+		if int(entity_state.get("garrisoned_in", -1)) >= 0:
+			continue
 		if (
 			camera_scale < TREE_ENTITY_MIN_SCALE
 			and entity_state.get("resource_kind") == &"lumber"
@@ -1543,16 +1806,16 @@ func _draw_entity(entity_state: Dictionary) -> void:
 	var kind := entity_state.get("kind") as StringName
 	var selected := selected_ids.has(int(entity_state["id"]))
 	var tint := Color.WHITE
-	if int(entity_state.get("team", RtsSimulation.TEAM_NEUTRAL)) == RtsSimulation.TEAM_ENEMY:
+	if int(entity_state.get("team", RtsSimulation.TEAM_NEUTRAL)) > RtsSimulation.TEAM_PLAYER:
 		tint = Color(1.0, 0.9, 0.88, 1.0)
 	if float(entity_state.get("flash_timer", 0.0)) > 0.0:
 		tint = Color(1.0, 0.42, 0.32, 1.0)
 	if float(entity_state.get("complete", 1.0)) < 1.0:
 		tint.a = 0.55 + float(entity_state["complete"]) * 0.45
-	if kind in [&"jadeclaw", &"yaoguai_den", &"rice_farm", &"hunters_lodge"]:
+	if kind in [&"jadeclaw", &"shenlong", &"shenlong_egg", &"yaoguai_den", &"rice_farm", &"hunters_lodge"]:
 		var allegiance := _team_color(int(entity_state.get("team", RtsSimulation.TEAM_NEUTRAL)))
-		var allegiance_radius_x := 35.0 if kind == &"jadeclaw" else (78.0 if kind in [&"yaoguai_den", &"rice_farm"] else 58.0)
-		var allegiance_radius_y := 16.0 if kind == &"jadeclaw" else (34.0 if kind in [&"yaoguai_den", &"rice_farm"] else 26.0)
+		var allegiance_radius_x := 58.0 if kind == &"shenlong" else 35.0 if kind == &"jadeclaw" else 42.0 if kind == &"shenlong_egg" else (78.0 if kind in [&"yaoguai_den", &"rice_farm"] else 58.0)
+		var allegiance_radius_y := 25.0 if kind == &"shenlong" else 16.0 if kind == &"jadeclaw" else 18.0 if kind == &"shenlong_egg" else (34.0 if kind in [&"yaoguai_den", &"rice_farm"] else 26.0)
 		_draw_ellipse(
 			center + Vector2(0.0, 4.0 * camera_scale),
 			allegiance_radius_x * camera_scale,
@@ -1564,7 +1827,7 @@ func _draw_entity(entity_state: Dictionary) -> void:
 	if selected:
 		var radius_x := 34.0 if kind == &"jadeclaw" else (32.0 if category == &"wildlife" else 27.0 if category == &"unit" else 76.0 if kind == &"yaoguai_den" else 54.0)
 		var radius_y := 16.0 if kind == &"jadeclaw" else (15.0 if category == &"wildlife" else 13.0 if category == &"unit" else 34.0 if kind == &"yaoguai_den" else 25.0)
-		_draw_ellipse(center + Vector2(0.0, 3.0 * camera_scale), radius_x * camera_scale, radius_y * camera_scale, Color("fff0a0"), 2.4)
+		_draw_ellipse(_selection_ring_screen_position(entity_state), radius_x * camera_scale, radius_y * camera_scale, Color("fff0a0"), 2.4)
 
 	if category == &"resource":
 		var texture := RESOURCE_TEXTURES.get(kind) as Texture2D
@@ -1581,30 +1844,79 @@ func _draw_entity(entity_state: Dictionary) -> void:
 		var display_size := Vector2(94.0, 104.0) if category == &"unit" else (_wildlife_display_size(kind) if category == &"wildlife" else _structure_display_size(kind))
 		if kind == &"jadeclaw":
 			display_size = Vector2(124.0, 112.0)
+		elif kind == &"shenlong":
+			display_size = Vector2(448.0, 362.0)
+		elif kind == &"shenlong_egg":
+			display_size = Vector2(58.0, 58.0) if int(entity_state.get("carried_by", -1)) >= 0 else Vector2(118.0, 118.0)
 		elif kind == &"yaoguai_den":
 			display_size = Vector2(250.0, 212.0)
 		var is_movable := category in [&"unit", &"wildlife"]
-		var sprite_center := (
-			_grounded_sprite_screen_position(entity_state)
-			if category in [&"unit", &"structure"]
-			else center
-		)
+		var sprite_center := _grounded_sprite_screen_position(entity_state)
 		var flip_h := false
 		var rotation := 0.0
 		if is_movable:
 			sprite_center.y += _movement_bounce_offset(entity_state)
 			flip_h = _movement_sprite_flipped(entity_state)
 			rotation = _idle_wobble_rotation(entity_state)
-		_draw_world_texture(texture, sprite_center, display_size * camera_scale, tint, flip_h, rotation)
+		elif kind == &"gate":
+			flip_h = entity_state.get("orientation", &"y") == &"x"
+		var scaled_display_size := display_size * camera_scale
+		var bottom_margin := _character_art_bottom_margin(texture) if is_movable else -1.0
+		if kind == &"shenlong":
+			_draw_shenlong_texture(
+				texture,
+				sprite_center,
+				scaled_display_size,
+				tint,
+				entity_state,
+				flip_h,
+				rotation,
+				bottom_margin,
+			)
+		else:
+			_draw_world_texture(
+				texture,
+				sprite_center,
+				scaled_display_size,
+				tint,
+				flip_h,
+				rotation,
+				bottom_margin,
+			)
 		if kind == &"yaoguai_den":
 			_draw_cave_status(entity_state, sprite_center)
-		else:
+		elif kind != &"shenlong_egg":
 			_draw_health_bar(entity_state, sprite_center, category)
-			if kind in RtsSimulation.FOOD_PRODUCER_KINDS and float(entity_state.get("complete", 0.0)) >= 1.0:
-				_draw_food_progress(entity_state, sprite_center)
+		if kind == &"sentry_tower":
+			_draw_tower_occupant(entity_state, sprite_center)
+		if kind in RtsSimulation.FOOD_PRODUCER_KINDS and float(entity_state.get("complete", 0.0)) >= 1.0:
+			_draw_food_progress(entity_state, sprite_center)
 
-	if kind == &"worker" and float(entity_state.get("cargo_amount", 0.0)) > 0.0:
-		_draw_worker_cargo_icon(entity_state, center)
+	if kind == &"worker":
+		if float(entity_state.get("cargo_amount", 0.0)) > 0.0:
+			_draw_worker_cargo_icon(entity_state, center)
+		elif _worker_has_farm_assignment(entity_state):
+			_draw_farm_worker_icon(center)
+
+
+func _draw_tower_occupant(tower: Dictionary, tower_sprite_center: Vector2) -> void:
+	var occupants := tower.get("garrisoned_unit_ids", []) as Array
+	if occupants.is_empty():
+		return
+	var unit := simulation.entity(int(occupants[0]))
+	if unit.is_empty() or not bool(unit.get("alive", false)):
+		return
+	var texture := _entity_texture(unit["faction"] as StringName, unit["kind"] as StringName)
+	var occupant_center := tower_sprite_center + Vector2(0.0, -92.0) * camera_scale
+	_draw_world_texture(
+		texture,
+		occupant_center,
+		Vector2(70.0, 82.0) * camera_scale,
+		Color.WHITE,
+		false,
+		0.0,
+		_character_art_bottom_margin(texture),
+	)
 
 
 func _draw_worker_cargo_icon(worker: Dictionary, center: Vector2) -> void:
@@ -1635,6 +1947,37 @@ func _cargo_icon_texture(cargo_kind: StringName) -> Texture2D:
 	return CARGO_ICON_TEXTURES.get(cargo_kind) as Texture2D
 
 
+func _worker_has_farm_assignment(worker: Dictionary) -> bool:
+	if worker.get("order", &"idle") != &"farm":
+		return false
+	var farm := simulation.entity(int(worker.get("target_id", -1)))
+	return (
+		not farm.is_empty()
+		and bool(farm.get("alive", false))
+		and farm.get("kind") == &"rice_farm"
+		and int(farm.get("farm_worker_id", -1)) == int(worker.get("id", -1))
+	)
+
+
+func _draw_farm_worker_icon(center: Vector2) -> void:
+	var icon_size := clampf(23.0 * camera_scale, 12.0, 26.0)
+	var icon_center := center + Vector2(24.0, -48.0) * camera_scale
+	var plate_radius := icon_size * 0.57
+	draw_circle(icon_center, plate_radius, Color(0.015, 0.035, 0.035, 0.9))
+	draw_arc(
+		icon_center,
+		plate_radius,
+		0.0,
+		TAU,
+		24,
+		Color(FOOD_RESOURCE_COLOR, 0.95),
+		maxf(1.0, 1.35 * camera_scale),
+		true,
+	)
+	var rect := Rect2(icon_center - Vector2.ONE * icon_size * 0.5, Vector2.ONE * icon_size)
+	draw_texture_rect(FARM_WORKER_ICON_TEXTURE, rect, false)
+
+
 func _draw_world_texture(
 	texture: Texture2D,
 	center: Vector2,
@@ -1642,21 +1985,203 @@ func _draw_world_texture(
 	tint: Color,
 	flip_h: bool = false,
 	rotation: float = 0.0,
+	content_bottom_margin_pixels: float = -1.0,
 ) -> void:
 	if texture == null:
 		return
-	var rect := Rect2(
-		Vector2(-display_size.x * 0.5, -display_size.y + 10.0 * camera_scale),
-		display_size,
-	)
+	var rect := _world_texture_rect(texture, display_size, content_bottom_margin_pixels)
 	draw_set_transform(center, rotation, Vector2(-1.0 if flip_h else 1.0, 1.0))
 	draw_texture_rect(texture, rect, false, tint)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
+func _draw_shenlong_texture(
+	texture: Texture2D,
+	center: Vector2,
+	display_size: Vector2,
+	tint: Color,
+	entity_state: Dictionary,
+	flip_h: bool,
+	rotation: float,
+	content_bottom_margin_pixels: float,
+) -> void:
+	if texture == null:
+		return
+	_draw_shenlong_aura(center, display_size, entity_state, flip_h, rotation)
+	if camera_scale < SHENLONG_WAVE_MIN_SCALE:
+		_draw_world_texture(
+			texture,
+			center,
+			display_size,
+			tint,
+			flip_h,
+			rotation,
+			content_bottom_margin_pixels,
+		)
+		return
+	var rect := _world_texture_rect(texture, display_size, content_bottom_margin_pixels)
+	var entity_id := int(entity_state.get("id", 0))
+	var colors := PackedColorArray([tint, tint, tint, tint])
+	draw_set_transform(center, rotation, Vector2(-1.0 if flip_h else 1.0, 1.0))
+	for row in range(SHENLONG_MESH_ROWS):
+		var v0 := float(row) / float(SHENLONG_MESH_ROWS)
+		var v1 := float(row + 1) / float(SHENLONG_MESH_ROWS)
+		for column in range(SHENLONG_MESH_COLUMNS):
+			var u0 := float(column) / float(SHENLONG_MESH_COLUMNS)
+			var u1 := float(column + 1) / float(SHENLONG_MESH_COLUMNS)
+			var uv_top_left := Vector2(u0, v0)
+			var uv_top_right := Vector2(u1, v0)
+			var uv_bottom_right := Vector2(u1, v1)
+			var uv_bottom_left := Vector2(u0, v1)
+			var points := PackedVector2Array([
+				_shenlong_mesh_point(rect, uv_top_left, display_size, entity_id),
+				_shenlong_mesh_point(rect, uv_top_right, display_size, entity_id),
+				_shenlong_mesh_point(rect, uv_bottom_right, display_size, entity_id),
+				_shenlong_mesh_point(rect, uv_bottom_left, display_size, entity_id),
+			])
+			var uvs := PackedVector2Array([
+				uv_top_left,
+				uv_top_right,
+				uv_bottom_right,
+				uv_bottom_left,
+			])
+			draw_polygon(points, colors, uvs, texture)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+func _shenlong_mesh_point(
+	rect: Rect2,
+	uv: Vector2,
+	display_size: Vector2,
+	entity_id: int,
+) -> Vector2:
+	return rect.position + rect.size * uv + _shenlong_wave_offset(uv, display_size, entity_id)
+
+
+func _shenlong_wave_offset(uv: Vector2, display_size: Vector2, entity_id: int) -> Vector2:
+	# The lower silhouette stays planted while overlapping waves travel through
+	# the coiled body. Edge-weighted harmonics give the mane, whiskers, and tail
+	# a quicker flutter without turning the heavier torso rubbery.
+	var ground_flex := pow(clampf((0.92 - uv.y) / 0.82, 0.0, 1.0), 1.25)
+	if ground_flex <= 0.0:
+		return Vector2.ZERO
+	var seed := deg_to_rad(float(posmod(entity_id * 97, 360)))
+	var silhouette_weight := 0.45 + sin(uv.x * PI) * 0.55
+	var edge_weight := pow(absf(uv.x - 0.5) * 2.0, 1.4)
+	var body_phase := _wind_animation_time * 1.35 + uv.y * TAU * 1.30 + seed
+	var hair_phase := (
+		_wind_animation_time * 2.45
+		- uv.x * TAU * 1.65
+		+ uv.y * TAU * 1.10
+		+ seed * 0.7
+	)
+	var horizontal := sin(body_phase) * display_size.x * 0.022 * silhouette_weight
+	horizontal += sin(hair_phase) * display_size.x * 0.012 * (0.25 + edge_weight * 0.75)
+	var vertical := cos(body_phase * 0.82 + uv.x * PI) * display_size.y * 0.011
+	vertical += sin(hair_phase * 0.74) * display_size.y * 0.006 * edge_weight
+	return Vector2(horizontal, vertical) * ground_flex
+
+
+func _draw_shenlong_aura(
+	center: Vector2,
+	display_size: Vector2,
+	entity_state: Dictionary,
+	flip_h: bool,
+	rotation: float,
+) -> void:
+	if camera_scale < SHENLONG_WAVE_MIN_SCALE:
+		return
+	var entity_id := int(entity_state.get("id", 0))
+	var seed := deg_to_rad(float(posmod(entity_id * 71, 360)))
+	var aura_color := _team_color(int(entity_state.get("team", RtsSimulation.TEAM_NEUTRAL)))
+	var pulse := 1.0 + sin(_wind_animation_time * 1.7 + seed) * 0.045
+	draw_set_transform(center, rotation, Vector2(-1.0 if flip_h else 1.0, 1.0))
+	_draw_ellipse(
+		Vector2(0.0, -display_size.y * 0.43),
+		display_size.x * 0.39 * pulse,
+		display_size.y * 0.29 * pulse,
+		Color(aura_color, 0.16),
+		maxf(1.0, 2.2 * camera_scale),
+	)
+	for wisp_index in range(SHENLONG_AURA_WISP_COUNT):
+		var side := -1.0 if wisp_index % 2 == 0 else 1.0
+		var wisp_phase := (
+			_wind_animation_time * (0.82 + float(wisp_index) * 0.09)
+			+ seed
+			+ float(wisp_index) * 1.37
+		)
+		var origin := Vector2(
+			side * display_size.x * (0.22 + float(wisp_index % 3) * 0.055),
+			-display_size.y * (0.27 + float(wisp_index % 2) * 0.16),
+		)
+		var points := PackedVector2Array()
+		for point_index in range(12):
+			var progress := float(point_index) / 11.0
+			var curl := wisp_phase + progress * TAU * 0.72
+			points.append(origin + Vector2(
+				side * progress * display_size.x * 0.17
+				+ sin(curl) * display_size.x * 0.027,
+				-progress * display_size.y * 0.28
+				+ cos(curl * 1.18) * display_size.y * 0.018,
+			))
+		draw_polyline(
+			points,
+			Color(aura_color.lerp(Color.WHITE, 0.38), 0.18),
+			maxf(1.0, (1.2 + float(wisp_index % 2) * 0.7) * camera_scale),
+			true,
+		)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+func _world_texture_rect(
+	texture: Texture2D,
+	display_size: Vector2,
+	content_bottom_margin_pixels: float = -1.0,
+) -> Rect2:
+	var bottom_offset := 10.0 * camera_scale
+	if content_bottom_margin_pixels >= 0.0:
+		bottom_offset = (
+			display_size.y
+			* content_bottom_margin_pixels
+			/ maxf(float(texture.get_height()), 1.0)
+		)
+	return Rect2(
+		Vector2(-display_size.x * 0.5, -display_size.y + bottom_offset),
+		display_size,
+	)
+
+
+func _selection_ring_screen_position(entity_state: Dictionary) -> Vector2:
+	return entity_screen_position(entity_state)
+
+
 func _grounded_sprite_screen_position(entity_state: Dictionary) -> Vector2:
+	if entity_state.get("category") in [&"unit", &"wildlife"]:
+		# Movable art and selection rings share the projected tile center as their
+		# ground contact, so standing feet cannot drift toward a diamond edge.
+		return _selection_ring_screen_position(entity_state)
 	var footprint := entity_state.get("footprint", Vector2i.ONE) as Vector2i
 	return entity_screen_position(entity_state) + _footprint_ground_offset(footprint)
+
+
+func _character_art_bottom_margin(texture: Texture2D) -> float:
+	if texture == null:
+		return 0.0
+	# Runtime derivatives may use different transparent bottom margins. Measure
+	# each texture once so its visible ground contact, rather than its canvas,
+	# lands on the shared tile/ring center.
+	var cache_key := texture.resource_path
+	if cache_key.is_empty():
+		cache_key = str(texture.get_instance_id())
+	if _texture_bottom_margin_cache.has(cache_key):
+		return float(_texture_bottom_margin_cache[cache_key])
+	var image := texture.get_image()
+	var bottom_margin := 0.0
+	if image != null and not image.is_empty():
+		var used_rect := image.get_used_rect()
+		bottom_margin = maxf(float(image.get_height() - used_rect.end.y), 0.0)
+	_texture_bottom_margin_cache[cache_key] = bottom_margin
+	return bottom_margin
 
 
 func _footprint_ground_offset(footprint: Vector2i) -> Vector2:
@@ -1820,6 +2345,12 @@ func _movement_bounce_offset(entity_state: Dictionary) -> float:
 
 func _structure_display_size(kind: StringName) -> Vector2:
 	match kind:
+		&"wall":
+			return Vector2(114.0, 94.0)
+		&"gate":
+			return Vector2(292.0, 198.0)
+		&"sentry_tower":
+			return Vector2(220.0, 208.0)
 		&"rice_farm":
 			return Vector2(236.0, 188.0)
 		&"hunters_lodge":
@@ -1969,30 +2500,36 @@ func _draw_ellipse(center: Vector2, radius_x: float, radius_y: float, color: Col
 func _draw_fog_of_war() -> void:
 	if not fog_enabled:
 		return
-	for macro_y in range(MapCatalog.AUTHORED_SIZE.y):
-		for macro_x in range(MapCatalog.AUTHORED_SIZE.x):
-			var origin := Vector2i(macro_x, macro_y) * MapCatalog.CELL_SCALE
-			if not _is_block_on_screen(origin, MapCatalog.CELL_SCALE):
-				continue
-			var hidden_cells: Array[Vector2i] = []
-			var explored_hidden := 0
-			for local_y in range(MapCatalog.CELL_SCALE):
-				for local_x in range(MapCatalog.CELL_SCALE):
-					var cell := origin + Vector2i(local_x, local_y)
-					if _visible_cells.has(cell):
-						continue
-					hidden_cells.append(cell)
-					if _explored_cells.has(cell):
-						explored_hidden += 1
-			if hidden_cells.is_empty():
-				continue
-			if hidden_cells.size() == MapCatalog.CELL_SCALE * MapCatalog.CELL_SCALE and explored_hidden in [0, hidden_cells.size()]:
-				var block_color := EXPLORED_FOG_COLOR if explored_hidden > 0 else UNEXPLORED_FOG_COLOR
-				draw_colored_polygon(_transformed_block_polygon(origin, MapCatalog.CELL_SCALE), block_color)
-				continue
-			for cell in hidden_cells:
-				var color := EXPLORED_FOG_COLOR if _explored_cells.has(cell) else UNEXPLORED_FOG_COLOR
-				draw_colored_polygon(IsoProjection.transformed_polygon(cell, camera_scale, camera_offset), color)
+	_ensure_fog_mask_texture()
+	if _fog_mask_texture == null:
+		return
+	var uv_rect: Rect2 = _fog_mask_builder.map_uv_rect()
+	var uvs := PackedVector2Array([
+		uv_rect.position,
+		Vector2(uv_rect.end.x, uv_rect.position.y),
+		uv_rect.end,
+		Vector2(uv_rect.position.x, uv_rect.end.y),
+	])
+	var colors := PackedColorArray([Color.WHITE, Color.WHITE, Color.WHITE, Color.WHITE])
+	draw_polygon(_transformed_map_polygon(), colors, uvs, _fog_mask_texture)
+
+
+func _ensure_fog_mask_texture() -> void:
+	if not _fog_mask_dirty and _fog_mask_texture != null:
+		return
+	if _fog_mask_builder == null:
+		_fog_mask_builder = FOG_MASK_BUILDER_SCRIPT.new(
+			MapCatalog.SIZE,
+			FOG_MASK_PIXELS_PER_CELL,
+			EXPLORED_FOG_COLOR,
+			UNEXPLORED_FOG_COLOR,
+		)
+	var image: Image = _fog_mask_builder.build_image(_visible_cells, _explored_cells)
+	if _fog_mask_texture == null:
+		_fog_mask_texture = ImageTexture.create_from_image(image)
+	else:
+		_fog_mask_texture.update(image)
+	_fog_mask_dirty = false
 
 
 func _draw_effects() -> void:
@@ -2022,6 +2559,10 @@ func _team_color(team: int) -> Color:
 		return PLAYER_COLOR
 	if team == RtsSimulation.TEAM_ENEMY:
 		return ENEMY_COLOR
+	if team == RtsSimulation.TEAM_RIVAL_TWO:
+		return Color("69a9ff")
+	if team == RtsSimulation.TEAM_RIVAL_THREE:
+		return Color("cf83ef")
 	return NEUTRAL_COLOR
 
 

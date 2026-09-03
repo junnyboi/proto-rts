@@ -42,7 +42,7 @@ const DATA := {
 const BASE_STATS := {
 	&"worker": {
 		"name": "Worker",
-		"role": "Gathers resources and constructs military or food infrastructure.",
+		"role": "Gathers resources, constructs buildings, and can staff one Rice Farm.",
 		"max_hp": 72.0,
 		"speed": 1.30,
 		"damage": 5.0,
@@ -57,7 +57,7 @@ const BASE_STATS := {
 	},
 	&"hunter": {
 		"name": "Hunter",
-		"role": "Ranged food gatherer. Deals triple damage to wildlife.",
+		"role": "Hunts wildlife for one-time Food bounties. Deals triple damage to wildlife.",
 		"max_hp": 88.0,
 		"speed": 2.0,
 		"damage": 8.0,
@@ -115,6 +115,31 @@ const BASE_STATS := {
 		"essence_cost": 55,
 		"food_cost": 65,
 	},
+	&"shenlong": {
+		"name": "Shenlong",
+		"role": "Mythic celestial dragon hatched from the central Dragon Egg.",
+		"max_hp": 1200.0,
+		"speed": 2.05,
+		"damage": 58.0,
+		"range": 1.4,
+		"attack_period": 1.15,
+		"acquire_range": 9.0,
+		"population": 8,
+		"train_time": 0.0,
+		"jade_cost": 0,
+		"essence_cost": 0,
+		"food_cost": 0,
+	},
+	&"shenlong_egg": {
+		"name": "Dragon Egg",
+		"role": "Defeat Shenlong, then send an empty-handed Worker to carry the egg home.",
+		"max_hp": 1.0,
+		"population": 0,
+		"train_time": 0.0,
+		"jade_cost": 0,
+		"essence_cost": 0,
+		"food_cost": 0,
+	},
 	&"chicken": {
 		"name": "Wild Chicken",
 		"role": "Skittish prey that flees from hunters.",
@@ -129,7 +154,7 @@ const BASE_STATS := {
 		"jade_cost": 0,
 		"essence_cost": 0,
 		"food_cost": 0,
-		"food_bounty": 12,
+		"food_bounty": 8,
 		"retaliates": false,
 	},
 	&"deer": {
@@ -146,7 +171,7 @@ const BASE_STATS := {
 		"jade_cost": 0,
 		"essence_cost": 0,
 		"food_cost": 0,
-		"food_bounty": 30,
+		"food_bounty": 19,
 		"retaliates": false,
 	},
 	&"bison": {
@@ -163,7 +188,7 @@ const BASE_STATS := {
 		"jade_cost": 0,
 		"essence_cost": 0,
 		"food_cost": 0,
-		"food_bounty": 70,
+		"food_bounty": 45,
 		"retaliates": false,
 	},
 	&"boar": {
@@ -180,7 +205,7 @@ const BASE_STATS := {
 		"jade_cost": 0,
 		"essence_cost": 0,
 		"food_cost": 0,
-		"food_bounty": 48,
+		"food_bounty": 31,
 		"retaliates": true,
 	},
 	&"bear": {
@@ -197,7 +222,7 @@ const BASE_STATS := {
 		"jade_cost": 0,
 		"essence_cost": 0,
 		"food_cost": 0,
-		"food_bounty": 95,
+		"food_bounty": 60,
 		"retaliates": true,
 	},
 	&"stronghold": {
@@ -223,7 +248,7 @@ const BASE_STATS := {
 	},
 	&"rice_farm": {
 		"name": "Rice Farm",
-		"role": "Steady food producer. Harvests 8 Food every 4 seconds.",
+		"role": "Produces 8 Food every 40 seconds; one assigned Worker increases output fivefold.",
 		"max_hp": 650.0,
 		"population": 0,
 		"train_time": 0.0,
@@ -231,12 +256,12 @@ const BASE_STATS := {
 		"lumber_cost": 45,
 		"essence_cost": 0,
 		"food_yield": 8,
-		"food_interval": 4.0,
+		"food_interval": 40.0,
 		"footprint": Vector2i(2, 2),
 	},
 	&"hunters_lodge": {
 		"name": "Hunter's Lodge",
-		"role": "Compact food producer and training ground for Hunters.",
+		"role": "Passively produces 18 Food every 50 seconds and trains bounty-earning Hunters.",
 		"max_hp": 600.0,
 		"population": 0,
 		"train_time": 0.0,
@@ -244,8 +269,42 @@ const BASE_STATS := {
 		"lumber_cost": 75,
 		"essence_cost": 15,
 		"food_yield": 18,
-		"food_interval": 5.0,
+		"food_interval": 50.0,
 		"footprint": Vector2i(1, 1),
+	},
+	&"wall": {
+		"name": "Wood Wall",
+		"role": "A compact defensive barrier. Drag during placement to build a snapped straight line.",
+		"max_hp": 300.0,
+		"population": 0,
+		"train_time": 0.0,
+		"jade_cost": 0,
+		"lumber_cost": 8,
+		"essence_cost": 0,
+		"footprint": Vector2i.ONE,
+	},
+	&"gate": {
+		"name": "Wood Gate",
+		"role": "A fortified passage that friendly units can cross while enemies remain blocked.",
+		"max_hp": 700.0,
+		"population": 0,
+		"train_time": 0.0,
+		"jade_cost": 0,
+		"lumber_cost": 32,
+		"essence_cost": 0,
+		"footprint": Vector2i(2, 4),
+	},
+	&"sentry_tower": {
+		"name": "Sentry Tower",
+		"role": "Garrisons one Hunter or Mystic. The occupant attacks automatically with double range.",
+		"max_hp": 900.0,
+		"population": 0,
+		"train_time": 0.0,
+		"jade_cost": 0,
+		"lumber_cost": 60,
+		"essence_cost": 0,
+		"footprint": Vector2i(2, 2),
+		"garrison_capacity": 1,
 	},
 	&"yaoguai_den": {
 		"name": "Yaoguai Den",
@@ -288,11 +347,15 @@ static func entity_art_path(faction_id: StringName, kind: StringName) -> String:
 		return "res://assets/runtime/wildlife/%s.png" % String(kind)
 	if kind == &"jadeclaw":
 		return "res://assets/runtime/units/neutral_jadeclaw.png"
+	if kind == &"shenlong":
+		return "res://assets/runtime/units/neutral_shenlong.png"
+	if kind == &"shenlong_egg":
+		return "res://assets/runtime/objectives/shenlong_egg.png"
 	if kind == &"yaoguai_den":
 		return "res://assets/runtime/buildings/neutral_yaoguai_den.png"
 	if kind in [&"rice_farm", &"hunters_lodge"]:
 		return "res://assets/runtime/buildings/%s.png" % String(kind)
-	var folder := "buildings" if kind in [&"stronghold", &"war_camp"] else "units"
+	var folder := "buildings" if kind in [&"stronghold", &"war_camp", &"wall", &"gate", &"sentry_tower"] else "units"
 	return "res://assets/runtime/%s/%s_%s.png" % [folder, String(faction_id), String(kind)]
 
 
@@ -326,3 +389,13 @@ static func opposing_faction(player_faction: StringName) -> StringName:
 			return &"human"
 		_:
 			return &"beast"
+
+
+static func opposing_factions(player_faction: StringName) -> Array[StringName]:
+	# Keep the original one-on-one matchup in slot 1 so existing balance and
+	# tutorial expectations remain stable, then fill the other two corners.
+	var result: Array[StringName] = [opposing_faction(player_faction)]
+	for faction in ORDER:
+		if faction != player_faction and faction not in result:
+			result.append(faction)
+	return result
