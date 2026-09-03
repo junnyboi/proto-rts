@@ -9,8 +9,11 @@ class FortificationFacingAudit:
 	var battlefield: Battlefield
 	var structure_kind: StringName = &"gate"
 	var textures: Array[Texture2D] = []
+	var gate_corner_gate_textures: Array[Texture2D] = []
+	var gate_corner_wall_textures: Array[Texture2D] = []
 	var wall_corner_gallery := false
 	var wall_polygon_gallery := false
+	var gate_wall_corner_gallery := false
 	var polygon_renderer: Battlefield
 	var polygon_panels: Array[Dictionary] = []
 
@@ -22,6 +25,9 @@ class FortificationFacingAudit:
 			return
 		if wall_polygon_gallery:
 			_draw_wall_polygon_gallery(font)
+			return
+		if gate_wall_corner_gallery:
+			_draw_gate_wall_corner_gallery(font)
 			return
 		draw_string(
 			font,
@@ -261,6 +267,91 @@ class FortificationFacingAudit:
 						preview_scale,
 					)
 
+	func _draw_gate_wall_corner_gallery(font: Font) -> void:
+		draw_string(
+			font,
+			Vector2(0.0, 34.0),
+			"ALL-RACE GATE BOTTOM-CORNER WALL LINKS — 0° AND 90°",
+			HORIZONTAL_ALIGNMENT_CENTER,
+			size.x,
+			20,
+			Color("f4e3aa"),
+		)
+		var column_width := size.x / float(FactionCatalog.ORDER.size())
+		var orientations: Array[StringName] = [&"x", &"y"]
+		var row_y := [285.0, 610.0]
+		var preview_scale := 0.68
+		if gate_corner_gate_textures.is_empty():
+			for faction in FactionCatalog.ORDER:
+				gate_corner_gate_textures.append(
+					load(FactionCatalog.entity_art_path(faction, &"gate")) as Texture2D
+				)
+				gate_corner_wall_textures.append(
+					load(FactionCatalog.entity_art_path(faction, &"wall")) as Texture2D
+				)
+		for faction_index in range(FactionCatalog.ORDER.size()):
+			var faction := FactionCatalog.ORDER[faction_index]
+			var column_center := column_width * (float(faction_index) + 0.5)
+			if faction_index == 0:
+				column_center += 28.0
+			draw_string(
+				font,
+				Vector2(column_center - column_width * 0.5, 70.0),
+				String(FactionCatalog.DATA[faction]["name"]),
+				HORIZONTAL_ALIGNMENT_CENTER,
+				column_width,
+				18,
+				Color("fff0bf"),
+			)
+			var gate_texture := gate_corner_gate_textures[faction_index]
+			var wall_texture := gate_corner_wall_textures[faction_index]
+			for orientation_index in range(orientations.size()):
+				var gate_orientation := orientations[orientation_index]
+				var wall_orientation: StringName = (
+					&"y" if gate_orientation == &"x" else &"x"
+				)
+				var footprint := (
+					Vector2i(4, 2) if gate_orientation == &"x" else Vector2i(2, 4)
+				)
+				var anchor := Vector2(column_center, row_y[orientation_index])
+				_draw_footprint(anchor, footprint, preview_scale)
+				_draw_footprint(anchor, Vector2i.ONE, preview_scale)
+				_draw_fortification(
+					anchor,
+					gate_texture,
+					gate_orientation,
+					footprint,
+					preview_scale,
+				)
+				var render_orientations: Array[StringName] = [
+					wall_orientation,
+					gate_orientation,
+				]
+				for wall_render_orientation in render_orientations:
+					_draw_fortification(
+						anchor,
+						wall_texture,
+						wall_render_orientation,
+						Vector2i.ONE,
+						preview_scale,
+						&"",
+						&"wall",
+					)
+		for orientation_index in range(orientations.size()):
+			draw_string(
+				font,
+				Vector2(0.0, 105.0 + float(orientation_index) * 325.0),
+				(
+					"MAP X GATE + MAP Y WALL"
+					if orientations[orientation_index] == &"x"
+					else "MAP Y GATE + MAP X WALL"
+				),
+				HORIZONTAL_ALIGNMENT_CENTER,
+				size.x,
+				15,
+				Color("91e7df"),
+			)
+
 	func _ensure_wall_polygon_data() -> void:
 		if not polygon_panels.is_empty():
 			return
@@ -365,11 +456,15 @@ class FortificationFacingAudit:
 		footprint: Vector2i,
 		preview_scale: float,
 		wall_corner_direction: StringName = &"",
+		render_structure_kind: StringName = &"",
 	) -> void:
+		var resolved_structure_kind := (
+			structure_kind if render_structure_kind.is_empty() else render_structure_kind
+		)
 		var display_size := (
 			battlefield.call(
 				"_structure_display_size",
-				structure_kind,
+				resolved_structure_kind,
 				footprint,
 				texture,
 			) as Vector2
@@ -379,14 +474,14 @@ class FortificationFacingAudit:
 		var content_center_x := float(content_rect.position.x) + float(content_rect.size.x) * 0.5
 		var flip_h := bool(battlefield.call(
 			"_structure_sprite_flipped",
-			structure_kind,
+			resolved_structure_kind,
 			orientation,
 			footprint,
 			texture,
 		))
 		var axis_skew := float(battlefield.call(
 			"_structure_sprite_axis_skew",
-			structure_kind,
+			resolved_structure_kind,
 			orientation,
 			footprint,
 			texture,
@@ -419,14 +514,14 @@ class FortificationFacingAudit:
 			0.0,
 		)
 		var axis_anchor_offset := Vector2.ZERO
-		if structure_kind == &"gate":
+		if resolved_structure_kind == &"gate":
 			axis_anchor_offset = battlefield.call(
 				"_gate_sprite_axis_anchor_offset",
 				orientation,
 				texture,
 				display_size,
 			) as Vector2
-		elif structure_kind == &"wall":
+		elif resolved_structure_kind == &"wall":
 			axis_anchor_offset = battlefield.call(
 				"_wall_sprite_axis_anchor_offset",
 				orientation,
@@ -471,6 +566,7 @@ func _capture_fortification_facing_audit(
 	capture_name: String,
 	wall_corner_gallery: bool = false,
 	wall_polygon_gallery: bool = false,
+	gate_wall_corner_gallery: bool = false,
 ) -> void:
 	var audit_layer := CanvasLayer.new()
 	audit_layer.layer = 100
@@ -479,6 +575,7 @@ func _capture_fortification_facing_audit(
 	audit.structure_kind = structure_kind
 	audit.wall_corner_gallery = wall_corner_gallery
 	audit.wall_polygon_gallery = wall_polygon_gallery
+	audit.gate_wall_corner_gallery = gate_wall_corner_gallery
 	audit.size = root.get_visible_rect().size
 	audit_layer.add_child(audit)
 	root.add_child(audit_layer)
@@ -781,6 +878,7 @@ func _run() -> void:
 	game.call("_update_hud")
 	await _settle(2)
 	_capture("food-economy")
+	game._minimap.tooltip_text = ""
 	await _capture_fortification_facing_audit(
 		game,
 		&"gate",
@@ -797,6 +895,14 @@ func _run() -> void:
 		game,
 		&"wall",
 		"wall-polygon-audit",
+		false,
+		true,
+	)
+	await _capture_fortification_facing_audit(
+		game,
+		&"gate",
+		"gate-wall-corner-audit",
+		false,
 		false,
 		true,
 	)
@@ -1010,7 +1116,7 @@ func _run() -> void:
 	game.free()
 	await process_frame
 	_cleanup_leaderboard(leaderboard_save_path)
-	print("PASS visual_capture: title, title/result leaderboards, faction-select, skirmish, worker cargo icons, pause, settings, four game-juice proof states, Stronghold upgrade effects, enemy inspection, caves, production queue, armed command, multi-selection, food economy, all-race wall, corner, polygon, and gate audits, fortifications, four-faction tower garrisons, wildlife hunt, command visualization, Shenlong objective, egg carrier, map overview, and result")
+	print("PASS visual_capture: title, title/result leaderboards, faction-select, skirmish, worker cargo icons, pause, settings, four game-juice proof states, Stronghold upgrade effects, enemy inspection, caves, production queue, armed command, multi-selection, food economy, all-race wall, corner, polygon, gate, and gate-wall corner audits, fortifications, four-faction tower garrisons, wildlife hunt, command visualization, Shenlong objective, egg carrier, map overview, and result")
 	quit(0)
 
 

@@ -543,6 +543,77 @@ func _test_targeted_production_cancellation(failures: Array[String]) -> void:
 		failures.append("an out-of-range production cancellation mutated the queue")
 
 
+func _test_structure_demolition(failures: Array[String]) -> void:
+	for structure_kind in RtsSimulation.BUILDABLE_STRUCTURE_KINDS:
+		var simulation := RtsSimulation.new()
+		simulation.setup(&"human")
+		var team := RtsSimulation.TEAM_PLAYER
+		var player := simulation.players[team] as Dictionary
+		for resource_kind in [&"jade", &"lumber", &"essence", &"food"]:
+			player[String(resource_kind)] = 0
+		var structure_id := simulation._spawn_structure(
+			team,
+			structure_kind,
+			MapCatalog.PLAYER_BUILD_TEST_SITE,
+			structure_kind != &"rice_farm",
+		)
+		var stats := FactionCatalog.stats(structure_kind, &"human")
+		var refund := simulation.command_demolish(team, structure_id)
+		if refund.is_empty():
+			failures.append("%s could not be demolished" % String(structure_kind).capitalize())
+			continue
+		if bool(simulation.entity(structure_id).get("alive", true)):
+			failures.append("%s remained alive after demolition" % String(structure_kind).capitalize())
+		for definition in [
+			["jade_cost", "jade"],
+			["lumber_cost", "lumber"],
+			["essence_cost", "essence"],
+			["food_cost", "food"],
+		]:
+			var expected := floori(
+				float(stats.get(definition[0], 0)) * RtsSimulation.DEMOLITION_REFUND_RATE
+			)
+			if int(refund.get(definition[0], -1)) != expected:
+				failures.append(
+					"%s reported the wrong %s demolition refund"
+					% [String(structure_kind).capitalize(), String(definition[1]).capitalize()]
+				)
+			if int(player[definition[1]]) != expected:
+				failures.append(
+					"%s did not refund exactly 50%% of its %s cost"
+					% [String(structure_kind).capitalize(), String(definition[1]).capitalize()]
+				)
+		if not simulation.command_demolish(team, structure_id).is_empty():
+			failures.append("%s granted a second demolition refund" % String(structure_kind).capitalize())
+
+	var protected_simulation := RtsSimulation.new()
+	protected_simulation.setup(&"human")
+	var stronghold_id := protected_simulation.primary_structure_id(
+		RtsSimulation.TEAM_PLAYER,
+		&"stronghold",
+	)
+	if not protected_simulation.command_demolish(
+		RtsSimulation.TEAM_PLAYER,
+		stronghold_id,
+	).is_empty():
+		failures.append("the player's Stronghold could be demolished")
+	if not bool(protected_simulation.entity(stronghold_id).get("alive", false)):
+		failures.append("a rejected demolition destroyed the player's Stronghold")
+	var enemy_camp_id := protected_simulation._spawn_structure(
+		RtsSimulation.TEAM_ENEMY,
+		&"war_camp",
+		MapCatalog.PLAYER_BUILD_TEST_SITE,
+		true,
+	)
+	if not protected_simulation.command_demolish(
+		RtsSimulation.TEAM_PLAYER,
+		enemy_camp_id,
+	).is_empty():
+		failures.append("the player could demolish an enemy building")
+	if not bool(protected_simulation.entity(enemy_camp_id).get("alive", false)):
+		failures.append("a rejected demolition destroyed an enemy building")
+
+
 func _test_free_worker_recovery(failures: Array[String]) -> void:
 	var simulation := RtsSimulation.new()
 	simulation.setup(&"human")
@@ -1300,6 +1371,51 @@ func _test_hunter_avoids_unordered_combat(failures: Array[String]) -> void:
 			failures.append("Hunter did not follow an explicit attack order against a Yaoguai guardian")
 
 
+func _test_hunter_attacks_enemy_hunters(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human", false)
+	simulation.entities.clear()
+	for player in simulation.players:
+		player["population"] = 0
+	simulation._next_entity_id = 1
+	simulation._rebuild_pathfinding()
+
+	var hunter_id := simulation._spawn_unit(
+		RtsSimulation.TEAM_PLAYER,
+		&"hunter",
+		Vector2i(24, 40),
+	)
+	var prey_id := simulation._spawn_wildlife(
+		&"deer",
+		Vector2i(25, 40),
+		1,
+		Vector2i(25, 40),
+		3.0,
+	)
+	var enemy_hunter_id := simulation._spawn_unit(
+		RtsSimulation.TEAM_ENEMY,
+		&"hunter",
+		Vector2i(28, 40),
+	)
+	var hunter := simulation.entity(hunter_id)
+	var prey := simulation.entity(prey_id)
+	var enemy_hunter := simulation.entity(enemy_hunter_id)
+	hunter["wander_timer"] = 999.0
+	simulation._refresh_visibility()
+	if not simulation.command_attack(RtsSimulation.TEAM_PLAYER, [hunter_id], prey_id):
+		failures.append("Hunter competition test could not begin a wildlife hunt")
+		return
+	var prey_hp_before := float(prey["hp"])
+	var enemy_hunter_hp_before := float(enemy_hunter["hp"])
+	simulation.advance(RtsSimulation.TICK_SECONDS)
+	if hunter.get("order") != &"attack" or int(hunter.get("target_id", -1)) != enemy_hunter_id:
+		failures.append("Hunter did not prioritize a nearby enemy Hunter over wildlife")
+	if float(enemy_hunter["hp"]) >= enemy_hunter_hp_before:
+		failures.append("Hunter did not attack a nearby enemy Hunter")
+	if float(prey["hp"]) < prey_hp_before:
+		failures.append("Hunter attacked wildlife instead of eliminating nearby Hunter competition")
+
+
 func _test_lifetime_scoring(failures: Array[String]) -> void:
 	var simulation := RtsSimulation.new()
 	simulation.setup(&"human", false)
@@ -1672,6 +1788,7 @@ func _run() -> void:
 	_test_unit_food_costs(failures)
 	_test_stronghold_population_upgrades(failures)
 	_test_targeted_production_cancellation(failures)
+	_test_structure_demolition(failures)
 	_test_free_worker_recovery(failures)
 	_test_food_building(&"rice_farm", failures)
 	_test_food_building(&"hunters_lodge", failures)
@@ -1686,6 +1803,7 @@ func _run() -> void:
 	_test_idle_hunter_wandering(failures)
 	_test_hunter_hunting_pasture_priority(failures)
 	_test_hunter_avoids_unordered_combat(failures)
+	_test_hunter_attacks_enemy_hunters(failures)
 	_test_lifetime_scoring(failures)
 	_test_resignation_outcome(failures)
 	_test_four_faction_free_for_all(failures)

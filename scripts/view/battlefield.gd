@@ -181,6 +181,7 @@ var _texture_content_rect_cache: Dictionary = {}
 var _texture_ground_profile_cache: Dictionary = {}
 var _texture_ground_slope_cache: Dictionary = {}
 var _wall_render_lookup: Dictionary = {}
+var _gate_bottom_corner_render_lookup: Dictionary = {}
 var _effect_director = EFFECT_DIRECTOR_SCRIPT.new()
 var _presentation = PRESENTATION_STATE_SCRIPT.new()
 var _visible_cells: Dictionary = {}
@@ -1251,7 +1252,12 @@ func cursor_context_at(screen_position: Vector2) -> Dictionary:
 		var start_cell := _placement_start_cell if _placement_pressed else cell
 		var can_build := false
 		if placement_kind == &"wall":
-			can_build = simulation.can_place_wall_line(RtsSimulation.TEAM_PLAYER, start_cell, cell)
+			can_build = simulation.can_place_wall_line(
+				RtsSimulation.TEAM_PLAYER,
+				start_cell,
+				cell,
+				placement_orientation,
+			)
 		else:
 			can_build = (
 				MapCatalog.in_bounds(cell)
@@ -1873,7 +1879,12 @@ func _draw_hover_feedback() -> void:
 			preview_cells = simulation.wall_line_cells(start_cell, cell)
 		var orientation := placement_orientation
 		var valid := (
-			simulation.can_place_wall_line(RtsSimulation.TEAM_PLAYER, start_cell, cell)
+			simulation.can_place_wall_line(
+				RtsSimulation.TEAM_PLAYER,
+				start_cell,
+				cell,
+				placement_orientation,
+			)
 			if placement_kind == &"wall"
 			else simulation.can_place_structure(
 				RtsSimulation.TEAM_PLAYER,
@@ -2897,23 +2908,54 @@ func _wall_lookup_key(team: int, cell: Vector2i) -> Vector3i:
 
 func _rebuild_wall_render_lookup() -> void:
 	_wall_render_lookup.clear()
+	_gate_bottom_corner_render_lookup.clear()
 	if simulation == null:
 		return
 	for raw_entity in simulation.entities.values():
-		var wall := raw_entity as Dictionary
+		var entity_state := raw_entity as Dictionary
 		if (
-			wall.get("kind") != &"wall"
-			or not bool(wall.get("alive", false))
-			or float(wall.get("complete", 0.0)) < 1.0
+			not bool(entity_state.get("alive", false))
+			or float(entity_state.get("complete", 0.0)) < 1.0
 		):
 			continue
-		var cell := wall.get("cell", Vector2i(-1, -1)) as Vector2i
-		var team := int(wall.get("team", RtsSimulation.TEAM_NEUTRAL))
-		_wall_render_lookup[_wall_lookup_key(team, cell)] = wall
+		var kind := entity_state.get("kind", &"") as StringName
+		var cell := entity_state.get("cell", Vector2i(-1, -1)) as Vector2i
+		var team := int(entity_state.get("team", RtsSimulation.TEAM_NEUTRAL))
+		var lookup_key := _wall_lookup_key(team, cell)
+		if kind == &"gate":
+			var footprint := entity_state.get("footprint", Vector2i.ONE) as Vector2i
+			var bottom_corner := cell + footprint - Vector2i.ONE
+			_gate_bottom_corner_render_lookup[
+				_wall_lookup_key(team, bottom_corner)
+			] = entity_state
+			continue
+		if kind != &"wall":
+			continue
+		var orientations := _wall_render_lookup.get(lookup_key, {}) as Dictionary
+		orientations[entity_state.get("orientation", &"y") as StringName] = entity_state
+		_wall_render_lookup[lookup_key] = orientations
 
 
 func _wall_corner_direction_orientation(direction: StringName) -> StringName:
 	return &"x" if direction in [&"top_left", &"bottom_right"] else &"y"
+
+
+func _wall_gate_bottom_corner_orientation(wall: Dictionary) -> StringName:
+	if (
+		wall.get("kind") != &"wall"
+		or not bool(wall.get("alive", false))
+		or float(wall.get("complete", 0.0)) < 1.0
+	):
+		return &""
+	var cell := wall.get("cell", Vector2i(-1, -1)) as Vector2i
+	var team := int(wall.get("team", RtsSimulation.TEAM_NEUTRAL))
+	var gate := _gate_bottom_corner_render_lookup.get(
+		_wall_lookup_key(team, cell),
+		{},
+	) as Dictionary
+	if gate.is_empty():
+		return &""
+	return gate.get("orientation", &"y") as StringName
 
 
 func _wall_render_orientations(wall: Dictionary) -> Array[StringName]:
@@ -2925,6 +2967,20 @@ func _wall_render_orientations(wall: Dictionary) -> Array[StringName]:
 		or not bool(wall.get("alive", false))
 		or float(wall.get("complete", 0.0)) < 1.0
 	):
+		return orientations
+	var cell := wall.get("cell", Vector2i(-1, -1)) as Vector2i
+	var team := int(wall.get("team", RtsSimulation.TEAM_NEUTRAL))
+	var co_located_walls := _wall_render_lookup.get(
+		_wall_lookup_key(team, cell),
+		{},
+	) as Dictionary
+	# Perpendicular walls intentionally sharing a cell each own their authored
+	# segment. Do not derive replacement arms for both entities at the same joint.
+	if co_located_walls.has(&"x") and co_located_walls.has(&"y"):
+		return orientations
+	var gate_orientation := _wall_gate_bottom_corner_orientation(wall)
+	if not gate_orientation.is_empty() and not orientations.has(gate_orientation):
+		orientations.append(gate_orientation)
 		return orientations
 	var corner_directions := _wall_corner_directions(wall)
 	if corner_directions.is_empty():
@@ -2954,13 +3010,15 @@ func _wall_corner_directions(wall: Dictionary) -> Array[StringName]:
 	for direction in WALL_CORNER_DIRECTION_ORDER:
 		var neighbor_offset := WALL_CORNER_NEIGHBOR_OFFSETS[direction] as Vector2i
 		var neighbor_cell: Vector2i = cell + neighbor_offset
-		var neighbor := _wall_render_lookup.get(
+		var neighbor_orientation := _wall_corner_direction_orientation(direction)
+		var neighbor_walls := _wall_render_lookup.get(
 			_wall_lookup_key(team, neighbor_cell),
 			{},
 		) as Dictionary
+		var neighbor := neighbor_walls.get(neighbor_orientation, {}) as Dictionary
 		if (
 			not neighbor.is_empty()
-			and neighbor.get("orientation", &"y") == _wall_corner_direction_orientation(direction)
+			and neighbor.get("orientation", &"y") == neighbor_orientation
 		):
 			result.append(direction)
 	var has_x_axis := result.has(&"top_left") or result.has(&"bottom_right")

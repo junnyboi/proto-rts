@@ -332,6 +332,66 @@ func _test_ai_natural_construction_and_fallback(failures: Array[String]) -> void
 		_expect(int(stipend_probe.players[RtsSimulation.TEAM_ENEMY][kind]) == int(resources_before[kind]), "AI received an unearned %s stipend" % kind, failures)
 
 
+func _test_every_ai_scouts_after_known_resources_are_exhausted(failures: Array[String]) -> void:
+	for target_team in range(RtsSimulation.TEAM_ENEMY, RtsSimulation.TEAM_COUNT):
+		var simulation := RtsSimulation.new()
+		simulation.setup(&"human", false)
+		for raw_entity in simulation.entities.values():
+			var entity_state := raw_entity as Dictionary
+			if (
+				entity_state.get("category") == &"resource"
+				and simulation.is_entity_explored_by_team(target_team, entity_state)
+			):
+				entity_state["alive"] = false
+		for resource_kind in ["jade", "lumber", "essence", "food"]:
+			simulation.players[target_team][resource_kind] = 0
+		for worker in simulation._team_units_of_kind(target_team, &"worker"):
+			simulation.command_stop(target_team, [int(worker["id"])])
+		simulation._rebuild_pathfinding()
+		simulation._ai_strategy_timer = 0.0
+		simulation._advance_ai(RtsSimulation.TICK_SECONDS)
+		var scouting_worker: Dictionary = {}
+		for worker in simulation._team_units_of_kind(target_team, &"worker"):
+			if worker.get("order", &"idle") == &"move":
+				scouting_worker = worker
+				break
+		_expect(
+			not scouting_worker.is_empty(),
+			"AI team %d left every Worker idle after exhausting its known resources" % target_team,
+			failures,
+		)
+		if scouting_worker.is_empty():
+			continue
+		var destination := scouting_worker.get("path_destination", Vector2i(-1, -1)) as Vector2i
+		_expect(
+			MapCatalog.in_bounds(destination)
+				and not simulation.is_cell_explored_by_team(target_team, destination),
+			"AI team %d did not scout beyond its explored territory" % target_team,
+			failures,
+		)
+		_expect(
+			not (scouting_worker.get("path", []) as Array).is_empty(),
+			"AI team %d issued a resource scout order without a viable route" % target_team,
+			failures,
+		)
+		var scout_timeout := 120.0
+		while scouting_worker.get("order", &"idle") == &"move" and scout_timeout > 0.0:
+			simulation._advance_path(scouting_worker, RtsSimulation.TICK_SECONDS)
+			simulation._refresh_visibility()
+			scout_timeout -= RtsSimulation.TICK_SECONDS
+		_expect(
+			scouting_worker.get("order", &"idle") == &"idle",
+			"AI team %d could not complete its resource scout route" % target_team,
+			failures,
+		)
+		simulation._assign_ai_resource(scouting_worker)
+		_expect(
+			scouting_worker.get("order", &"idle") == &"gather",
+			"AI team %d did not resume gathering after scouting new deposits" % target_team,
+			failures,
+		)
+
+
 func _find_blocked_los_pair(simulation: RtsSimulation, attacker: Dictionary, target: Dictionary) -> Array[Vector2i]:
 	for y in range(MapCatalog.SIZE.y):
 		for x in range(MapCatalog.SIZE.x):
@@ -435,10 +495,11 @@ func _run() -> void:
 	_test_role_movement_profiles(failures)
 	_test_friendly_passthrough_and_idle_spacing(failures)
 	_test_ai_natural_construction_and_fallback(failures)
+	_test_every_ai_scouts_after_known_resources_are_exhausted(failures)
 	_test_line_of_sight_and_invalid_commands(failures)
 	_test_command_authority(failures)
 	if failures.is_empty():
-		print("PASS core_regression_test: attack-move race, ranged repositioning, scalable/partial formations, occupancy, role movement profiles, friendly passthrough, idle spacing, hostile separation, fair AI economy, sight, bounds, authority")
+		print("PASS core_regression_test: attack-move race, ranged repositioning, scalable/partial formations, occupancy, role movement profiles, friendly passthrough, idle spacing, hostile separation, fair AI economy and resource scouting, sight, bounds, authority")
 		quit(0)
 		return
 	for failure in failures:

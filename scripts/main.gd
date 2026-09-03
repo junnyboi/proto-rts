@@ -827,6 +827,7 @@ func _build_command_bay() -> Control:
 		battlefield.begin_rally()
 		_update_armed_command_styles()
 	, null, &"rally")
+	_add_command_button(9, &"demolish", "DEMOLISH", _command_demolish, null, &"cancel")
 	_add_command_button(11, &"stop", "STOP", _command_stop, null, &"stop", "X")
 	_add_command_button(11, &"cancel_queue", "CANCEL LAST", _command_cancel_training, null, &"cancel")
 	return panel
@@ -1613,6 +1614,11 @@ func _update_commands() -> void:
 	_set_simple_command(&"repair", has_worker, "Repair a damaged allied structure · 15 health per 1 Lumber · R")
 	_set_simple_command(&"stop", has_units, "Cancel current and queued orders · X")
 	_set_simple_command(&"rally", not structure.is_empty(), "Set the selected producer's rally destination")
+	if not structure.is_empty() and simulation.can_demolish_structure(
+		RtsSimulation.TEAM_PLAYER,
+		selected_structure_id,
+	):
+		_show_demolish_command(selected_structure_id)
 	var production_queue := structure.get("queue", []) as Array if not structure.is_empty() else []
 	var cancel_button := _command_buttons[&"cancel_queue"] as HudCommandButton
 	cancel_button.set_meta(COMMAND_VISIBLE_META, not production_queue.is_empty())
@@ -1687,6 +1693,16 @@ func _show_stronghold_upgrade_command(stronghold: Dictionary) -> void:
 	if not unavailable.is_empty():
 		tooltip += "\nUnavailable: %s" % unavailable
 	button.tooltip_text = tooltip
+
+
+func _show_demolish_command(structure_id: int) -> void:
+	var button := _command_buttons[&"demolish"] as HudCommandButton
+	var refund := simulation.demolition_refund(structure_id)
+	button.set_meta(COMMAND_VISIBLE_META, true)
+	button.set_command_title("DEMOLISH")
+	button.set_cost_markup(_cost_markup(refund))
+	button.disabled = false
+	button.tooltip_text = "Instantly destroy this building and refund 50%% of its build cost · %s" % _long_cost(refund)
 
 
 func _set_simple_command(button_id: StringName, visible: bool, tooltip: String) -> void:
@@ -1848,6 +1864,32 @@ func _command_upgrade_stronghold() -> void:
 			_show_feedback("The Stronghold is already at maximum level.", true)
 		else:
 			_show_feedback("Insufficient resources for the Stronghold upgrade.", true)
+	_update_hud()
+
+
+func _command_demolish() -> void:
+	var structure_id := battlefield.primary_selected_structure()
+	if structure_id < 0:
+		_show_feedback("Select one of your buildings before demolishing it.", true)
+		return
+	var structure := simulation.entity(structure_id)
+	var building_name := String(
+		FactionCatalog.stats(
+			structure.get("kind", &"war_camp") as StringName,
+			structure.get("faction", selected_faction) as StringName,
+		).get("name", "Building")
+	)
+	var refund := simulation.command_demolish(RtsSimulation.TEAM_PLAYER, structure_id)
+	if refund.is_empty():
+		_show_feedback("That building cannot be demolished.", true)
+		_update_hud()
+		return
+	battlefield.select_entities([])
+	audio_director.play_ui(&"ui_cancel")
+	_show_feedback(
+		"%s demolished · 50%% refund: %s." % [building_name, _long_cost(refund)],
+		false,
+	)
 	_update_hud()
 
 

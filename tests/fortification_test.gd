@@ -178,6 +178,7 @@ func _test_footprints_and_wall_drag(failures: Array[String]) -> void:
 		worker_id,
 		cells.front(),
 		cells.back(),
+		&"x",
 	).is_empty():
 		failures.append("blocked wall drag was not rejected atomically")
 	if simulation.entities.size() != entity_count or int(simulation.players[RtsSimulation.TEAM_PLAYER]["lumber"]) != lumber_after:
@@ -256,8 +257,38 @@ func _test_wall_gate_corner_overlap(failures: Array[String]) -> void:
 			RtsSimulation.TEAM_PLAYER,
 			&"wall",
 			corner_cells[0],
+			orientation,
 		):
-			failures.append("%s gate corner accepted a second overlapping wall" % orientation)
+			failures.append("%s gate corner accepted a duplicate wall rotation" % orientation)
+		var perpendicular_orientation: StringName = &"x" if orientation == &"y" else &"y"
+		if not simulation.can_place_wall_line(
+			RtsSimulation.TEAM_PLAYER,
+			corner_cells[0],
+			corner_cells[0],
+			perpendicular_orientation,
+		):
+			failures.append("%s gate corner rejected a perpendicular wall rotation" % orientation)
+		else:
+			var perpendicular_ids := simulation.command_build_wall_line(
+				RtsSimulation.TEAM_PLAYER,
+				worker_id,
+				corner_cells[0],
+				corner_cells[0],
+				perpendicular_orientation,
+			)
+			if (
+				perpendicular_ids.size() != 1
+				or simulation.entity(perpendicular_ids[0]).get("orientation")
+					!= perpendicular_orientation
+			):
+				failures.append("%s gate corner did not build its perpendicular wall" % orientation)
+		if simulation.can_place_structure(
+			RtsSimulation.TEAM_ENEMY,
+			&"wall",
+			corner_cells[0],
+			perpendicular_orientation,
+		):
+			failures.append("%s gate corner let an enemy stack a wall rotation" % orientation)
 
 		var gate_only_cell := gate_cell + (
 			Vector2i(0, 1) if footprint.y > footprint.x else Vector2i(1, 0)
@@ -268,6 +299,213 @@ func _test_wall_gate_corner_overlap(failures: Array[String]) -> void:
 		if simulation._astar.is_point_solid(gate_only_cell):
 			failures.append("%s gate did not remain passable away from its corner wall" % orientation)
 		simulation._set_friendly_structures_solid(RtsSimulation.TEAM_PLAYER, true)
+
+
+func _test_wall_gate_bottom_corner_rendering(failures: Array[String]) -> void:
+	for gate_orientation in [&"x", &"y"]:
+		var perpendicular_orientation: StringName = (
+			&"y" if gate_orientation == &"x" else &"x"
+		)
+		for wall_first in [false, true]:
+			var battlefield := Battlefield.new()
+			var simulation := RtsSimulation.new()
+			simulation.setup(&"human", false)
+			battlefield.simulation = simulation
+			var gate_cell := Vector2i(-600 - int(wall_first) * 10, -300)
+			var footprint := simulation.structure_footprint(
+				RtsSimulation.TEAM_PLAYER,
+				&"gate",
+				gate_orientation,
+			)
+			var bottom_corner := gate_cell + footprint - Vector2i.ONE
+			var wall_id := -1
+			if wall_first:
+				wall_id = simulation._spawn_structure(
+					RtsSimulation.TEAM_PLAYER,
+					&"wall",
+					bottom_corner,
+					true,
+					perpendicular_orientation,
+				)
+			simulation._spawn_structure(
+				RtsSimulation.TEAM_PLAYER,
+				&"gate",
+				gate_cell,
+				true,
+				gate_orientation,
+			)
+			if not wall_first:
+				wall_id = simulation._spawn_structure(
+					RtsSimulation.TEAM_PLAYER,
+					&"wall",
+					bottom_corner,
+					true,
+					perpendicular_orientation,
+				)
+			battlefield.call("_rebuild_wall_render_lookup")
+			var wall := simulation.entity(wall_id)
+			if battlefield.call("_wall_gate_bottom_corner_orientation", wall) != gate_orientation:
+				failures.append(
+					"%s gate bottom corner was missed when wall_first=%s"
+					% [gate_orientation, wall_first]
+				)
+			var expected_orientations: Array[StringName] = [perpendicular_orientation]
+			expected_orientations.append(gate_orientation)
+			if (battlefield.call("_wall_render_orientations", wall) as Array) != expected_orientations:
+				failures.append(
+					"%s gate bottom corner did not render both linked wall arms"
+					% gate_orientation
+				)
+			battlefield.free()
+
+		var exclusion_simulation := RtsSimulation.new()
+		exclusion_simulation.setup(&"human", false)
+		var exclusion_battlefield := Battlefield.new()
+		exclusion_battlefield.simulation = exclusion_simulation
+		var exclusion_gate_cell := Vector2i(-640, -320)
+		var exclusion_footprint := exclusion_simulation.structure_footprint(
+			RtsSimulation.TEAM_PLAYER,
+			&"gate",
+			gate_orientation,
+		)
+		exclusion_simulation._spawn_structure(
+			RtsSimulation.TEAM_PLAYER,
+			&"gate",
+			exclusion_gate_cell,
+			true,
+			gate_orientation,
+		)
+		var other_corner_offsets: Array[Vector2i] = [
+			Vector2i.ZERO,
+			Vector2i(exclusion_footprint.x - 1, 0),
+			Vector2i(0, exclusion_footprint.y - 1),
+		]
+		for corner_offset in other_corner_offsets:
+			var wall_id := exclusion_simulation._spawn_structure(
+				RtsSimulation.TEAM_PLAYER,
+				&"wall",
+				exclusion_gate_cell + corner_offset,
+				true,
+				perpendicular_orientation,
+			)
+			exclusion_battlefield.call("_rebuild_wall_render_lookup")
+			var wall := exclusion_simulation.entity(wall_id)
+			if not StringName(exclusion_battlefield.call(
+				"_wall_gate_bottom_corner_orientation",
+				wall,
+			)).is_empty():
+				failures.append("%s gate linked a wall from a non-bottom corner" % gate_orientation)
+		exclusion_battlefield.free()
+
+	var preservation_battlefield := Battlefield.new()
+	var preservation_simulation := RtsSimulation.new()
+	preservation_simulation.setup(&"human", false)
+	preservation_battlefield.simulation = preservation_simulation
+	var preservation_gate_cell := Vector2i(-660, -330)
+	var preservation_footprint := preservation_simulation.structure_footprint(
+		RtsSimulation.TEAM_PLAYER,
+		&"gate",
+		&"x",
+	)
+	var preservation_corner := preservation_gate_cell + preservation_footprint - Vector2i.ONE
+	preservation_simulation._spawn_structure(
+		RtsSimulation.TEAM_PLAYER, &"gate", preservation_gate_cell, true, &"x"
+	)
+	var preservation_wall_id := preservation_simulation._spawn_structure(
+		RtsSimulation.TEAM_PLAYER, &"wall", preservation_corner, true, &"x"
+	)
+	preservation_simulation._spawn_structure(
+		RtsSimulation.TEAM_PLAYER,
+		&"wall",
+		preservation_corner + Vector2i(-1, 0),
+		true,
+		&"x",
+	)
+	preservation_simulation._spawn_structure(
+		RtsSimulation.TEAM_PLAYER,
+		&"wall",
+		preservation_corner + Vector2i(0, -1),
+		true,
+		&"y",
+	)
+	preservation_battlefield.call("_rebuild_wall_render_lookup")
+	if (preservation_battlefield.call(
+		"_wall_render_orientations",
+		preservation_simulation.entity(preservation_wall_id),
+	) as Array) != [&"x", &"y"]:
+		failures.append("same-axis gate suppressed an ordinary neighboring-wall corner")
+	preservation_battlefield.free()
+
+	var lifecycle_battlefield := Battlefield.new()
+	var lifecycle_simulation := RtsSimulation.new()
+	lifecycle_simulation.setup(&"human", false)
+	lifecycle_battlefield.simulation = lifecycle_simulation
+	var lifecycle_gate_cell := Vector2i(-680, -340)
+	var lifecycle_footprint := lifecycle_simulation.structure_footprint(
+		RtsSimulation.TEAM_PLAYER,
+		&"gate",
+		&"x",
+	)
+	var lifecycle_corner := lifecycle_gate_cell + lifecycle_footprint - Vector2i.ONE
+	var lifecycle_gate_id := lifecycle_simulation._spawn_structure(
+		RtsSimulation.TEAM_PLAYER,
+		&"gate",
+		lifecycle_gate_cell,
+		false,
+		&"x",
+	)
+	var lifecycle_wall_id := lifecycle_simulation._spawn_structure(
+		RtsSimulation.TEAM_PLAYER,
+		&"wall",
+		lifecycle_corner,
+		true,
+		&"y",
+	)
+	var lifecycle_wall := lifecycle_simulation.entity(lifecycle_wall_id)
+	lifecycle_battlefield.call("_rebuild_wall_render_lookup")
+	if (lifecycle_battlefield.call("_wall_render_orientations", lifecycle_wall) as Array) != [&"y"]:
+		failures.append("unfinished gate created a bottom-corner wall link")
+	lifecycle_simulation.entity(lifecycle_gate_id)["complete"] = 1.0
+	lifecycle_battlefield.call("_rebuild_wall_render_lookup")
+	if (lifecycle_battlefield.call("_wall_render_orientations", lifecycle_wall) as Array) != [&"y", &"x"]:
+		failures.append("completed gate did not create its bottom-corner wall link")
+	lifecycle_simulation.entity(lifecycle_gate_id)["alive"] = false
+	lifecycle_battlefield.call("_rebuild_wall_render_lookup")
+	if (lifecycle_battlefield.call("_wall_render_orientations", lifecycle_wall) as Array) != [&"y"]:
+		failures.append("destroyed gate left a stale bottom-corner wall link")
+	lifecycle_battlefield.free()
+
+	var enemy_battlefield := Battlefield.new()
+	var enemy_simulation := RtsSimulation.new()
+	enemy_simulation.setup(&"human", false)
+	enemy_battlefield.simulation = enemy_simulation
+	var enemy_gate_cell := Vector2i(-700, -360)
+	var enemy_footprint := enemy_simulation.structure_footprint(
+		RtsSimulation.TEAM_ENEMY,
+		&"gate",
+		&"x",
+	)
+	enemy_simulation._spawn_structure(
+		RtsSimulation.TEAM_ENEMY,
+		&"gate",
+		enemy_gate_cell,
+		true,
+		&"x",
+	)
+	var allied_wall_id := enemy_simulation._spawn_structure(
+		RtsSimulation.TEAM_PLAYER,
+		&"wall",
+		enemy_gate_cell + enemy_footprint - Vector2i.ONE,
+		true,
+		&"y",
+	)
+	enemy_battlefield.call("_rebuild_wall_render_lookup")
+	if (enemy_battlefield.call(
+		"_wall_render_orientations",
+		enemy_simulation.entity(allied_wall_id),
+	) as Array) != [&"y"]:
+		failures.append("enemy gate created an allied bottom-corner wall link")
+	enemy_battlefield.free()
 
 
 func _test_gate_sprite_facing(failures: Array[String]) -> void:
@@ -924,6 +1162,53 @@ func _test_wall_corner_segment_ownership(failures: Array[String]) -> void:
 	battlefield.free()
 
 
+func _test_stacked_wall_render_lookup(failures: Array[String]) -> void:
+	# Exercise both insertion orders so dictionary iteration cannot discard one
+	# rotation and make the result appear construction-order dependent.
+	for order_index in range(2):
+		var battlefield := Battlefield.new()
+		var simulation := RtsSimulation.new()
+		simulation.setup(&"human", false)
+		battlefield.simulation = simulation
+		var center_cell := Vector2i(-520 - order_index * 10, -260)
+		var x_id := -1
+		var y_id := -1
+		var orientation_order: Array[StringName] = []
+		orientation_order.assign([&"x", &"y"] if order_index == 0 else [&"y", &"x"])
+		for orientation in orientation_order:
+			var wall_id := simulation._spawn_structure(
+				RtsSimulation.TEAM_PLAYER,
+				&"wall",
+				center_cell,
+				true,
+				orientation,
+			)
+			if orientation == &"x":
+				x_id = wall_id
+			else:
+				y_id = wall_id
+		battlefield.call("_rebuild_wall_render_lookup")
+		var lookup_key: Vector3i = battlefield.call(
+			"_wall_lookup_key",
+			RtsSimulation.TEAM_PLAYER,
+			center_cell,
+		)
+		var co_located_walls := battlefield._wall_render_lookup.get(lookup_key, {}) as Dictionary
+		if co_located_walls.size() != 2:
+			failures.append("stacked wall lookup lost a rotation in insertion order %d" % order_index)
+		if (battlefield.call(
+			"_wall_render_orientations",
+			simulation.entity(x_id),
+		) as Array) != [&"x"]:
+			failures.append("stacked X wall did not retain its authored rotation")
+		if (battlefield.call(
+			"_wall_render_orientations",
+			simulation.entity(y_id),
+		) as Array) != [&"y"]:
+			failures.append("stacked Y wall did not retain its authored rotation")
+		battlefield.free()
+
+
 func _test_gate_pathing(failures: Array[String]) -> void:
 	var simulation := RtsSimulation.new()
 	simulation.setup(&"human", false)
@@ -1022,12 +1307,18 @@ func _test_drag_placement_input(failures: Array[String]) -> void:
 		battlefield.call("_handle_left_press", start_screen)
 		battlefield.call("_handle_left_release", finish_screen)
 		for cell in cross_axis_cells:
+			var found_y_wall := false
 			for raw_entity in simulation.entities.values():
 				var entity_state := raw_entity as Dictionary
-				if entity_state.get("kind") == &"wall" and entity_state.get("cell") == cell:
-					if entity_state.get("orientation") != &"y":
-						failures.append("alternate-axis wall drag did not rotate its tile and sprite state")
+				if (
+					entity_state.get("kind") == &"wall"
+					and entity_state.get("cell") == cell
+					and entity_state.get("orientation") == &"y"
+				):
+					found_y_wall = true
 					break
+			if not found_y_wall:
+				failures.append("alternate-axis wall drag did not rotate its tile and sprite state")
 
 	battlefield.placement_orientation = &"y"
 	if not battlefield.rotate_structure_placement() or battlefield.placement_orientation != &"x":
@@ -1216,8 +1507,10 @@ func _run() -> void:
 	_test_non_grass_land_placement(failures)
 	_test_footprints_and_wall_drag(failures)
 	_test_wall_gate_corner_overlap(failures)
+	_test_wall_gate_bottom_corner_rendering(failures)
 	_test_gate_sprite_facing(failures)
 	_test_wall_corner_segment_ownership(failures)
+	_test_stacked_wall_render_lookup(failures)
 	_test_gate_pathing(failures)
 	_test_drag_placement_input(failures)
 	_test_tower_garrison(failures)

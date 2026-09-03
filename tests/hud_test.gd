@@ -22,6 +22,7 @@ func _run() -> void:
 	_verify_economy_and_objectives(game, simulation, failures)
 	_verify_selection_states(game, battlefield, simulation, failures)
 	_verify_stronghold_upgrade_hud(game, battlefield, simulation, failures)
+	_verify_demolish_hud(game, battlefield, simulation, failures)
 	_verify_fortification_hud(game, battlefield, simulation, failures)
 	_verify_build_rotation_hotkey(game, battlefield, simulation, failures)
 	_verify_production_hotkey(game, battlefield, simulation, failures)
@@ -318,6 +319,71 @@ func _verify_stronghold_upgrade_hud(
 		failures.append("maximum-level Stronghold continued to display an upgrade cost")
 	if not (game._resource_values[&"population"] as Label).text.ends_with("/36"):
 		failures.append("population ribbon did not refresh to the fully upgraded cap")
+
+
+func _verify_demolish_hud(
+	game: Node,
+	battlefield: Battlefield,
+	simulation: RtsSimulation,
+	failures: Array[String],
+) -> void:
+	var team := RtsSimulation.TEAM_PLAYER
+	var demolish_button := game._command_buttons.get(&"demolish") as HudCommandButton
+	if demolish_button == null:
+		failures.append("command card did not create a Demolish button")
+		return
+	var stronghold_id := simulation.primary_structure_id(team, &"stronghold")
+	battlefield.select_entities([stronghold_id])
+	game.call("_update_hud")
+	if demolish_button.visible:
+		failures.append("Stronghold selection exposed the Demolish command")
+
+	var enemy_camp_id := simulation._spawn_structure(
+		RtsSimulation.TEAM_ENEMY,
+		&"war_camp",
+		MapCatalog.PLAYER_BUILD_TEST_SITE,
+		true,
+	)
+	battlefield.select_entities([enemy_camp_id])
+	game.call("_update_hud")
+	if demolish_button.visible:
+		failures.append("enemy building inspection exposed the Demolish command")
+
+	var camp_id := simulation._spawn_structure(
+		team,
+		&"war_camp",
+		MapCatalog.PLAYER_BUILD_TEST_SITE,
+		true,
+	)
+	var refund := simulation.demolition_refund(camp_id)
+	var resources_before: Dictionary = {}
+	for resource_kind in [&"jade", &"lumber", &"essence", &"food"]:
+		resources_before[resource_kind] = int(simulation.players[team][String(resource_kind)])
+	battlefield.select_entities([camp_id])
+	game.call("_update_hud")
+	if not demolish_button.visible or demolish_button.command_title != "DEMOLISH":
+		failures.append("selected player building did not expose the Demolish command")
+		return
+	if not demolish_button.tooltip_text.contains("refund 50%"):
+		failures.append("Demolish command did not explain its 50% refund")
+	if not demolish_button.cost_markup.contains("64J") or not demolish_button.cost_markup.contains("34L"):
+		failures.append("Demolish command did not show the Human War Camp's discounted refund")
+	demolish_button.pressed.emit()
+	if bool(simulation.entity(camp_id).get("alive", true)):
+		failures.append("Demolish HUD command did not destroy the selected building")
+	if not battlefield.selected_ids.is_empty():
+		failures.append("Demolish HUD command did not clear the destroyed building selection")
+	for definition in [
+		["jade_cost", &"jade"],
+		["lumber_cost", &"lumber"],
+		["essence_cost", &"essence"],
+		["food_cost", &"food"],
+	]:
+		var expected := int(resources_before[definition[1]]) + int(refund.get(definition[0], 0))
+		if int(simulation.players[team][String(definition[1])]) != expected:
+			failures.append("Demolish HUD command refunded the wrong %s amount" % String(definition[1]).capitalize())
+	if not game._feedback_label.text.contains("50% refund"):
+		failures.append("Demolish HUD command did not confirm the 50% refund")
 
 
 func _verify_fortification_hud(
