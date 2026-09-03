@@ -92,7 +92,7 @@ python3 -m venv .venv
 
 Godot ignores `assets/source/` through `.gdignore`, so the high-resolution masters do not enter the browser PCK.
 
-The complete audio vocabulary was generated specifically for this project with the built-in **ElevenLabs** integrations. It contains one Chinese-mythology strategy score, **The Jade Meridian Endures**, plus 24 runtime SFX covering interface confirmation and rejection, selection, movement and work orders, gathering, depositing, food harvests, repairs, construction, production, four attack signatures, damage, deaths, structure destruction, objectives, victory, and defeat. The four interface-family cues were reorchestrated on 3 September 2026 around pipa, guzheng, guqin, bamboo, bangu, and paiban; all menu, HUD, command-deck, production, pause, and selection interactions use these stable semantic cues. The same score plays continuously on the title screen and in a skirmish; state transitions change gain rather than restarting playback.
+The complete audio vocabulary was generated specifically for this project with the built-in **ElevenLabs** integrations. It contains one Chinese-mythology strategy score, **The Jade Meridian Endures**, plus 23 runtime SFX covering interface confirmation and rejection, selection, movement and work orders, depositing, food harvests, repairs, construction, production, four attack signatures, damage, deaths, structure destruction, objectives, victory, and defeat. The four interface-family cues use pipa, guzheng, guqin, bamboo, bangu, and paiban; the regenerated unit-completion cue uses a warm deep taiko strike followed by a tighter taiko punctuation. The same score plays continuously on the title screen and in a skirmish; state transitions change gain rather than restarting playback.
 
 `tools/process_audio_assets.py` divides each three-variant audition reel, scores candidates by decoded integrity, active-signal ratio, RMS level, peak headroom, and silence, then trims, fades, normalizes, and writes 48 kHz stereo Ogg Vorbis files. The score receives a four-second equal-power seam crossfade. Full source and runtime SHA-256 hashes, selected variants, durations, and byte sizes are written to `assets/runtime/audio/audio-report.json`.
 
@@ -100,6 +100,8 @@ The complete audio vocabulary was generated specifically for this project with t
 python3 tools/process_audio_assets.py
 # Focused replacement without re-encoding unrelated SFX or BGM:
 python3 tools/process_audio_assets.py --only-sfx ui_confirm ui_cancel ui_error unit_select --skip-bgm
+# Reviewed candidate override for the taiko unit-completion cue:
+python3 tools/process_audio_assets.py --only-sfx unit_ready --skip-bgm --select-candidate unit_ready=B
 ```
 
 The project uses `Music`, `SFX`, and `UI` audio buses without runtime effects so the default low-latency Godot Web Sample playback remains compatible with the single-threaded export.

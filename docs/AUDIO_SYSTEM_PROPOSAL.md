@@ -34,7 +34,7 @@ The following cue families cover every player-visible interaction and unit actio
 | `repair_tick` | Successful building repair pulse | Wooden mallet, tightening timber joint, and small pin settle | 0.80 s | Low | 0.32 s |
 | `structure_placed` | Valid building foundation placement | Heavy timber seating into packed earth | 1.10 s | High | 0.15 s |
 | `structure_complete` | War Camp, Rice Farm, Lodge, or other structure finished | Timber lock, hanging bronze bell, restrained celebratory tail | 1.80 s | High | 0.25 s |
-| `unit_ready` | Worker, Hunter, Vanguard, Mystic, or Jadeclaw produced | Short military readiness flourish with bronze and cloth | 1.25 s | High | 0.20 s |
+| `unit_ready` | Worker, Hunter, Vanguard, Mystic, or Jadeclaw produced | Warm deep taiko strike followed by a tighter taiko punctuation | 2.00 s | High | 0.20 s |
 | `attack_melee` | Worker or Vanguard melee attack | Fast polearm or blade cut with controlled metal impact | 0.75 s | Medium | 0.08 s |
 | `attack_ranged` | Hunter arrow attack | Bowstring release, arrow flight, light terminal strike | 0.85 s | Medium | 0.08 s |
 | `attack_magic` | Mystic ranged attack | Focused jade-energy pulse with airy spiritual tail | 1.00 s | Medium | 0.10 s |
@@ -49,7 +49,7 @@ The following cue families cover every player-visible interaction and unit actio
 
 ## Candidate-generation and selection policy
 
-Each important cue will receive **three ElevenLabs candidates** generated from the same semantic prompt with identical target duration. The implementation will retain candidates outside the Godot project. A deterministic analysis script will compare duration accuracy, peak headroom, integrated loudness, silence ratio, and file integrity. It will select the strongest technically valid candidate. The selection report will preserve all scores and chosen source hashes.
+Each important cue will receive **three ElevenLabs candidates** generated from the same semantic prompt with identical target duration. The implementation will retain candidates outside the Godot project. A deterministic analysis script compares duration accuracy, peak headroom, integrated loudness, silence ratio, and file integrity. It selects the strongest technically valid candidate by default, while an explicit reviewed A/B/C override can reject a technically loud but aesthetically inferior candidate. The selection report preserves all scores, the selection method, and chosen source hashes.
 
 This automated policy is appropriate because the user requested end-to-end implementation and delegated creative selection. A future subjective audio review can replace any selected file without changing cue IDs or game code. The cue contract is therefore stable even if individual recordings evolve. A bureaucracy with hot-swappable gongs; civilization has peaked.
 
