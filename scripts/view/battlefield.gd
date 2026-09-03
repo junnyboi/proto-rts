@@ -379,6 +379,8 @@ func _process(delta: float) -> void:
 			_presentation.consume_event(effect)
 		if _event_is_audible(effect):
 			simulation_event.emit(effect.duplicate(true))
+	if _presentation.has_active_wildlife_fades():
+		queue_redraw()
 	_effect_director.advance(delta)
 	_ambient_effect_timer -= delta
 	if _ambient_effect_timer <= 0.0:
@@ -2329,6 +2331,8 @@ func _draw_entity(entity_state: Dictionary) -> void:
 		tint = tint.lerp(Color(1.1, 1.1, 0.96, tint.a), hover_strength * 0.18)
 	if float(entity_state.get("complete", 1.0)) < 1.0:
 		tint.a = 0.55 + float(entity_state["complete"]) * 0.45
+	if category == &"wildlife":
+		tint.a *= _presentation.wildlife_opacity(entity_id)
 	if kind == &"stronghold":
 		_draw_stronghold_aura(entity_state, center)
 	if kind in [&"jadeclaw", &"shenlong", &"shenlong_egg", &"yaoguai_den", &"rice_farm", &"hunters_lodge"]:

@@ -1232,6 +1232,19 @@ func _test_wildlife_regeneration(failures: Array[String]) -> void:
 			> float(definition["radius"]) + 0.01
 		):
 			failures.append("regenerated wildlife did not inherit its authored herd state")
+		var regenerated_event_found := false
+		for event in simulation.drain_events():
+			if (
+				event.get("type") == &"wildlife_regenerated"
+				and int(event.get("entity_id", -1)) == int(regenerated.get("id", -2))
+				and int(event.get("herd_id", -1)) == herd_id
+				and event.get("kind") == definition["kind"]
+				and event.get("category") == &"wildlife"
+			):
+				regenerated_event_found = true
+				break
+		if not regenerated_event_found:
+			failures.append("regenerated wildlife did not emit its presentation event")
 
 	var remaining_recovery_steps := roundi(
 		(RtsSimulation.WILDLIFE_REGENERATION_CYCLE_SECONDS - spawn_interval)

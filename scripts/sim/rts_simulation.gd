@@ -657,12 +657,23 @@ func _regenerate_wildlife_member(herd_id: int, definition: Dictionary) -> bool:
 	var spawn_cell := _wildlife_regeneration_cell(definition)
 	if not MapCatalog.in_bounds(spawn_cell):
 		return false
-	_spawn_wildlife(
+	var wildlife_id := _spawn_wildlife(
 		definition["kind"] as StringName,
 		spawn_cell,
 		herd_id,
 		definition["center"] as Vector2i,
 		float(definition.get("radius", 3.0)),
+	)
+	_add_event(
+		&"wildlife_regenerated",
+		Vector2(spawn_cell),
+		Color("d5b963"),
+		{
+			"entity_id": wildlife_id,
+			"herd_id": herd_id,
+			"kind": definition["kind"] as StringName,
+			"category": &"wildlife",
+		},
 	)
 	return true
 

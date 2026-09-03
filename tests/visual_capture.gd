@@ -972,6 +972,36 @@ func _run() -> void:
 	game.call("_update_hud")
 	await _settle(2)
 	_capture("wildlife-hunt")
+	var fade_source_id: int = game.simulation.wildlife_ids(&"chicken")[0]
+	var fade_source: Dictionary = game.simulation.entity(fade_source_id)
+	var fade_herd_id := int(fade_source["herd_id"])
+	var fade_definition := MapCatalog.WILDLIFE_HERDS[fade_herd_id]
+	game.simulation._kill(fade_source, {})
+	game.simulation._wildlife_regeneration_progress[fade_herd_id] = (
+		RtsSimulation.WILDLIFE_REGENERATION_CYCLE_SECONDS
+		/ float(fade_definition["count"])
+	)
+	game.simulation._advance_wildlife_regeneration(RtsSimulation.TICK_SECONDS)
+	live_battlefield._presentation.synchronize(game.simulation.entities)
+	var faded_wildlife_id := -1
+	for event in game.simulation.drain_events():
+		if event.get("type") == &"wildlife_regenerated":
+			faded_wildlife_id = int(event["entity_id"])
+			live_battlefield._presentation.consume_event(event)
+	if faded_wildlife_id < 0:
+		push_error("wildlife fade capture did not regenerate an animal")
+		quit(1)
+		return
+	live_battlefield._presentation.wildlife_fades[faded_wildlife_id] = (
+		PresentationState.WILDLIFE_FADE_IN_DURATION * 0.5
+	)
+	var faded_wildlife: Dictionary = game.simulation.entity(faded_wildlife_id)
+	game.battlefield.camera_scale = 1.18
+	game.battlefield.center_on_cell(faded_wildlife["cell"] as Vector2i)
+	game.call("_update_hud")
+	game.battlefield.queue_redraw()
+	RenderingServer.force_draw()
+	_capture("wildlife-regeneration-fade")
 	var nearest_resource: Dictionary = {}
 	var nearest_resource_distance := INF
 	for raw_entity in game.simulation.entities.values():
@@ -1116,7 +1146,7 @@ func _run() -> void:
 	game.free()
 	await process_frame
 	_cleanup_leaderboard(leaderboard_save_path)
-	print("PASS visual_capture: title, title/result leaderboards, faction-select, skirmish, worker cargo icons, pause, settings, four game-juice proof states, Stronghold upgrade effects, enemy inspection, caves, production queue, armed command, multi-selection, food economy, all-race wall, corner, polygon, gate, and gate-wall corner audits, fortifications, four-faction tower garrisons, wildlife hunt, command visualization, Shenlong objective, egg carrier, map overview, and result")
+	print("PASS visual_capture: title, title/result leaderboards, faction-select, skirmish, worker cargo icons, pause, settings, four game-juice proof states, Stronghold upgrade effects, enemy inspection, caves, production queue, armed command, multi-selection, food economy, all-race wall, corner, polygon, gate, and gate-wall corner audits, fortifications, four-faction tower garrisons, wildlife hunt and regeneration fade, command visualization, Shenlong objective, egg carrier, map overview, and result")
 	quit(0)
 
 

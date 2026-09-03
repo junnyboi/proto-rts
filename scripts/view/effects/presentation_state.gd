@@ -3,15 +3,18 @@ extends RefCounted
 
 const ATTACK_DURATION := 0.24
 const HIT_DURATION := 0.18
+const WILDLIFE_FADE_IN_DURATION := 0.85
 const HEALTH_SETTLE_SPEED := 8.0
 
 var records: Dictionary = {}
+var wildlife_fades: Dictionary = {}
 var hovered_entity_id := -1
 var reduced_motion := false
 
 
 func clear() -> void:
 	records.clear()
+	wildlife_fades.clear()
 	hovered_entity_id = -1
 
 
@@ -46,6 +49,7 @@ func synchronize(entities: Dictionary) -> void:
 		var entity_id := int(raw_id)
 		if not seen.has(entity_id):
 			records.erase(entity_id)
+			wildlife_fades.erase(entity_id)
 
 
 func advance(delta: float) -> void:
@@ -60,10 +64,26 @@ func advance(delta: float) -> void:
 		var target_hp := float(record.get("target_hp", display_hp))
 		record["display_hp"] = lerpf(display_hp, target_hp, clampf(delta * HEALTH_SETTLE_SPEED, 0.0, 1.0))
 		records[entity_id] = record
+	for raw_id in wildlife_fades.keys():
+		var entity_id := int(raw_id)
+		var elapsed := minf(
+			WILDLIFE_FADE_IN_DURATION,
+			float(wildlife_fades[entity_id]) + delta,
+		)
+		if elapsed >= WILDLIFE_FADE_IN_DURATION:
+			wildlife_fades.erase(entity_id)
+		else:
+			wildlife_fades[entity_id] = elapsed
 
 
 func consume_event(event: Dictionary) -> void:
-	if event.get("type") != &"attack":
+	var event_type := event.get("type") as StringName
+	if event_type == &"wildlife_regenerated":
+		var entity_id := int(event.get("entity_id", -1))
+		if records.has(entity_id):
+			wildlife_fades[entity_id] = 0.0
+		return
+	if event_type != &"attack":
 		return
 	var attacker_id := int(event.get("attacker_id", -1))
 	var target_id := int(event.get("target_id", -1))
@@ -128,6 +148,21 @@ func hit_flash(entity_id: int) -> float:
 
 func display_hp(entity_id: int, fallback: float) -> float:
 	return float((records.get(entity_id, {}) as Dictionary).get("display_hp", fallback))
+
+
+func wildlife_opacity(entity_id: int) -> float:
+	if not wildlife_fades.has(entity_id):
+		return 1.0
+	var progress := clampf(
+		float(wildlife_fades[entity_id]) / WILDLIFE_FADE_IN_DURATION,
+		0.0,
+		1.0,
+	)
+	return smoothstep(0.0, 1.0, progress)
+
+
+func has_active_wildlife_fades() -> bool:
+	return not wildlife_fades.is_empty()
 
 
 func hover_strength(entity_id: int) -> float:

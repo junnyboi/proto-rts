@@ -77,8 +77,26 @@ func _run() -> void:
 	presentation.configure(true)
 	_expect((presentation.visual_transform(4)["offset"] as Vector2).is_zero_approx(), "reduced motion retained positional lunge", failures)
 
+	var regenerated_wildlife := {"id": 12, "hp": 36.0, "category": &"wildlife"}
+	entities[12] = regenerated_wildlife
+	presentation.synchronize(entities)
+	_expect(is_equal_approx(presentation.wildlife_opacity(12), 1.0), "ordinary wildlife did not begin fully visible", failures)
+	presentation.consume_event({"type": &"wildlife_regenerated", "entity_id": 12})
+	_expect(is_zero_approx(presentation.wildlife_opacity(12)), "regenerated wildlife did not begin transparent", failures)
+	_expect(presentation.has_active_wildlife_fades(), "regenerated wildlife did not register an active fade", failures)
+	presentation.advance(PresentationState.WILDLIFE_FADE_IN_DURATION * 0.5)
+	var midpoint_opacity := presentation.wildlife_opacity(12)
+	_expect(midpoint_opacity > 0.0 and midpoint_opacity < 1.0, "regenerated wildlife did not fade gradually", failures)
+	presentation.advance(PresentationState.WILDLIFE_FADE_IN_DURATION * 0.5)
+	_expect(is_equal_approx(presentation.wildlife_opacity(12), 1.0), "regenerated wildlife did not finish fully opaque", failures)
+	_expect(not presentation.has_active_wildlife_fades(), "completed wildlife fade remained active", failures)
+	presentation.consume_event({"type": &"wildlife_regenerated", "entity_id": 12})
+	entities.erase(12)
+	presentation.synchronize(entities)
+	_expect(not presentation.has_active_wildlife_fades(), "removed wildlife retained stale fade state", failures)
+
 	if failures.is_empty():
-		print("PASS effect_director_test: capped pools, aggregation, priority suppression, expiry, transforms, reduced motion")
+		print("PASS effect_director_test: capped pools, aggregation, priority suppression, expiry, transforms, reduced motion, wildlife fade-in")
 		quit(0)
 		return
 	for failure in failures:
