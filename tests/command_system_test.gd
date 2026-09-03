@@ -230,6 +230,132 @@ func _test_existing_construction_assignment(failures: Array[String]) -> void:
 	battlefield.queue_free()
 
 
+func _test_sprite_based_command_targeting(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human", false)
+	simulation.entities.clear()
+	var target_cell := MapCatalog.SHENLONG_CELL
+	var attacker_id := simulation._spawn_unit(
+		RtsSimulation.TEAM_PLAYER,
+		&"vanguard",
+		target_cell + Vector2i(4, 0),
+	)
+	var dragon_id := simulation._spawn_unit(
+		RtsSimulation.TEAM_ENEMY,
+		&"shenlong",
+		target_cell,
+	)
+	simulation._refresh_visibility()
+	var battlefield := Battlefield.new()
+	battlefield.size = Vector2(1280.0, 720.0)
+	battlefield.set_simulation(simulation)
+	root.add_child(battlefield)
+	battlefield.set_fog_enabled(false)
+	battlefield.camera_scale = 1.0
+	battlefield.camera_offset = (
+		Vector2(640.0, 660.0)
+		- IsoProjection.position_center(Vector2(target_cell))
+	)
+	battlefield.select_entities([attacker_id])
+	var dragon := simulation.entity(dragon_id)
+	var dragon_anchor := battlefield.entity_screen_position(dragon)
+	var sprite_target := Vector2(INF, INF)
+	for y in range(-360, 1, 4):
+		for x in range(-224, 225, 4):
+			var candidate := dragon_anchor + Vector2(float(x), float(y))
+			if candidate.distance_to(dragon_anchor) <= 40.0:
+				continue
+			if (
+				bool(battlefield.call(
+					"_entity_sprite_contains_screen_point",
+					dragon,
+					candidate,
+				))
+				and battlefield.command_target_at_screen(candidate, false) == dragon_id
+			):
+				sprite_target = candidate
+				break
+		if sprite_target.x != INF:
+			break
+	if sprite_target.x == INF:
+		failures.append("no Shenlong sprite point outside the old tile radius was targetable")
+	else:
+		var cursor_context := battlefield.cursor_context_at(sprite_target)
+		if cursor_context.get("state") != CursorSystem.ATTACK:
+			failures.append("Shenlong's visible body did not expose the attack cursor")
+		battlefield.call("_handle_right_click", sprite_target)
+		var attacker := simulation.entity(attacker_id)
+		if (
+			attacker.get("order") != &"attack"
+			or int(attacker.get("target_id", -1)) != dragon_id
+		):
+			failures.append("right-clicking Shenlong's visible body issued movement instead of attack")
+	battlefield.queue_free()
+
+	var overlap_simulation := RtsSimulation.new()
+	overlap_simulation.setup(&"human", false)
+	overlap_simulation.entities.clear()
+	var overlap_cell := MapCatalog.PLAYER_WORKERS[0]
+	var first_id := overlap_simulation._spawn_unit(
+		RtsSimulation.TEAM_PLAYER,
+		&"vanguard",
+		overlap_cell,
+	)
+	var second_id := overlap_simulation._spawn_unit(
+		RtsSimulation.TEAM_PLAYER,
+		&"vanguard",
+		overlap_cell,
+	)
+	var second := overlap_simulation.entity(second_id)
+	second["position"] = Vector2(overlap_cell) + Vector2(0.12, 0.0)
+	var overlap_battlefield := Battlefield.new()
+	overlap_battlefield.size = Vector2(1280.0, 720.0)
+	overlap_battlefield.set_simulation(overlap_simulation)
+	root.add_child(overlap_battlefield)
+	overlap_battlefield.set_fog_enabled(false)
+	overlap_battlefield.camera_scale = 1.0
+	overlap_battlefield.camera_offset = (
+		Vector2(640.0, 520.0)
+		- IsoProjection.position_center(Vector2(overlap_cell))
+	)
+	var first := overlap_simulation.entity(first_id)
+	var first_anchor := overlap_battlefield.entity_screen_position(first)
+	var second_anchor := overlap_battlefield.entity_screen_position(second)
+	var overlap_found := false
+	for y in range(-104, 4, 2):
+		for x in range(-50, 51, 2):
+			var candidate := first_anchor + Vector2(float(x), float(y))
+			if (
+				not bool(overlap_battlefield.call(
+					"_entity_sprite_contains_screen_point",
+					first,
+					candidate,
+				))
+				or not bool(overlap_battlefield.call(
+					"_entity_sprite_contains_screen_point",
+					second,
+					candidate,
+				))
+			):
+				continue
+			var first_distance := candidate.distance_to(first_anchor)
+			var second_distance := candidate.distance_to(second_anchor)
+			if minf(first_distance, second_distance) > 28.0:
+				continue
+			if absf(first_distance - second_distance) <= 0.5:
+				continue
+			var expected_id := first_id if first_distance < second_distance else second_id
+			if overlap_battlefield.command_target_at_screen(candidate, false) != expected_id:
+				failures.append("overlapping sprites did not fall back to nearest tile targeting")
+			overlap_found = true
+			break
+		if overlap_found:
+			break
+	if not overlap_found:
+		failures.append("overlap fallback fixture could not find a shared opaque sprite point")
+	overlap_battlefield.queue_free()
+
+
 func _test_training_cancellation(failures: Array[String]) -> void:
 	var simulation := RtsSimulation.new()
 	simulation.setup(&"human")
@@ -351,11 +477,12 @@ func _run() -> void:
 	_test_path_recovery(failures)
 	_test_repair(failures)
 	_test_existing_construction_assignment(failures)
+	_test_sprite_based_command_targeting(failures)
 	_test_training_cancellation(failures)
 	_test_control_groups(failures)
 	_test_modifier_input_forwarding(failures)
 	if failures.is_empty():
-		print("PASS command_system_test: path recovery, control groups, Shift queues, construction, repair, patrol, cancellation")
+		print("PASS command_system_test: path recovery, control groups, Shift queues, construction, repair, patrol, cancellation, sprite targeting")
 		quit(0)
 	else:
 		for failure in failures:

@@ -84,6 +84,19 @@ const COMMAND_PATH_DOT_SPACING := 16.0
 const COMMAND_PATH_DOT_RADIUS := 2.4
 const COMMAND_PATH_POINT_EPSILON_SQUARED := 0.0001
 const COMMAND_INTERACTION_ROTATION_SPEED := 1.75
+const SPRITE_PICK_ALPHA_THRESHOLD := 0.125
+const SPRITE_PICK_SAMPLE_RADIUS := 3.0
+const SPRITE_PICK_SAMPLE_OFFSETS := [
+	Vector2.ZERO,
+	Vector2(-SPRITE_PICK_SAMPLE_RADIUS, 0.0),
+	Vector2(SPRITE_PICK_SAMPLE_RADIUS, 0.0),
+	Vector2(0.0, -SPRITE_PICK_SAMPLE_RADIUS),
+	Vector2(0.0, SPRITE_PICK_SAMPLE_RADIUS),
+	Vector2(-SPRITE_PICK_SAMPLE_RADIUS, -SPRITE_PICK_SAMPLE_RADIUS),
+	Vector2(SPRITE_PICK_SAMPLE_RADIUS, -SPRITE_PICK_SAMPLE_RADIUS),
+	Vector2(-SPRITE_PICK_SAMPLE_RADIUS, SPRITE_PICK_SAMPLE_RADIUS),
+	Vector2(SPRITE_PICK_SAMPLE_RADIUS, SPRITE_PICK_SAMPLE_RADIUS),
+]
 const AMBIENT_REDRAW_SECONDS := 1.0 / 30.0
 const AMBIENT_EFFECT_SECONDS := 0.24
 const WALL_SPRITE_SCALE := 1.10
@@ -180,6 +193,7 @@ var _texture_bottom_margin_cache: Dictionary = {}
 var _texture_content_rect_cache: Dictionary = {}
 var _texture_ground_profile_cache: Dictionary = {}
 var _texture_ground_slope_cache: Dictionary = {}
+var _texture_pick_mask_cache: Dictionary = {}
 var _wall_render_lookup: Dictionary = {}
 var _gate_bottom_corner_render_lookup: Dictionary = {}
 var _effect_director = EFFECT_DIRECTOR_SCRIPT.new()
@@ -338,7 +352,9 @@ func should_render_entity(entity_state: Dictionary) -> bool:
 func _process(delta: float) -> void:
 	_prune_selected_ids()
 	_presentation.synchronize(simulation.entities if simulation != null else {})
-	var hover_id := entity_at_screen(_mouse_position, false) if simulation != null else -1
+	var hover_id := command_target_at_screen(_mouse_position, false) if simulation != null else -1
+	if hover_id < 0 and simulation != null:
+		hover_id = entity_at_screen(_mouse_position, false)
 	_presentation.set_hover(hover_id)
 	_presentation.advance(delta)
 	_water_animation_time += delta
@@ -533,7 +549,7 @@ func _handle_left_press(screen_position: Vector2, append: bool = false) -> void:
 			feedback.emit("Choose a valid rally destination.", true)
 		return
 	if repair_armed:
-		var repair_target_id := entity_at_screen(screen_position, false)
+		var repair_target_id := command_target_at_screen(screen_position, false)
 		var workers := _selected_of_kind(&"worker")
 		if repair_target_id >= 0 and simulation.command_repair(
 			RtsSimulation.TEAM_PLAYER,
@@ -665,7 +681,7 @@ func _handle_right_click(screen_position: Vector2, append: bool = false) -> void
 		var cue_kind := &"attack" if context.get("state") == CursorSystem.ATTACK else &"queued" if append else &"order"
 		var cue_color := ENEMY_COLOR if cue_kind == &"attack" else PLAYER_COLOR
 		_effect_director.emit_click(screen_to_map_position(screen_position), cue_kind, cue_color, append)
-	var target_id := entity_at_screen(screen_position, false)
+	var target_id := command_target_at_screen(screen_position, false)
 	if target_id >= 0:
 		var target := simulation.entity(target_id)
 		if (
@@ -1196,24 +1212,33 @@ func entity_screen_position(entity_state: Dictionary) -> Vector2:
 
 
 func entity_at_screen(screen_position: Vector2, selectable_only: bool) -> int:
+	return _tile_entity_at_screen(screen_position, selectable_only)
+
+
+func command_target_at_screen(screen_position: Vector2, selectable_only: bool) -> int:
+	var sprite_hits: Array[Dictionary] = []
+	for raw_entity in simulation.entities.values():
+		var entity_state := raw_entity as Dictionary
+		if not _is_entity_pickable(entity_state, selectable_only):
+			continue
+		if _entity_sprite_contains_screen_point(entity_state, screen_position):
+			sprite_hits.append(entity_state)
+	if sprite_hits.size() == 1:
+		return int(sprite_hits[0]["id"])
+	if sprite_hits.size() > 1:
+		# Sprite silhouettes make large art targetable, but an overlap is visually
+		# ambiguous. Preserve the established tile-anchor rules for that case.
+		return _tile_entity_at_screen(screen_position, selectable_only)
+	return -1
+
+
+func _tile_entity_at_screen(screen_position: Vector2, selectable_only: bool) -> int:
 	var best_id := -1
 	var best_distance := INF
 	var best_priority := -1
 	for raw_entity in simulation.entities.values():
 		var entity_state := raw_entity as Dictionary
-		if not bool(entity_state.get("alive", false)):
-			continue
-		if int(entity_state.get("garrisoned_in", -1)) >= 0:
-			continue
-		if not should_render_entity(entity_state):
-			continue
-		if selectable_only and entity_state.get("category") not in [
-			&"unit",
-			&"structure",
-			&"resource",
-			&"wildlife",
-			&"objective",
-		]:
+		if not _is_entity_pickable(entity_state, selectable_only):
 			continue
 		var radius := 28.0 * camera_scale
 		var priority := 3
@@ -1238,6 +1263,268 @@ func entity_at_screen(screen_position: Vector2, selectable_only: bool) -> int:
 	return best_id
 
 
+func _is_entity_pickable(entity_state: Dictionary, selectable_only: bool) -> bool:
+	if (
+		not bool(entity_state.get("alive", false))
+		or int(entity_state.get("garrisoned_in", -1)) >= 0
+		or not should_render_entity(entity_state)
+	):
+		return false
+	if (
+		camera_scale < TREE_ENTITY_MIN_SCALE
+		and entity_state.get("resource_kind") == &"lumber"
+	):
+		var tree_cell := entity_state.get("cell", Vector2i(-1, -1)) as Vector2i
+		if (
+			posmod(tree_cell.x, MapCatalog.CELL_SCALE) != 0
+			or posmod(tree_cell.y, MapCatalog.CELL_SCALE) != 0
+		):
+			return false
+	return (
+		not selectable_only
+		or entity_state.get("category") in [
+			&"unit",
+			&"structure",
+			&"resource",
+			&"wildlife",
+			&"objective",
+		]
+	)
+
+
+func _entity_sprite_contains_screen_point(
+	entity_state: Dictionary,
+	screen_position: Vector2,
+) -> bool:
+	for geometry in _entity_sprite_pick_geometries(entity_state):
+		if _sprite_geometry_contains_screen_point(geometry, screen_position):
+			return true
+	return false
+
+
+func _entity_sprite_pick_geometries(entity_state: Dictionary) -> Array[Dictionary]:
+	var geometries: Array[Dictionary] = []
+	var category := entity_state.get("category", &"") as StringName
+	var kind := entity_state.get("kind", &"") as StringName
+	var texture: Texture2D
+	if category == &"resource":
+		texture = RESOURCE_TEXTURES.get(kind) as Texture2D
+	else:
+		texture = _entity_texture(
+			entity_state.get("faction", &"neutral") as StringName,
+			kind,
+		)
+	if texture == null:
+		return geometries
+
+	var display_size := _entity_sprite_display_size(entity_state, texture) * camera_scale
+	var sprite_center := _grounded_sprite_screen_position(entity_state)
+	if category == &"resource":
+		if (
+			entity_state.get("resource_kind") == &"lumber"
+			and camera_scale >= TREE_SWAY_MIN_SCALE
+		):
+			var phase := _tree_wind_phase(entity_state)
+			sprite_center += _tree_sway_offset(0.18, phase, display_size) * 0.22
+		geometries.append(_sprite_pick_geometry(texture, sprite_center, display_size))
+		return geometries
+
+	var footprint := entity_state.get("footprint", Vector2i.ONE) as Vector2i
+	var is_movable := category in [&"unit", &"wildlife"]
+	var flip_h := false
+	var rotation := 0.0
+	if is_movable:
+		var presentation_transform := _presentation.visual_transform(
+			int(entity_state.get("id", -1))
+		)
+		sprite_center += (
+			IsoProjection.project(presentation_transform["offset"] as Vector2)
+			* camera_scale
+		)
+		sprite_center.y += _movement_bounce_offset(entity_state)
+		flip_h = _movement_sprite_flipped(entity_state)
+		rotation = (
+			_idle_wobble_rotation(entity_state)
+			+ _movement_lean_rotation(entity_state)
+			+ float(presentation_transform["rotation"])
+		)
+		display_size *= (
+			(presentation_transform["scale"] as Vector2)
+			* _movement_squash_scale(entity_state)
+		)
+
+	var fits_footprint := kind in RtsSimulation.FORTIFICATION_STRUCTURE_KINDS
+	var bottom_margin := (
+		_character_art_bottom_margin(texture)
+		if is_movable or fits_footprint
+		else -1.0
+	)
+	var content_center_x := _texture_content_center_x(texture) if fits_footprint else -1.0
+	if kind == &"wall":
+		for orientation in _wall_render_orientations(entity_state):
+			var wall_flip := _structure_sprite_flipped(
+				kind,
+				orientation,
+				footprint,
+				texture,
+			)
+			var wall_skew := _structure_sprite_axis_skew(
+				kind,
+				orientation,
+				footprint,
+				texture,
+				display_size,
+				wall_flip,
+			)
+			geometries.append(_sprite_pick_geometry(
+				texture,
+				sprite_center + _wall_sprite_axis_anchor_offset(orientation, camera_scale),
+				display_size,
+				wall_flip,
+				0.0,
+				bottom_margin,
+				content_center_x,
+				wall_skew,
+			))
+		return geometries
+
+	if not is_movable and category == &"structure":
+		flip_h = _structure_sprite_flipped(
+			kind,
+			entity_state.get("orientation", &"y") as StringName,
+			footprint,
+			texture,
+		)
+	var texture_center := sprite_center
+	if kind == &"gate":
+		texture_center += _gate_sprite_axis_anchor_offset(
+			entity_state.get("orientation", &"y") as StringName,
+			texture,
+			display_size,
+		)
+	var axis_skew := 0.0
+	if fits_footprint:
+		axis_skew = _structure_sprite_axis_skew(
+			kind,
+			entity_state.get("orientation", &"y") as StringName,
+			footprint,
+			texture,
+			display_size,
+			flip_h,
+		)
+	geometries.append(_sprite_pick_geometry(
+		texture,
+		texture_center,
+		display_size,
+		flip_h,
+		rotation,
+		bottom_margin,
+		content_center_x,
+		axis_skew,
+		kind == &"shenlong",
+		int(entity_state.get("id", -1)),
+	))
+	return geometries
+
+
+func _sprite_pick_geometry(
+	texture: Texture2D,
+	center: Vector2,
+	display_size: Vector2,
+	flip_h: bool = false,
+	rotation: float = 0.0,
+	content_bottom_margin_pixels: float = -1.0,
+	content_center_x_pixels: float = -1.0,
+	axis_skew: float = 0.0,
+	waves: bool = false,
+	entity_id: int = -1,
+) -> Dictionary:
+	var rect := _world_texture_rect(
+		texture,
+		display_size,
+		content_bottom_margin_pixels,
+		content_center_x_pixels,
+	)
+	var transform_center := center
+	if content_bottom_margin_pixels >= 0.0 and not is_zero_approx(axis_skew):
+		transform_center.y -= _skewed_texture_bottom_overhang(
+			texture,
+			display_size,
+			content_center_x_pixels,
+			axis_skew,
+		)
+	var horizontal_scale := -1.0 if flip_h else 1.0
+	return {
+		"texture": texture,
+		"rect": rect,
+		"transform": Transform2D(
+			Vector2(horizontal_scale, axis_skew).rotated(rotation),
+			Vector2(0.0, 1.0).rotated(rotation),
+			transform_center,
+		),
+		"waves": waves,
+		"entity_id": entity_id,
+	}
+
+
+func _sprite_geometry_contains_screen_point(
+	geometry: Dictionary,
+	screen_position: Vector2,
+) -> bool:
+	var texture := geometry.get("texture") as Texture2D
+	if texture == null:
+		return false
+	var rect := geometry.get("rect", Rect2()) as Rect2
+	if not rect.has_area():
+		return false
+	var transform := geometry.get("transform", Transform2D.IDENTITY) as Transform2D
+	var inverse := transform.affine_inverse()
+	var local_center: Vector2 = inverse * screen_position
+	var broad_phase_margin := SPRITE_PICK_SAMPLE_RADIUS * 2.0
+	if bool(geometry.get("waves", false)):
+		broad_phase_margin += maxf(rect.size.x, rect.size.y) * 0.04
+	if not rect.grow(broad_phase_margin).has_point(local_center):
+		return false
+	var mask := _texture_pick_mask(texture)
+	var mask_size := mask.get_size()
+	if mask_size.x <= 0 or mask_size.y <= 0:
+		return false
+	for offset in SPRITE_PICK_SAMPLE_OFFSETS:
+		var local_point: Vector2 = inverse * (screen_position + offset)
+		var uv: Vector2 = (local_point - rect.position) / rect.size
+		if bool(geometry.get("waves", false)):
+			for _iteration in range(2):
+				var wave_offset: Vector2 = _shenlong_wave_offset(
+					uv,
+					rect.size,
+					int(geometry.get("entity_id", -1)),
+				)
+				uv = (local_point - wave_offset - rect.position) / rect.size
+		if uv.x < 0.0 or uv.y < 0.0 or uv.x >= 1.0 or uv.y >= 1.0:
+			continue
+		var pixel := Vector2i(
+			mini(int(floor(uv.x * float(mask_size.x))), mask_size.x - 1),
+			mini(int(floor(uv.y * float(mask_size.y))), mask_size.y - 1),
+		)
+		if mask.get_bitv(pixel):
+			return true
+	return false
+
+
+func _texture_pick_mask(texture: Texture2D) -> BitMap:
+	var cache_key := texture.resource_path
+	if cache_key.is_empty():
+		cache_key = str(texture.get_instance_id())
+	if _texture_pick_mask_cache.has(cache_key):
+		return _texture_pick_mask_cache[cache_key] as BitMap
+	var mask := BitMap.new()
+	var image := texture.get_image()
+	if image != null and not image.is_empty():
+		mask.create_from_image_alpha(image, SPRITE_PICK_ALPHA_THRESHOLD)
+	_texture_pick_mask_cache[cache_key] = mask
+	return mask
+
+
 func cursor_context_at(screen_position: Vector2) -> Dictionary:
 	if simulation == null or not simulation.outcome.is_empty():
 		return _cursor_context(CursorSystem.SELECT)
@@ -1247,7 +1534,7 @@ func cursor_context_at(screen_position: Vector2) -> Dictionary:
 		return _cursor_context(CursorSystem.BOX_SELECT)
 
 	var cell := screen_to_cell(screen_position)
-	var target_id := entity_at_screen(screen_position, false)
+	var target_id := command_target_at_screen(screen_position, false)
 	if placement_worker_id >= 0:
 		var start_cell := _placement_start_cell if _placement_pressed else cell
 		var can_build := false
@@ -2075,7 +2362,7 @@ func _draw_entity(entity_state: Dictionary) -> void:
 	if category == &"resource":
 		var texture := RESOURCE_TEXTURES.get(kind) as Texture2D
 		var is_tree: bool = entity_state.get("resource_kind") == &"lumber"
-		var resource_size := Vector2(136.0, 164.0) if is_tree else Vector2(98.0, 88.0)
+		var resource_size := _entity_sprite_display_size(entity_state, texture)
 		var sprite_center := _grounded_sprite_screen_position(entity_state)
 		if is_tree:
 			_draw_tree_texture(texture, sprite_center, resource_size * camera_scale, tint, entity_state)
@@ -2085,15 +2372,7 @@ func _draw_entity(entity_state: Dictionary) -> void:
 	else:
 		var texture := _entity_texture(entity_state["faction"] as StringName, kind)
 		var footprint := entity_state.get("footprint", Vector2i.ONE) as Vector2i
-		var display_size := Vector2(94.0, 104.0) if category == &"unit" else (_wildlife_display_size(kind) if category == &"wildlife" else _structure_display_size(kind, footprint, texture))
-		if kind == &"jadeclaw":
-			display_size = Vector2(124.0, 112.0)
-		elif kind == &"shenlong":
-			display_size = Vector2(448.0, 362.0)
-		elif kind == &"shenlong_egg":
-			display_size = Vector2(58.0, 58.0) if int(entity_state.get("carried_by", -1)) >= 0 else Vector2(118.0, 118.0)
-		elif kind == &"yaoguai_den":
-			display_size = Vector2(250.0, 212.0)
+		var display_size := _entity_sprite_display_size(entity_state, texture)
 		var is_movable := category in [&"unit", &"wildlife"]
 		var sprite_center := _grounded_sprite_screen_position(entity_state)
 		var flip_h := false
@@ -3354,6 +3633,41 @@ func _ground_contact_color(position: Vector2) -> Color:
 			return Color(0.58, 0.62, 0.58, 0.46)
 		_:
 			return Color(0.72, 0.73, 0.48, 0.42)
+
+
+func _entity_sprite_display_size(
+	entity_state: Dictionary,
+	texture: Texture2D = null,
+) -> Vector2:
+	var category := entity_state.get("category", &"") as StringName
+	var kind := entity_state.get("kind", &"") as StringName
+	if category == &"resource":
+		return (
+			Vector2(136.0, 164.0)
+			if entity_state.get("resource_kind") == &"lumber"
+			else Vector2(98.0, 88.0)
+		)
+	if kind == &"jadeclaw":
+		return Vector2(124.0, 112.0)
+	if kind == &"shenlong":
+		return Vector2(448.0, 362.0)
+	if kind == &"shenlong_egg":
+		return (
+			Vector2(58.0, 58.0)
+			if int(entity_state.get("carried_by", -1)) >= 0
+			else Vector2(118.0, 118.0)
+		)
+	if kind == &"yaoguai_den":
+		return Vector2(250.0, 212.0)
+	if category == &"unit":
+		return Vector2(94.0, 104.0)
+	if category == &"wildlife":
+		return _wildlife_display_size(kind)
+	return _structure_display_size(
+		kind,
+		entity_state.get("footprint", Vector2i.ONE) as Vector2i,
+		texture,
+	)
 
 
 func _structure_display_size(
