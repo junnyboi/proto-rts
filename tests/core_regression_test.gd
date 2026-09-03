@@ -143,7 +143,17 @@ func _test_friendly_passthrough_and_idle_spacing(failures: Array[String]) -> voi
 				friendly_kinds[second_index],
 				overlap_cell,
 			)
-			idle_simulation._resolve_unit_separation()
+			idle_simulation._resolve_unit_separation(RtsSimulation.TICK_SECONDS)
+			var first_tick_distance := (
+				idle_simulation.entity(first_idle_id)["position"] as Vector2
+			).distance_to(idle_simulation.entity(second_idle_id)["position"] as Vector2)
+			_expect(
+				first_tick_distance > 0.0 and first_tick_distance < RtsSimulation.UNIT_SEPARATION_DISTANCE,
+				"idle %s and %s units snapped apart instead of spreading smoothly" % [friendly_kinds[first_index], friendly_kinds[second_index]],
+				failures,
+			)
+			for _step in range(int(2.0 / RtsSimulation.TICK_SECONDS)):
+				idle_simulation._resolve_unit_separation(RtsSimulation.TICK_SECONDS)
 			var idle_distance := (
 				idle_simulation.entity(first_idle_id)["position"] as Vector2
 			).distance_to(idle_simulation.entity(second_idle_id)["position"] as Vector2)
@@ -152,11 +162,18 @@ func _test_friendly_passthrough_and_idle_spacing(failures: Array[String]) -> voi
 				"idle %s and %s units did not spread apart" % [friendly_kinds[first_index], friendly_kinds[second_index]],
 				failures,
 			)
+			_expect(
+				(idle_simulation.entity(first_idle_id).get("separation_velocity", Vector2.ZERO) as Vector2).length()
+					<= RtsSimulation.UNIT_SEPARATION_STOP_SPEED,
+				"idle %s retained separation drift after settling" % friendly_kinds[first_index],
+				failures,
+			)
 
 	var hostile_simulation := _blank_simulation()
 	var worker_id := hostile_simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", overlap_cell)
 	var enemy_id := hostile_simulation._spawn_unit(RtsSimulation.TEAM_ENEMY, &"vanguard", overlap_cell)
-	hostile_simulation._resolve_unit_separation()
+	for _step in range(int(2.0 / RtsSimulation.TICK_SECONDS)):
+		hostile_simulation._resolve_unit_separation(RtsSimulation.TICK_SECONDS)
 	var hostile_distance := (
 		hostile_simulation.entity(worker_id)["position"] as Vector2
 	).distance_to(hostile_simulation.entity(enemy_id)["position"] as Vector2)

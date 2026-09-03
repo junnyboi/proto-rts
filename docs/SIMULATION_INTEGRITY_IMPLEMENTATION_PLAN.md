@@ -76,6 +76,8 @@ Every commandable unit in a group receives a unique walkable destination when en
 - Temporarily remove allied structures from A* solidity while calculating an allied unit's route, then restore the shared grid immediately after the path is captured.
 - Skip local separation for same-team pairs while either unit has an active path; resume separation on the first tick where both paths are exhausted.
 - Apply the policy uniformly to Workers, Hunters, Vanguards, Mystics, and aligned Jadeclaws while retaining separation against enemies and neutral wildlife.
+- Convert penetration corrections into bounded per-entity separation velocity. Integrate that velocity over the fixed tick, apply exponential damping, and clear sub-threshold residual velocity so post-arrival spreading eases out instead of snapping or drifting indefinitely.
+- Clear stale separation velocity on an active path when no hostile or neutral correction is required, preserving authoritative path motion and allied passthrough.
 
 ### Regression coverage
 
@@ -84,6 +86,7 @@ Every commandable unit in a group receives a unique walkable destination when en
 - Every pair of idle friendly unit classes spawned at the exact same position separates after a simulation tick.
 - Every playable unit class routes through an allied structure, while an enemy structure remains path-blocking.
 - A Worker and enemy unit spawned together still separate.
+- The first idle-separation tick produces visible but partial progress, all friendly class pairs converge within a bounded interval, and residual separation velocity decays to zero.
 
 ## 5. Simulation-authoritative fog and knowledge
 

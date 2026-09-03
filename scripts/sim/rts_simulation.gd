@@ -20,6 +20,10 @@ const REPAIR_LUMBER_COST := 1
 const REPAIR_NOTICE_SECONDS := 2.0
 const UNIT_SEPARATION_DISTANCE := 0.62
 const UNIT_SEPARATION_ITERATIONS := 2
+const UNIT_SEPARATION_STIFFNESS := 85.0
+const UNIT_SEPARATION_DAMPING := 12.0
+const UNIT_SEPARATION_MAX_SPEED := 2.0
+const UNIT_SEPARATION_STOP_SPEED := 0.01
 const STRUCTURE_VISION_RADIUS := 6
 const MYSTIC_VISION_RADIUS := 5
 const DEFAULT_VISION_RADIUS := 4
@@ -132,7 +136,7 @@ func _tick(delta: float) -> void:
 	_advance_production(delta)
 	_advance_worker_orders(delta)
 	_advance_combat_and_movement(delta)
-	_resolve_unit_separation()
+	_resolve_unit_separation(delta)
 	_refresh_visibility()
 	_advance_cave_capture(delta)
 	if _ai_enabled:
@@ -179,6 +183,7 @@ func _spawn_unit(team: int, kind: StringName, cell: Vector2i, home_cave_id: int 
 		"target_id": -1,
 		"path": [],
 		"path_index": 0,
+		"separation_velocity": Vector2.ZERO,
 		"command_queue": [],
 		"attack_move": false,
 		"attack_move_destination": Vector2i(-1, -1),
@@ -355,6 +360,7 @@ func _spawn_wildlife(
 		"target_id": -1,
 		"path": [],
 		"path_index": 0,
+		"separation_velocity": Vector2.ZERO,
 		"attack_move": false,
 		"attack_move_destination": Vector2i(-1, -1),
 		"repath_timer": 0.0,
@@ -2214,7 +2220,7 @@ func _formation_cells(center: Vector2i, count: int) -> Array[Vector2i]:
 	return result
 
 
-func _resolve_unit_separation() -> void:
+func _resolve_unit_separation(tick_delta: float = TICK_SECONDS) -> void:
 	var unit_ids: Array[int] = []
 	for raw_id in entities.keys():
 		var entity_state := entity(int(raw_id))
@@ -2224,6 +2230,7 @@ func _resolve_unit_separation() -> void:
 		):
 			unit_ids.append(int(raw_id))
 	unit_ids.sort()
+	var step_delta := tick_delta / float(UNIT_SEPARATION_ITERATIONS)
 	for _iteration in range(UNIT_SEPARATION_ITERATIONS):
 		var displacements: Dictionary = {}
 		for unit_id in unit_ids:
@@ -2252,12 +2259,24 @@ func _resolve_unit_separation() -> void:
 		for unit_id in unit_ids:
 			var unit := entity(unit_id)
 			var displacement := displacements[unit_id] as Vector2
-			if displacement.length() > UNIT_SEPARATION_DISTANCE * 0.5:
-				displacement = displacement.normalized() * UNIT_SEPARATION_DISTANCE * 0.5
-			var proposed := (unit["position"] as Vector2) + displacement
+			var velocity := unit.get("separation_velocity", Vector2.ZERO) as Vector2
+			if _has_active_path(unit) and displacement.is_zero_approx():
+				unit["separation_velocity"] = Vector2.ZERO
+				continue
+			velocity += displacement * UNIT_SEPARATION_STIFFNESS * step_delta
+			velocity *= exp(-UNIT_SEPARATION_DAMPING * step_delta)
+			if velocity.length() > UNIT_SEPARATION_MAX_SPEED:
+				velocity = velocity.normalized() * UNIT_SEPARATION_MAX_SPEED
+			if displacement.is_zero_approx() and velocity.length() <= UNIT_SEPARATION_STOP_SPEED:
+				unit["separation_velocity"] = Vector2.ZERO
+				continue
+			var proposed := (unit["position"] as Vector2) + velocity * step_delta
 			if _is_walkable_unit_position(proposed):
 				unit["position"] = proposed
 				unit["cell"] = Vector2i(proposed.round())
+				unit["separation_velocity"] = velocity
+			else:
+				unit["separation_velocity"] = Vector2.ZERO
 
 
 func _moving_friendly_units_can_overlap(first: Dictionary, second: Dictionary) -> bool:

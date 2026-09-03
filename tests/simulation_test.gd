@@ -168,7 +168,8 @@ func _test_large_formations_and_separation(failures: Array[String]) -> void:
 	var separation_cell := separation_simulation._nearest_walkable(MapCatalog.SIZE / 2)
 	var first_id := separation_simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", separation_cell)
 	var second_id := separation_simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", separation_cell)
-	separation_simulation._resolve_unit_separation()
+	for _step in range(int(2.0 / RtsSimulation.TICK_SECONDS)):
+		separation_simulation._resolve_unit_separation(RtsSimulation.TICK_SECONDS)
 	var separation := (
 		separation_simulation.entity(first_id)["position"] as Vector2
 	).distance_to(separation_simulation.entity(second_id)["position"] as Vector2)
