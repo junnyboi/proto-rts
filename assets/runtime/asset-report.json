@@ -1,6 +1,6 @@
 {
   "generator": "GPT Image 2",
-  "runtime_asset_count": 76,
+  "runtime_asset_count": 80,
   "assets": [
     {
       "path": "assets/runtime/ui/mandate_of_myth_title.webp",
@@ -334,6 +334,54 @@
         255
       ],
       "sha256": "f702407065377fe2aab3e0b62c54255208184d9359eae07742951d3aa82c97e3"
+    },
+    {
+      "path": "assets/runtime/ui/utility_icons/pause.png",
+      "source": "assets/source/ui/utility_icons/pause.png",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "aa738f230244d2e556209a0e767c321dc60e3bcc6323e5cccc2ed70ca33349ea"
+    },
+    {
+      "path": "assets/runtime/ui/utility_icons/resume.png",
+      "source": "assets/source/ui/utility_icons/resume.png",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "6972672508c647419d88496f3de9543e4d0fde3a850da99349a87ba274027959"
+    },
+    {
+      "path": "assets/runtime/ui/utility_icons/audio_on.png",
+      "source": "assets/source/ui/utility_icons/audio_on.png",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "ba6a2c15418d4cad87e72c343c0108837a00834a4c94b547cf2947a4546af357"
+    },
+    {
+      "path": "assets/runtime/ui/utility_icons/audio_muted.png",
+      "source": "assets/source/ui/utility_icons/audio_muted.png",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "bed5dfedf2dbe9c42e60baeff0dbed1c38b4a34859f8fad9d5535a4ac632d1c6"
     },
     {
       "path": "assets/runtime/portraits/celestial.webp",

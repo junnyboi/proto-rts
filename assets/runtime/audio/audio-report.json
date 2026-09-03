@@ -253,46 +253,6 @@
       "source_reel": "/home/ubuntu/proto-rts-audio-candidates/reels/deposit_resource.mp3",
       "source_reel_sha256": "d5f735568f9d9356c926c48056f02238b70c71838c9f632aa3fc606544e0915c"
     },
-    "gather_resource": {
-      "candidates": {
-        "A": {
-          "active_ratio": 0.2500906275569918,
-          "duration_seconds": 2.0114375,
-          "path": "/home/ubuntu/proto-rts-audio-candidates/sfx/gather_resource_A.mp3",
-          "peak_dbfs": -33.138254747801575,
-          "rms_dbfs": -48.29053012324728,
-          "score": -46.539895730348334,
-          "sha256": "dc532cfa3f9ce9f55ae3fa518d7f119f6155542fe937bccf59d9d5e8184dc22e"
-        },
-        "B": {
-          "active_ratio": 0.257144040849724,
-          "duration_seconds": 2.0114375,
-          "path": "/home/ubuntu/proto-rts-audio-candidates/sfx/gather_resource_B.mp3",
-          "peak_dbfs": -40.53798436918547,
-          "rms_dbfs": -49.29735779287437,
-          "score": -47.497349506926305,
-          "sha256": "d2a4364e8b39c803c3bf2af3d4220027e3bc77fbb8e09a412996585d99adbede"
-        },
-        "C": {
-          "active_ratio": 0.08533976797361517,
-          "duration_seconds": 1.9771458333333334,
-          "path": "/home/ubuntu/proto-rts-audio-candidates/sfx/gather_resource_C.mp3",
-          "peak_dbfs": -43.226829916246345,
-          "rms_dbfs": -53.291679179676166,
-          "score": -54.080710084916255,
-          "sha256": "0b01db576de969a7b744466ba428ef89bd8e0c75cfe2d41b3bde5d5a62ffe22f"
-        }
-      },
-      "runtime_duration_seconds": 1.991167,
-      "runtime_path": "/home/ubuntu/proto-rts-source/assets/runtime/audio/sfx/gather_resource.ogg",
-      "runtime_sha256": "22e41a44e9e7fff78b9bd9d96f16ab3b507055eb228295c09e78642a9af4955a",
-      "runtime_size_bytes": 35803,
-      "selected_candidate": "A",
-      "selected_source": "/home/ubuntu/proto-rts-audio-candidates/sfx/gather_resource_A.mp3",
-      "selected_source_sha256": "dc532cfa3f9ce9f55ae3fa518d7f119f6155542fe937bccf59d9d5e8184dc22e",
-      "source_reel": "/home/ubuntu/proto-rts-audio-candidates/reels/gather_resource.mp3",
-      "source_reel_sha256": "87100ef1315ea9087b3b52f2ea51fcb28664af9faeef4e41b208d169982aec01"
-    },
     "harvest_food": {
       "candidates": {
         "A": {

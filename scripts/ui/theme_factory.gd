@@ -1,6 +1,7 @@
 class_name ThemeFactory
 extends RefCounted
 
+const HUD_UTILITY_ICON_LIGHTEN_SHADER := preload("res://scripts/ui/hud_utility_icon_lighten.gdshader")
 const INK := Color("0b1719")
 const INK_DEEP := Color("071012")
 const INK_SOFT := Color("14282a")
@@ -16,15 +17,18 @@ const DANGER := Color("e85d4f")
 const ESSENCE := Color("a974e6")
 const LUMBER := Color("d0a25c")
 const FOOD := Color("e8c56a")
+const BUTTON_SURFACE := Color("1b3436")
+const BUTTON_SURFACE_HOVER := Color("285149")
+const BUTTON_SURFACE_ACTIVE := Color("245044")
+const BUTTON_SURFACE_DISABLED := Color("132426")
+const BUTTON_BORDER := Color("73978e")
+const BUTTON_BORDER_DISABLED := Color("4f6562")
 
 
 static func create() -> Theme:
 	var theme := Theme.new()
 	theme.set_default_font_size(17)
 	theme.set_color(&"font_color", &"Label", PARCHMENT)
-	theme.set_color(&"font_shadow_color", &"Label", Color(0.0, 0.0, 0.0, 0.7))
-	theme.set_constant(&"shadow_offset_x", &"Label", 1)
-	theme.set_constant(&"shadow_offset_y", &"Label", 2)
 	theme.set_font_size(&"font_size", &"Label", 17)
 	theme.set_font_size(&"font_size", &"Button", 16)
 	theme.set_color(&"font_color", &"Button", PARCHMENT)
@@ -32,11 +36,11 @@ static func create() -> Theme:
 	theme.set_color(&"font_pressed_color", &"Button", INK)
 	theme.set_color(&"font_disabled_color", &"Button", Color(MUTED, 0.7))
 	theme.set_color(&"font_focus_color", &"Button", Color.WHITE)
-	theme.set_stylebox(&"normal", &"Button", button_style(INK_SOFT, Color("3d6761"), 1))
-	theme.set_stylebox(&"hover", &"Button", button_style(Color("214942"), JADE, 2))
+	theme.set_stylebox(&"normal", &"Button", button_style(BUTTON_SURFACE, BUTTON_BORDER, 1))
+	theme.set_stylebox(&"hover", &"Button", button_style(BUTTON_SURFACE_HOVER, JADE, 2))
 	theme.set_stylebox(&"pressed", &"Button", button_style(GOLD, Color("ffe8a0"), 2))
 	theme.set_stylebox(&"focus", &"Button", button_style(Color(0.0, 0.0, 0.0, 0.0), GOLD, 2))
-	theme.set_stylebox(&"disabled", &"Button", button_style(Color("101d1f"), Color("40504e"), 1))
+	theme.set_stylebox(&"disabled", &"Button", button_style(BUTTON_SURFACE_DISABLED, BUTTON_BORDER_DISABLED, 1))
 	theme.set_stylebox(&"panel", &"PanelContainer", panel_style())
 	theme.set_stylebox(&"panel", &"Panel", panel_style())
 	theme.set_color(&"font_color", &"RichTextLabel", PARCHMENT)
@@ -148,8 +152,20 @@ static func portrait_style(accent: Color = GOLD) -> StyleBoxFlat:
 	return style
 
 
-static func queue_tile_style(accent: Color = Color("49625d")) -> StyleBoxFlat:
+static func queue_panel_style(accent: Color = GOLD) -> StyleBoxFlat:
 	var style := panel_style(Color("0b1919f2"), Color(accent, 0.78), 1, 3)
+	style.content_margin_left = 4.0
+	style.content_margin_top = 3.0
+	style.content_margin_right = 4.0
+	style.content_margin_bottom = 3.0
+	return style
+
+
+static func queue_tile_style(
+	accent: Color = BUTTON_BORDER,
+	background: Color = BUTTON_SURFACE,
+) -> StyleBoxFlat:
+	var style := panel_style(background, Color(accent, 0.9), 1, 3)
 	style.content_margin_left = 4.0
 	style.content_margin_top = 3.0
 	style.content_margin_right = 4.0
@@ -197,3 +213,37 @@ static func button(text: String, tooltip: String = "") -> Button:
 	result.focus_mode = Control.FOCUS_ALL
 	result.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	return result
+
+
+static func icon_button(texture: Texture2D, tooltip: String = "") -> Button:
+	var result := button("", tooltip)
+	result.custom_minimum_size = Vector2(40.0, 34.0)
+	result.clip_contents = true
+	result.add_theme_stylebox_override(&"normal", command_button_style(BUTTON_SURFACE, BUTTON_BORDER, 1))
+	result.add_theme_stylebox_override(&"hover", command_button_style(BUTTON_SURFACE_HOVER, JADE, 2))
+	result.add_theme_stylebox_override(&"pressed", command_button_style(GOLD, Color("ffe8a0"), 2))
+	result.add_theme_stylebox_override(&"focus", command_button_style(Color(0.0, 0.0, 0.0, 0.0), GOLD, 2))
+	result.add_theme_stylebox_override(&"disabled", command_button_style(BUTTON_SURFACE_DISABLED, BUTTON_BORDER_DISABLED, 1))
+	var icon := TextureRect.new()
+	icon.name = "Icon"
+	icon.texture = texture
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	icon.set_anchors_preset(Control.PRESET_CENTER)
+	icon.offset_left = -13.0
+	icon.offset_top = -13.0
+	icon.offset_right = 13.0
+	icon.offset_bottom = 13.0
+	var icon_material := ShaderMaterial.new()
+	icon_material.shader = HUD_UTILITY_ICON_LIGHTEN_SHADER
+	icon.material = icon_material
+	result.add_child(icon)
+	return result
+
+
+static func set_icon_button_texture(button: Button, texture: Texture2D) -> void:
+	var icon := button.get_node_or_null("Icon") as TextureRect
+	if icon != null:
+		icon.texture = texture

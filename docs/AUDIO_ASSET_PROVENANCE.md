@@ -7,7 +7,7 @@
 
 ## Generation record
 
-One background-music source and twenty-four SFX audition reels were generated for this project. The music request targeted 150 seconds; the generated source is 145.659 seconds. The SFX prompts requested three related variants in each reel so the final runtime vocabulary could be selected without spending one generation call per candidate. The candidate library is retained outside the Godot import root at `/home/ubuntu/proto-rts-audio-candidates/`. Only selected, processed Ogg Vorbis derivatives enter the project.
+One background-music source and twenty-four SFX audition reels were generated for this project. The repetitive `gather_resource` cue was subsequently retired, leaving twenty-three runtime SFX. The music request targeted 150 seconds; the generated source is 145.659 seconds. The SFX prompts requested three related variants in each reel so the final runtime vocabulary could be selected without spending one generation call per candidate. The candidate library is retained outside the Godot import root at `/home/ubuntu/proto-rts-audio-candidates/`. Only selected, processed Ogg Vorbis derivatives enter the project.
 
 The score prompt specified instrumental-only cinematic Chinese-mythology strategy music at approximately 76 BPM in D minor with D-pentatonic emphasis. Its palette comprises guzheng, xiao, restrained erhu, pipa harmonics, low bowed strings, sparse tanggu, muted bronze bells, and subtle wind-and-water ambience. The composition moves from a sparse title opening to measured economy and exploration, reaches a controlled tactical lift, then returns to the original tonal center and density. Vocals, choir, EDM bass, modern drums, trailer braams, abrupt endings, and existing melodies were explicitly excluded.
 
@@ -26,11 +26,11 @@ Targeted processing selected candidate A for all four replacements. The resultin
 | Music | 1 | Continuous title, faction-select, match, pause, and outcome score |
 | Interface | 4 | Confirmation, cancellation, invalid action, selection |
 | Orders | 3 | Move and rally, attack and hunt, work and repair assignment |
-| Economy | 4 | Gathering, depositing, food harvest, repair pulse |
+| Economy | 3 | Depositing, food harvest, repair pulse |
 | Construction and production | 3 | Foundation placement, structure completion, unit readiness |
 | Combat | 7 | Melee, ranged, magic, beast, impact, unit death, structure destruction |
 | Objectives and outcomes | 3 | Objective secured, victory, defeat |
-| **Total** | **25** | **One BGM stream plus 24 SFX streams** |
+| **Total** | **24** | **One BGM stream plus 23 SFX streams** |
 
 ## Candidate selection
 
@@ -50,7 +50,7 @@ python3 tools/process_audio_assets.py
 
 ## Runtime integration
 
-`AudioDirector` uses static `preload()` declarations for all 25 files, ensuring that Godot’s exporter includes them. It duplicates the imported Ogg music stream and enables looping at runtime. Sixteen pooled `AudioStreamPlayer` voices implement SFX playback. Cue policy defines bus, gain, pitch variance, cooldown, priority, and per-cue concurrency. Low-value repeated economy ticks yield to objective, destruction, error, and outcome cues.
+`AudioDirector` uses static `preload()` declarations for all 24 files, ensuring that Godot’s exporter includes them. It duplicates the imported Ogg music stream and enables looping at runtime. Sixteen pooled `AudioStreamPlayer` voices implement SFX playback. Cue policy defines bus, gain, pitch variance, cooldown, priority, and per-cue concurrency. Low-value repeated economy ticks yield to objective, destruction, error, and outcome cues.
 
 The `Music`, `SFX`, and `UI` buses route to `Master`. They use gain only—no runtime audio effects—because Godot’s default low-latency Web Sample playback does not support bus effects.[1] Browser autoplay can require a user gesture, so `main.gd` attempts title playback and calls the unlock path again from every button and keyboard interaction.[2]
 

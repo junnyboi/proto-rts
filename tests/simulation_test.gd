@@ -724,6 +724,182 @@ func _test_idle_hunter_wandering(failures: Array[String]) -> void:
 	failures.append("wandering Hunter did not find and hunt prey")
 
 
+func _test_lifetime_scoring(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human", false)
+	var team := RtsSimulation.TEAM_PLAYER
+	if simulation.team_score(team) != 0:
+		failures.append("starting resources or entities incorrectly awarded score")
+
+	simulation._deposit(team, &"lumber", 20.0)
+	simulation._deposit(team, &"essence", 10.0)
+	if simulation.team_score(team) != 40:
+		failures.append("earned resources did not award their configured score")
+	var earned_resources := simulation.lifetime_stats(team).get("resources_earned", {}) as Dictionary
+	if int(earned_resources.get("lumber", 0)) != 20 or int(earned_resources.get("essence", 0)) != 10:
+		failures.append("lifetime resource totals did not preserve gathered amounts")
+
+	var stronghold_id := simulation.primary_structure_id(team, &"stronghold")
+	if not simulation.command_train(team, stronghold_id, &"worker"):
+		failures.append("score test could not queue its cancellation Worker")
+	else:
+		if simulation.team_score(team) != 40:
+			failures.append("queued production awarded score before completion")
+		simulation.command_cancel_training(team, stronghold_id)
+		if simulation.team_score(team) != 40:
+			failures.append("cancelled production retained unearned score")
+	if not simulation.command_train(team, stronghold_id, &"worker"):
+		failures.append("score test could not queue its completed Worker")
+	else:
+		simulation._advance_production(7.0)
+		if simulation.team_score(team) != 40 + int(RtsSimulation.SCORE_UNIT_POINTS[&"worker"]):
+			failures.append("completed unit production did not award score")
+	if not (
+		int(RtsSimulation.SCORE_UNIT_POINTS[&"jadeclaw"])
+		> int(RtsSimulation.SCORE_UNIT_POINTS[&"mystic"])
+		and int(RtsSimulation.SCORE_UNIT_POINTS[&"mystic"])
+		> int(RtsSimulation.SCORE_UNIT_POINTS[&"vanguard"])
+		and int(RtsSimulation.SCORE_UNIT_POINTS[&"vanguard"])
+		> int(RtsSimulation.SCORE_UNIT_POINTS[&"worker"])
+	):
+		failures.append("unit score values do not increase with unit strength and cost")
+
+	var worker_id := simulation.team_entity_ids(team, [&"worker"])[0]
+	var worker := simulation.entity(worker_id)
+	var camp_id := simulation._spawn_structure(team, &"war_camp", MapCatalog.PLAYER_BUILD_TEST_SITE, false)
+	var camp := simulation.entity(camp_id)
+	camp["complete"] = 0.999
+	camp["hp"] = float(camp["max_hp"]) * 0.999
+	var worker_cell := MapCatalog.PLAYER_BUILD_TEST_SITE + Vector2i(-1, 0)
+	worker["position"] = Vector2(worker_cell)
+	worker["cell"] = worker_cell
+	worker["path"] = []
+	var before_building := simulation.team_score(team)
+	if not simulation.command_construct(team, [worker_id], camp_id):
+		failures.append("score test could not resume its nearly complete building")
+	else:
+		simulation._advance_construction(0.1)
+		if simulation.team_score(team) != before_building + int(RtsSimulation.SCORE_BUILDING_COMPLETED_POINTS[&"war_camp"]):
+			failures.append("completed building did not award score")
+
+	camp["hp"] = float(camp["max_hp"]) - RtsSimulation.REPAIR_AMOUNT
+	worker["position"] = Vector2(worker_cell)
+	worker["cell"] = worker_cell
+	worker["path"] = []
+	var before_repair := simulation.team_score(team)
+	if not simulation.command_repair(team, [worker_id], camp_id):
+		failures.append("score test could not issue a valid repair")
+	else:
+		simulation._advance_repair(worker, RtsSimulation.REPAIR_CYCLE)
+		if simulation.team_score(team) != before_repair + roundi(RtsSimulation.REPAIR_AMOUNT):
+			failures.append("repaired hit points did not award score")
+
+	var attacker_id := simulation._spawn_unit(
+		team,
+		&"vanguard",
+		MapCatalog.ENEMY_STRONGHOLD + Vector2i(-2, 0),
+	)
+	var attacker := simulation.entity(attacker_id)
+	var enemy_mystic_id := simulation._spawn_unit(
+		RtsSimulation.TEAM_ENEMY,
+		&"mystic",
+		MapCatalog.ENEMY_STRONGHOLD + Vector2i(-1, 0),
+	)
+	var enemy_mystic := simulation.entity(enemy_mystic_id)
+	enemy_mystic["hp"] = 1.0
+	var before_defeat := simulation.team_score(team)
+	simulation._apply_attack(attacker, enemy_mystic)
+	if simulation.team_score(team) != before_defeat + int(RtsSimulation.SCORE_UNIT_POINTS[&"mystic"]):
+		failures.append("defeating a strong enemy unit did not award its score value")
+
+	var enemy_camp_id := simulation._spawn_structure(
+		RtsSimulation.TEAM_ENEMY,
+		&"war_camp",
+		MapCatalog.ENEMY_STRONGHOLD + Vector2i(-3, 0),
+		true,
+	)
+	var enemy_camp := simulation.entity(enemy_camp_id)
+	enemy_camp["hp"] = 1.0
+	var before_destruction := simulation.team_score(team)
+	simulation._apply_attack(attacker, enemy_camp)
+	if simulation.team_score(team) != before_destruction + int(RtsSimulation.SCORE_BUILDING_DESTROYED_POINTS[&"war_camp"]):
+		failures.append("destroying an enemy building did not award score")
+
+	var cave := simulation.entity(simulation.cave_ids()[0])
+	var guardian := simulation.entity(int((cave["guardian_ids"] as Array)[0]))
+	guardian["hp"] = 1.0
+	var before_guardian := simulation.team_score(team)
+	simulation._apply_attack(attacker, guardian)
+	var guardian_resource_points := 0
+	for resource_kind in RtsSimulation.MONSTER_BOUNTY:
+		guardian_resource_points += (
+			int(RtsSimulation.MONSTER_BOUNTY[resource_kind])
+			* int(RtsSimulation.SCORE_RESOURCE_POINTS[StringName(resource_kind)])
+		)
+	var expected_guardian_points := (
+		int(RtsSimulation.SCORE_UNIT_POINTS[&"jadeclaw"])
+		+ guardian_resource_points
+	)
+	if simulation.team_score(team) != before_guardian + expected_guardian_points:
+		failures.append("defeating a neutral guardian did not award defeat and bounty score")
+	var before_capture := simulation.team_score(team)
+	simulation._complete_cave_capture(cave, team)
+	if simulation.team_score(team) != before_capture + RtsSimulation.SCORE_CAVE_CAPTURED_POINTS:
+		failures.append("capturing a Yaoguai Den did not award score")
+	simulation._complete_cave_capture(cave, RtsSimulation.TEAM_ENEMY)
+	simulation._complete_cave_capture(cave, team)
+	if simulation.team_score(team) != before_capture + RtsSimulation.SCORE_CAVE_CAPTURED_POINTS * 2:
+		failures.append("recapturing a Yaoguai Den did not count as a lifetime capture")
+
+	var breakdown := simulation.score_breakdown(team)
+	var breakdown_total := 0
+	for points in breakdown.values():
+		breakdown_total += int(points)
+	if breakdown_total != simulation.team_score(team):
+		failures.append("score total diverged from its authoritative category breakdown")
+	var stats := simulation.lifetime_stats(team)
+	if int((stats.get("units_created", {}) as Dictionary).get("worker", 0)) != 1:
+		failures.append("lifetime unit creation count included starting or cancelled units")
+	if int((stats.get("buildings_completed", {}) as Dictionary).get("war_camp", 0)) != 1:
+		failures.append("lifetime building completion count was not recorded")
+	if int((stats.get("enemies_defeated", {}) as Dictionary).get("mystic", 0)) != 1:
+		failures.append("lifetime enemy defeat count was not recorded")
+	if int((stats.get("enemies_defeated", {}) as Dictionary).get("jadeclaw", 0)) != 1:
+		failures.append("lifetime enemy defeat count omitted a neutral guardian")
+	if int((stats.get("buildings_destroyed", {}) as Dictionary).get("war_camp", 0)) != 1:
+		failures.append("lifetime building destruction count was not recorded")
+	if int(stats.get("caves_captured", 0)) != 2:
+		failures.append("lifetime Yaoguai Den capture count omitted a recapture")
+	if not is_equal_approx(float(stats.get("hit_points_repaired", 0.0)), RtsSimulation.REPAIR_AMOUNT):
+		failures.append("lifetime repair total did not record actual restored health")
+
+
+func _test_resignation_outcome(failures: Array[String]) -> void:
+	var player_simulation := RtsSimulation.new()
+	player_simulation.setup(&"human", false)
+	var player_results: Array[StringName] = []
+	player_simulation.match_ended.connect(
+		func(result: StringName) -> void: player_results.append(result)
+	)
+	if player_simulation.command_resign(RtsSimulation.TEAM_NEUTRAL):
+		failures.append("neutral team was allowed to resign a match")
+	if not player_simulation.outcome.is_empty():
+		failures.append("invalid resignation changed the match outcome")
+	if not player_simulation.command_resign(RtsSimulation.TEAM_PLAYER):
+		failures.append("player resignation was rejected")
+	if player_simulation.outcome != &"defeat" or player_results != [&"defeat"]:
+		failures.append("player resignation did not emit exactly one defeat outcome")
+	if player_simulation.command_resign(RtsSimulation.TEAM_PLAYER):
+		failures.append("completed match accepted a second resignation")
+
+	var enemy_simulation := RtsSimulation.new()
+	enemy_simulation.setup(&"human", false)
+	if not enemy_simulation.command_resign(RtsSimulation.TEAM_ENEMY):
+		failures.append("enemy resignation was rejected")
+	if enemy_simulation.outcome != &"victory":
+		failures.append("enemy resignation did not award player victory")
+
+
 func _run() -> void:
 	var failures: Array[String] = []
 	_test_stronghold_dropoff(failures)
@@ -744,6 +920,8 @@ func _run() -> void:
 	_test_faction_food_traditions(failures)
 	_test_wildlife_hunting(failures)
 	_test_idle_hunter_wandering(failures)
+	_test_lifetime_scoring(failures)
+	_test_resignation_outcome(failures)
 	var simulation := RtsSimulation.new()
 	simulation.setup(&"human")
 	if int(simulation.players[RtsSimulation.TEAM_PLAYER]["lumber"]) != 30:
@@ -997,7 +1175,7 @@ func _run() -> void:
 			failures.append("destroying the enemy Stronghold did not produce victory")
 
 	if failures.is_empty():
-		print("PASS simulation_test: deposits, cargo integrity, attack-move, formations, harmless-wildlife pass-through, hostile separation, Food costs and producers, AI food economy, assault waves, and one-hour skill test, guardian wandering, tree retargeting, monster bounties, cave capture and recapture, Jadeclaw production, economy, construction, combat, victory")
+		print("PASS simulation_test: deposits, cargo integrity, attack-move, formations, harmless-wildlife pass-through, hostile separation, Food costs and producers, AI food economy, assault waves, and one-hour skill test, guardian wandering, tree retargeting, monster bounties, cave capture and recapture, Jadeclaw production, economy, construction, combat, victory, and resignation")
 		quit(0)
 	else:
 		for failure in failures:

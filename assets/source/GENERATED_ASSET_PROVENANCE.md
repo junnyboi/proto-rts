@@ -21,6 +21,8 @@ The wildlife-hunting expansion adds Demon, Beast, and Human Hunter units plus de
 
 The economy-ribbon refresh adds illustrated Jade, Lumber, Essence, Food, Population, and Yaoguai Den icons. The built-in GPT Image 2 workflow used the existing HUD only as a style-and-scale reference. Exact generation and isolation-correction prompts are recorded in `HUD_RESOURCE_ICON_GENERATION_PROMPTS.md`.
 
+The top-bar utility refresh adds painted Pause, Resume, Audio On, and Audio Muted icons. The built-in GPT Image 2 workflow used the existing HUD only as a style-and-scale reference. Exact generation and isolation-correction prompts are recorded in `HUD_UTILITY_ICON_GENERATION_PROMPTS.md`.
+
 ## Source inventory
 
 | Category | Files | Generation intent |
@@ -28,6 +30,7 @@ The economy-ribbon refresh adds illustrated Jade, Lumber, Essence, Food, Populat
 | Key art | `key_art/mandate_of_myth_title.png` | Four-faction Jade Meridian battlefield, no text or interface |
 | Interface | `ui/idle_worker_alert.png` | Gold-and-jade exclamation marker for visible idle workers |
 | Resource HUD icons | `ui/resource_icons/jade.png`, `lumber.png`, `essence.png`, `food.png`, `population.png`, `dens.png` | Compact painted economy-ribbon symbols optimized for recognition at 24–28 pixels |
+| Utility HUD icons | `ui/utility_icons/pause.png`, `resume.png`, `audio_on.png`, `audio_muted.png` | Compact stateful top-bar controls optimized for recognition at 24–26 pixels |
 | Faction portraits | `factions/celestial_portrait.png`, `demon_portrait.png`, `beast_portrait.png`, `human_portrait.png` | Stable faction palette, commander identity, architecture, and mood anchors |
 | Workers | `units/*_worker.png` | Practical gathering and construction silhouettes |
 | Vanguards | `units/*_vanguard.png` | Durable faction-specific melee silhouettes |

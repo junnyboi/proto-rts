@@ -68,6 +68,32 @@ const MONSTER_BOUNTY := {
 	"lumber": 30,
 	"essence": 25,
 }
+const SCORE_RESOURCE_POINTS := {
+	&"jade": 1,
+	&"lumber": 1,
+	&"essence": 2,
+	&"food": 1,
+}
+const SCORE_UNIT_POINTS := {
+	&"worker": 100,
+	&"hunter": 125,
+	&"vanguard": 225,
+	&"mystic": 300,
+	&"jadeclaw": 450,
+}
+const SCORE_BUILDING_COMPLETED_POINTS := {
+	&"rice_farm": 200,
+	&"hunters_lodge": 250,
+	&"war_camp": 400,
+}
+const SCORE_BUILDING_DESTROYED_POINTS := {
+	&"rice_farm": 300,
+	&"hunters_lodge": 350,
+	&"war_camp": 600,
+	&"stronghold": 2500,
+}
+const SCORE_CAVE_CAPTURED_POINTS := 1000
+const SCORE_PER_HIT_POINT_REPAIRED := 1.0
 
 var players: Array[Dictionary] = []
 var entities: Dictionary = {}
@@ -173,7 +199,150 @@ func _player_state(faction: StringName, is_ai: bool) -> Dictionary:
 		"population": 0,
 		"population_cap": POPULATION_CAP,
 		"is_ai": is_ai,
+		"score": 0,
+		"score_breakdown": {
+			"resources_earned": 0,
+			"units_created": 0,
+			"enemies_defeated": 0,
+			"caves_captured": 0,
+			"buildings_completed": 0,
+			"buildings_destroyed": 0,
+			"hit_points_repaired": 0,
+		},
+		"lifetime_stats": {
+			"resources_earned": {
+				"jade": 0,
+				"lumber": 0,
+				"essence": 0,
+				"food": 0,
+			},
+			"units_created": {},
+			"enemies_defeated": {},
+			"caves_captured": 0,
+			"buildings_completed": {},
+			"buildings_destroyed": {},
+			"hit_points_repaired": 0.0,
+		},
 	}
+
+
+func team_score(team: int) -> int:
+	if not _is_valid_team(team):
+		return 0
+	return int(players[team].get("score", 0))
+
+
+func score_breakdown(team: int) -> Dictionary:
+	if not _is_valid_team(team):
+		return {}
+	return (players[team].get("score_breakdown", {}) as Dictionary).duplicate(true)
+
+
+func lifetime_stats(team: int) -> Dictionary:
+	if not _is_valid_team(team):
+		return {}
+	return (players[team].get("lifetime_stats", {}) as Dictionary).duplicate(true)
+
+
+func _award_score(team: int, category: StringName, points: int) -> void:
+	if not _is_valid_team(team) or points <= 0:
+		return
+	players[team]["score"] = team_score(team) + points
+	var breakdown := players[team]["score_breakdown"] as Dictionary
+	var category_key := String(category)
+	breakdown[category_key] = int(breakdown.get(category_key, 0)) + points
+
+
+func _record_resource_earned(team: int, resource_kind: StringName, amount: int) -> void:
+	if not _is_valid_team(team) or amount <= 0:
+		return
+	var stats := players[team]["lifetime_stats"] as Dictionary
+	var resources := stats["resources_earned"] as Dictionary
+	var resource_key := String(resource_kind)
+	resources[resource_key] = int(resources.get(resource_key, 0)) + amount
+	_award_score(
+		team,
+		&"resources_earned",
+		amount * int(SCORE_RESOURCE_POINTS.get(resource_kind, 1)),
+	)
+
+
+func _grant_resource_income(team: int, resource_kind: StringName, amount: int) -> void:
+	if not _is_valid_team(team) or amount <= 0:
+		return
+	var resource_key := String(resource_kind)
+	players[team][resource_key] = int(players[team].get(resource_key, 0)) + amount
+	_record_resource_earned(team, resource_kind, amount)
+
+
+func _increment_lifetime_kind(team: int, category: StringName, kind: StringName) -> void:
+	var stats := players[team]["lifetime_stats"] as Dictionary
+	var counts := stats[String(category)] as Dictionary
+	var kind_key := String(kind)
+	counts[kind_key] = int(counts.get(kind_key, 0)) + 1
+
+
+func _record_unit_created(team: int, kind: StringName) -> void:
+	if not _is_valid_team(team):
+		return
+	_increment_lifetime_kind(team, &"units_created", kind)
+	_award_score(team, &"units_created", int(SCORE_UNIT_POINTS.get(kind, 100)))
+
+
+func _record_building_completed(team: int, kind: StringName) -> void:
+	if not _is_valid_team(team):
+		return
+	_increment_lifetime_kind(team, &"buildings_completed", kind)
+	_award_score(
+		team,
+		&"buildings_completed",
+		int(SCORE_BUILDING_COMPLETED_POINTS.get(kind, 150)),
+	)
+
+
+func _record_cave_captured(team: int) -> void:
+	if not _is_valid_team(team):
+		return
+	var stats := players[team]["lifetime_stats"] as Dictionary
+	stats["caves_captured"] = int(stats.get("caves_captured", 0)) + 1
+	_award_score(team, &"caves_captured", SCORE_CAVE_CAPTURED_POINTS)
+
+
+func _record_hit_points_repaired(team: int, amount: float) -> void:
+	if not _is_valid_team(team) or amount <= 0.0:
+		return
+	var stats := players[team]["lifetime_stats"] as Dictionary
+	stats["hit_points_repaired"] = float(stats.get("hit_points_repaired", 0.0)) + amount
+	_award_score(
+		team,
+		&"hit_points_repaired",
+		roundi(amount * SCORE_PER_HIT_POINT_REPAIRED),
+	)
+
+
+func _record_combat_score(killer_team: int, target: Dictionary) -> void:
+	if not _is_valid_team(killer_team):
+		return
+	var target_team := int(target.get("team", TEAM_NEUTRAL))
+	var category := target.get("category", &"") as StringName
+	var kind := target.get("kind", &"") as StringName
+	if category == &"unit" and (
+		target_team >= 0 and target_team != killer_team
+		or _is_neutral_guardian(target)
+	):
+		_increment_lifetime_kind(killer_team, &"enemies_defeated", kind)
+		_award_score(
+			killer_team,
+			&"enemies_defeated",
+			int(SCORE_UNIT_POINTS.get(kind, 100)),
+		)
+	elif category == &"structure" and target_team >= 0 and target_team != killer_team:
+		_increment_lifetime_kind(killer_team, &"buildings_destroyed", kind)
+		_award_score(
+			killer_team,
+			&"buildings_destroyed",
+			int(SCORE_BUILDING_DESTROYED_POINTS.get(kind, 250)),
+		)
 
 
 func _spawn_unit(team: int, kind: StringName, cell: Vector2i, home_cave_id: int = -1) -> int:
@@ -545,6 +714,15 @@ func command_stop(issuer_team: int, ids: Array[int]) -> bool:
 		_cancel_all_unit_orders(unit)
 		issued = true
 	return issued
+
+
+func command_resign(issuer_team: int) -> bool:
+	if not _is_valid_team(issuer_team) or not outcome.is_empty():
+		return false
+	outcome = &"defeat" if issuer_team == TEAM_PLAYER else &"victory"
+	match_ended.emit(outcome)
+	state_changed.emit()
+	return true
 
 
 func command_repair(issuer_team: int, ids: Array[int], target_id: int, append: bool = false) -> bool:
@@ -1070,6 +1248,7 @@ func _advance_construction(delta: float) -> void:
 		if progress >= 1.0:
 			target["order"] = &"idle"
 			_finish_unit_order(worker)
+			_record_building_completed(int(target["team"]), target["kind"] as StringName)
 			_add_event(
 				&"complete",
 				_entity_center(target),
@@ -1104,6 +1283,7 @@ func _advance_production(delta: float) -> void:
 		players[int(structure["team"])]["population"] = (
 			int(players[int(structure["team"])]["population"]) - int(item["reserved_population"])
 		)
+		_record_unit_created(int(structure["team"]), item["kind"] as StringName)
 		command_move(int(structure["team"]), [unit_id], structure.get("rally_cell", spawn_cell) as Vector2i)
 		_add_event(
 			&"complete",
@@ -1140,7 +1320,7 @@ func _advance_food_production(delta: float) -> void:
 		structure["food_timer"] = float(structure.get("food_timer", 0.0)) + delta
 		while float(structure["food_timer"]) >= interval:
 			structure["food_timer"] = float(structure["food_timer"]) - interval
-			players[team]["food"] = int(players[team]["food"]) + food_yield
+			_grant_resource_income(team, &"food", food_yield)
 			_add_event(
 				&"food",
 				_entity_center(structure),
@@ -1211,6 +1391,7 @@ func _complete_cave_capture(cave: Dictionary, team: int) -> void:
 	cave["capture_team"] = TEAM_NEUTRAL
 	cave["capture_progress"] = 0.0
 	cave["capture_contested"] = false
+	_record_cave_captured(team)
 	_add_event(
 		&"capture",
 		_entity_center(cave),
@@ -1403,6 +1584,7 @@ func _advance_repair(worker: Dictionary, delta: float) -> void:
 	players[team]["lumber"] = int(players[team]["lumber"]) - REPAIR_LUMBER_COST
 	var restored := minf(REPAIR_AMOUNT, float(target["max_hp"]) - float(target["hp"]))
 	target["hp"] = float(target["hp"]) + restored
+	_record_hit_points_repaired(team, restored)
 	_add_event(
 		&"repair",
 		_entity_center(target),
@@ -1421,7 +1603,7 @@ func _deposit(team: int, resource_kind: StringName, amount: float) -> void:
 	elif faction == &"human" and resource_kind == &"jade":
 		multiplier = 1.10
 	var final_amount := int(round(amount * multiplier))
-	players[team][String(resource_kind)] = int(players[team][String(resource_kind)]) + final_amount
+	_grant_resource_income(team, resource_kind, final_amount)
 
 
 func _resource_event_color(resource_kind: StringName) -> Color:
@@ -1784,6 +1966,8 @@ func _kill(target: Dictionary, killer: Dictionary) -> void:
 		return
 	target["alive"] = false
 	target["hp"] = 0.0
+	var killer_team := int(killer.get("team", TEAM_NEUTRAL))
+	_record_combat_score(killer_team, target)
 	if target.get("category") == &"unit" and int(target["team"]) >= 0:
 		players[int(target["team"])]["population"] = maxi(
 			0,
@@ -1796,12 +1980,12 @@ func _kill(target: Dictionary, killer: Dictionary) -> void:
 		and int(target.get("team", TEAM_NEUTRAL)) == TEAM_NEUTRAL
 		and int(target.get("home_cave_id", -1)) >= 0
 	):
-		_award_guardian_bounty(int(killer.get("team", TEAM_NEUTRAL)), target)
+		_award_guardian_bounty(killer_team, target)
 	if target.get("category") == &"wildlife" and killer.get("kind") == &"hunter":
-		_award_wildlife_bounty(int(killer.get("team", TEAM_NEUTRAL)), target)
-	if int(killer.get("team", TEAM_NEUTRAL)) >= 0 and killer.get("faction") == &"demon":
+		_award_wildlife_bounty(killer_team, target)
+	if killer_team >= 0 and killer.get("faction") == &"demon":
 		killer["hp"] = minf(float(killer["max_hp"]), float(killer["hp"]) + 12.0)
-		players[int(killer["team"])]["essence"] = int(players[int(killer["team"])]["essence"]) + 3
+		_grant_resource_income(killer_team, &"essence", 3)
 	_events.append({
 		"type": &"death",
 		"position": _entity_center(target),
@@ -1809,7 +1993,7 @@ func _kill(target: Dictionary, killer: Dictionary) -> void:
 		"team": int(target.get("team", TEAM_NEUTRAL)),
 		"category": target.get("category", &""),
 		"kind": target.get("kind", &""),
-		"killer_team": int(killer.get("team", TEAM_NEUTRAL)),
+		"killer_team": killer_team,
 		"killer_kind": killer.get("kind", &""),
 	})
 	if target.get("category") in [&"structure", &"resource"]:
@@ -1823,7 +2007,7 @@ func _award_guardian_bounty(team: int, guardian: Dictionary) -> void:
 	if team < 0:
 		return
 	for resource_kind in MONSTER_BOUNTY:
-		players[team][resource_kind] = int(players[team][resource_kind]) + int(MONSTER_BOUNTY[resource_kind])
+		_grant_resource_income(team, StringName(resource_kind), int(MONSTER_BOUNTY[resource_kind]))
 	_add_event(&"bounty", _entity_center(guardian), Color("e4c66d"), {"team": team, "kind": &"jadeclaw"})
 	battle_notice.emit("Jadeclaw hunted: +45 Jade · +30 Lumber · +25 Essence.", team)
 	var cave := entity(int(guardian.get("home_cave_id", -1)))
@@ -1847,7 +2031,7 @@ func _award_wildlife_bounty(team: int, wildlife: Dictionary) -> void:
 	if not FactionCatalog.can_hunt(faction):
 		return
 	var bounty := int(wildlife.get("food_bounty", 0))
-	players[team]["food"] = int(players[team]["food"]) + bounty
+	_grant_resource_income(team, &"food", bounty)
 	_add_event(
 		&"bounty",
 		_entity_center(wildlife),

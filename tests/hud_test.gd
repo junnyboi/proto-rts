@@ -20,8 +20,9 @@ func _run() -> void:
 	_verify_selection_states(game, battlefield, simulation, failures)
 	_verify_commands_and_queue(game, battlefield, simulation, failures)
 	_verify_move_and_rally(game, battlefield, simulation, failures)
-	_verify_toast(game, failures)
+	_verify_toast_and_pause_menus(game, battlefield, failures)
 	_verify_free_worker_command(game, battlefield, simulation, failures)
+	_verify_resign(game, simulation, failures)
 
 	var director := game.audio_director as AudioDirector
 	director._music_player.stop()
@@ -36,7 +37,7 @@ func _run() -> void:
 	if not CursorSystem.is_suspended():
 		failures.append("game shutdown did not release the custom cursor registry")
 	if failures.is_empty():
-		print("PASS hud_test: economy ribbon, objectives, selection states, command card, production queue, armed modes, and toasts")
+		print("PASS hud_test: economy ribbon, objectives, selection states, command card, production queue, armed modes, toasts, pause/settings menus, and resign")
 		quit(0)
 	else:
 		for failure in failures:
@@ -61,10 +62,36 @@ func _verify_economy_and_objectives(game: Node, simulation: RtsSimulation, failu
 		failures.append("time chip incorrectly replaced its clock glyph with resource art")
 	if game._resource_values.has(&"jade") and (game._resource_values[&"jade"] as Label).text != "320":
 		failures.append("Jade chip did not bind to the simulation value")
+	if game._score_label == null or game._score_label.text != "SCORE: 0":
+		failures.append("top-left score label did not replace the faction matchup text")
+	else:
+		simulation._deposit(RtsSimulation.TEAM_PLAYER, &"lumber", 7.0)
+		game.call("_update_hud")
+		if game._score_label.text != "SCORE: 7":
+			failures.append("top-left score label did not bind to the authoritative score")
 	if game._objective_rows.size() != 3:
 		failures.append("objective tracker did not create three checklist rows")
-	if game._audio_button == null or not game._audio_button.text.contains("AUDIO ON"):
-		failures.append("economy ribbon is missing the enabled audio control")
+	var pause_icon := game._pause_button.get_node_or_null("Icon") as TextureRect if game._pause_button != null else null
+	var audio_icon := game._audio_button.get_node_or_null("Icon") as TextureRect if game._audio_button != null else null
+	if game._pause_button == null or pause_icon == null or not game._pause_button.text.is_empty():
+		failures.append("economy ribbon pause control is not icon-only")
+	elif not pause_icon.position.is_equal_approx((game._pause_button.size - pause_icon.size) * 0.5):
+		failures.append("economy ribbon pause icon is not centered in both axes")
+	if game._audio_button == null or audio_icon == null or not game._audio_button.text.is_empty():
+		failures.append("economy ribbon audio control is not icon-only")
+	else:
+		if not audio_icon.position.is_equal_approx((game._audio_button.size - audio_icon.size) * 0.5):
+			failures.append("economy ribbon audio icon is not centered in both axes")
+		if audio_icon.material == null:
+			failures.append("economy ribbon audio icon is missing its procedural lightening material")
+		if audio_icon.texture.resource_path != "res://assets/runtime/ui/utility_icons/audio_on.png":
+			failures.append("enabled audio state did not show the audio-on icon")
+		game.call("_toggle_audio")
+		if audio_icon.texture.resource_path != "res://assets/runtime/ui/utility_icons/audio_muted.png":
+			failures.append("muted audio state did not show the muted icon")
+		game.call("_toggle_audio")
+		if audio_icon.texture.resource_path != "res://assets/runtime/ui/utility_icons/audio_on.png":
+			failures.append("re-enabled audio state did not restore the audio-on icon")
 	var players_before := simulation.players.duplicate(true)
 	game.call("_toggle_objectives")
 	if not game._objective_collapsed or game._objective_panel.size.y > 60.0:
@@ -250,7 +277,11 @@ func _verify_move_and_rally(
 		(game._command_buttons[&"rally"] as Button).pressed.emit()
 
 
-func _verify_toast(game: Node, failures: Array[String]) -> void:
+func _verify_toast_and_pause_menus(
+	game: Node,
+	battlefield: Battlefield,
+	failures: Array[String],
+) -> void:
 	game.call("_show_feedback", "Insufficient Lumber.", true)
 	if not game._toast_panel.visible or game._feedback_label.text != "Insufficient Lumber.":
 		failures.append("actionable feedback did not show in the toast lane")
@@ -259,9 +290,55 @@ func _verify_toast(game: Node, failures: Array[String]) -> void:
 	if game._toast_panel.visible:
 		failures.append("feedback toast did not expire")
 	game.call("_toggle_pause")
-	if not game.paused or not game._pause_banner.visible:
-		failures.append("pause did not display the centered pause state")
-	game.call("_toggle_pause")
+	if not game.paused or not game._pause_overlay.visible or not game._pause_menu.visible:
+		failures.append("pause did not display the modal pause menu")
+	if battlefield.is_processing():
+		failures.append("battlefield presentation kept processing behind the pause menu")
+	if game._settings_menu.visible:
+		failures.append("settings menu was visible before it was requested")
+	if game._resume_button.text != "RESUME" or game._settings_button.text != "SETTINGS" or game._resign_button.text != "RESIGN":
+		failures.append("pause menu is missing its Resume, Settings, or Resign action")
+	var pause_icon := game._pause_button.get_node("Icon") as TextureRect
+	if pause_icon.texture.resource_path != "res://assets/runtime/ui/utility_icons/resume.png":
+		failures.append("paused state did not show the resume icon")
+	var selection_before := battlefield.selected_ids.duplicate()
+	var worker_hotkey := InputEventKey.new()
+	worker_hotkey.pressed = true
+	worker_hotkey.keycode = KEY_Q
+	game.call("_unhandled_key_input", worker_hotkey)
+	if battlefield.selected_ids != selection_before:
+		failures.append("gameplay hotkey changed selection while the pause menu was open")
+
+	game._settings_button.pressed.emit()
+	if game._pause_menu.visible or not game._settings_menu.visible:
+		failures.append("Settings did not replace the pause menu with the settings panel")
+	var muted_before: bool = game.audio_director.muted
+	game._settings_audio_button.pressed.emit()
+	if game.audio_director.muted == muted_before:
+		failures.append("settings audio control did not toggle audio")
+	if game._settings_audio_button.text != ("AUDIO: OFF" if not muted_before else "AUDIO: ON"):
+		failures.append("settings audio control did not reflect its new state")
+	game._settings_audio_button.pressed.emit()
+	game._settings_back_button.pressed.emit()
+	if not game._pause_menu.visible or game._settings_menu.visible:
+		failures.append("Settings Back did not restore the pause menu")
+	game._settings_button.pressed.emit()
+	var escape := InputEventKey.new()
+	escape.pressed = true
+	escape.keycode = KEY_ESCAPE
+	game.call("_unhandled_key_input", escape)
+	if not game._pause_menu.visible or game._settings_menu.visible or not game.paused:
+		failures.append("Esc did not return from Settings to the pause menu")
+	var pause_key := InputEventKey.new()
+	pause_key.pressed = true
+	pause_key.keycode = KEY_P
+	game.call("_unhandled_key_input", pause_key)
+	if game.paused or game._pause_overlay.visible:
+		failures.append("P did not resume from the pause menu")
+	if not battlefield.is_processing():
+		failures.append("battlefield presentation did not resume with the match")
+	if pause_icon.texture.resource_path != "res://assets/runtime/ui/utility_icons/pause.png":
+		failures.append("resumed state did not restore the pause icon")
 
 
 func _verify_free_worker_command(
@@ -287,3 +364,14 @@ func _verify_free_worker_command(
 		failures.append("the free recovery Worker command did not display a FREE cost")
 	if not worker_button.tooltip_text.contains("no Workers left"):
 		failures.append("the free recovery Worker command did not explain its free cost")
+
+
+func _verify_resign(game: Node, simulation: RtsSimulation, failures: Array[String]) -> void:
+	game.call("_toggle_pause")
+	game._resign_button.pressed.emit()
+	if simulation.outcome != &"defeat":
+		failures.append("Resign did not set the authoritative defeat outcome")
+	if game.state != &"result" or game._result_overlay == null:
+		failures.append("Resign did not open the match result screen")
+	if game._pause_overlay.visible:
+		failures.append("pause menu remained visible over the resignation result")

@@ -33,7 +33,7 @@ func _run() -> void:
 	]
 	for audio_name in [
 		"attack_beast", "attack_magic", "attack_melee", "attack_ranged",
-		"defeat", "deposit_resource", "gather_resource", "harvest_food",
+		"defeat", "deposit_resource", "harvest_food",
 		"impact_damage", "objective_secured", "order_attack", "order_move",
 		"order_work", "repair_tick", "structure_complete", "structure_destroyed",
 		"structure_placed", "ui_cancel", "ui_confirm", "ui_error",
@@ -46,6 +46,8 @@ func _run() -> void:
 		paths.append("res://assets/runtime/cursors/%s.png" % cursor_state)
 	for resource_icon in [&"jade", &"lumber", &"essence", &"food", &"population", &"dens"]:
 		paths.append("res://assets/runtime/ui/resource_icons/%s.png" % resource_icon)
+	for utility_icon in [&"pause", &"resume", &"audio_on", &"audio_muted"]:
+		paths.append("res://assets/runtime/ui/utility_icons/%s.png" % utility_icon)
 	for faction in FactionCatalog.ORDER:
 		paths.append(FactionCatalog.portrait_path(faction))
 		for kind in [&"worker", &"vanguard", &"mystic", &"stronghold", &"war_camp"]:
@@ -55,10 +57,13 @@ func _run() -> void:
 	for path in paths:
 		if not ResourceLoader.exists(path) or load(path) == null:
 			failures.append("missing or invalid runtime asset: %s" % path)
-	if paths.size() != 101:
-		failures.append("expected 101 runtime assets, enumerated %d" % paths.size())
+	var retired_gather_sfx := "res://assets/runtime/audio/sfx/gather_resource.ogg"
+	if ResourceLoader.exists(retired_gather_sfx):
+		failures.append("retired worker gather SFX still exists: %s" % retired_gather_sfx)
+	if paths.size() != 104:
+		failures.append("expected 104 runtime assets, enumerated %d" % paths.size())
 	if failures.is_empty():
-		print("PASS assets_test: 101 generated runtime assets resolve")
+		print("PASS assets_test: 104 generated runtime assets resolve")
 		quit(0)
 	else:
 		for failure in failures:

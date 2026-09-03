@@ -10,7 +10,6 @@ const SFX_STREAMS := {
 	&"order_move": preload("res://assets/runtime/audio/sfx/order_move.ogg"),
 	&"order_attack": preload("res://assets/runtime/audio/sfx/order_attack.ogg"),
 	&"order_work": preload("res://assets/runtime/audio/sfx/order_work.ogg"),
-	&"gather_resource": preload("res://assets/runtime/audio/sfx/gather_resource.ogg"),
 	&"deposit_resource": preload("res://assets/runtime/audio/sfx/deposit_resource.ogg"),
 	&"harvest_food": preload("res://assets/runtime/audio/sfx/harvest_food.ogg"),
 	&"repair_tick": preload("res://assets/runtime/audio/sfx/repair_tick.ogg"),
@@ -37,7 +36,6 @@ const CUE_POLICY := {
 	&"order_move": {"bus": &"SFX", "volume": -3.0, "pitch": 0.025, "cooldown": 0.10, "priority": 2, "max": 2},
 	&"order_attack": {"bus": &"SFX", "volume": -2.0, "pitch": 0.02, "cooldown": 0.10, "priority": 2, "max": 2},
 	&"order_work": {"bus": &"SFX", "volume": -3.0, "pitch": 0.025, "cooldown": 0.10, "priority": 2, "max": 2},
-	&"gather_resource": {"bus": &"SFX", "volume": -10.0, "pitch": 0.035, "cooldown": 0.32, "priority": 0, "max": 2},
 	&"deposit_resource": {"bus": &"SFX", "volume": -6.0, "pitch": 0.025, "cooldown": 0.25, "priority": 1, "max": 2},
 	&"harvest_food": {"bus": &"SFX", "volume": -9.0, "pitch": 0.025, "cooldown": 0.40, "priority": 0, "max": 2},
 	&"repair_tick": {"bus": &"SFX", "volume": -9.0, "pitch": 0.035, "cooldown": 0.32, "priority": 0, "max": 2},
@@ -207,9 +205,7 @@ func cue_for_event(event: Dictionary) -> StringName:
 		&"build":
 			return &"structure_placed"
 		&"complete":
-			return &"unit_ready" if event.get("category") == &"unit" else &"structure_complete"
-		&"gather":
-			return &"gather_resource"
+			return &"unit_ready" if event.get("category") == &"unit" else &""
 		&"deposit":
 			return &"deposit_resource"
 		&"food":

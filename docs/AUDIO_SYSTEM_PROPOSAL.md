@@ -6,7 +6,7 @@
 
 ## Executive decision
 
-Mandate of Myth should adopt a **cohesive generated-audio language** built around ritual bronze, carved jade, silk-and-bamboo instruments, natural materials, and restrained supernatural energy. The implementation will add **23 reusable sound-effect cue families** and **one 150-second instrumental background-music track**. The score will remain continuous from the title screen into the skirmish. Screen changes will alter music gain rather than restart the composition.
+Mandate of Myth should adopt a **cohesive generated-audio language** built around ritual bronze, carved jade, silk-and-bamboo instruments, natural materials, and restrained supernatural energy. The implementation will add **22 reusable sound-effect cue families** and **one 150-second instrumental background-music track**. The score will remain continuous from the title screen into the skirmish. Screen changes will alter music gain rather than restart the composition.
 
 The system will use non-positional `AudioStreamPlayer` nodes because the game is an isometric strategy title with a zoomable camera and a browser target. Godot documents this node as appropriate for user interfaces, menus, and background music, and it supports overlapping playback through polyphony or multiple players.[1] Browser exports use the Web Audio API and may block autoplay until a user gesture. The title screen will request playback immediately, while every button and gameplay input will also call the audio-unlock path so the first click reliably begins the score.[2]
 
@@ -29,7 +29,6 @@ The following cue families cover every player-visible interaction and unit actio
 | `order_move` | Move, rally, patrol, control-group recall | Brief command drum and leather step | 0.75 s | High | 0.10 s |
 | `order_attack` | Focus fire, attack-move, hunt order | Taut bowstring snap with a low war-drum accent | 0.90 s | High | 0.10 s |
 | `order_work` | Gather assignment, repair, construction assignment | Tool pickup, cloth movement, small wooden knock | 0.85 s | High | 0.10 s |
-| `gather_resource` | Jade, lumber, and essence gather cycles | Soft tool strike with stone/wood resonance and faint jade overtone | 0.85 s | Low | 0.32 s |
 | `deposit_resource` | Cargo delivered to a Stronghold | Ceramic tokens poured into a carved wooden ledger tray | 0.95 s | Medium | 0.25 s |
 | `harvest_food` | Rice Farm food-production cycles | Rice stalk brush, woven basket settle, and soft grain patter | 0.85 s | Low | 0.40 s |
 | `repair_tick` | Successful building repair pulse | Wooden mallet, tightening timber joint, and small pin settle | 0.80 s | Low | 0.32 s |
@@ -46,7 +45,7 @@ The following cue families cover every player-visible interaction and unit actio
 | `objective_secured` | Bounty, cave cleared, cave captured | Ascending jade-and-bronze ritual cadence | 2.10 s | Critical | 0.35 s |
 | `match_outcome` | Victory or defeat, selected by pitch direction | Four-second ritual cadence with triumphant or mournful variant | 4.20 s | Critical | 1.00 s |
 
-`match_outcome` will have two selected runtime files, `victory.ogg` and `defeat.ogg`, because opposite outcomes require opposite harmonic direction. This produces **24 runtime SFX files from 23 cue families**.
+`match_outcome` will have two selected runtime files, `victory.ogg` and `defeat.ogg`, because opposite outcomes require opposite harmonic direction. This produces **23 runtime SFX files from 22 cue families**.
 
 ## Candidate-generation and selection policy
 

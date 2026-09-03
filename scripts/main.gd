@@ -28,6 +28,12 @@ const RESOURCE_ICON_TEXTURES := {
 	&"population": preload("res://assets/runtime/ui/resource_icons/population.png"),
 	&"dens": preload("res://assets/runtime/ui/resource_icons/dens.png"),
 }
+const HUD_UTILITY_ICON_TEXTURES := {
+	&"pause": preload("res://assets/runtime/ui/utility_icons/pause.png"),
+	&"resume": preload("res://assets/runtime/ui/utility_icons/resume.png"),
+	&"audio_on": preload("res://assets/runtime/ui/utility_icons/audio_on.png"),
+	&"audio_muted": preload("res://assets/runtime/ui/utility_icons/audio_muted.png"),
+}
 
 var state: StringName = STATE_TITLE
 var selected_faction: StringName = &"human"
@@ -36,7 +42,7 @@ var simulation: RtsSimulation
 var battlefield: Battlefield
 var _screen: Control
 var _resource_label: Label
-var _faction_label: Label
+var _score_label: Label
 var _resource_values: Dictionary = {}
 var _resource_icons: Dictionary = {}
 var _selection_title: Label
@@ -53,7 +59,14 @@ var _queue_panel: PanelContainer
 var _queue_tiles: Array[Button] = []
 var _feedback_label: Label
 var _toast_panel: PanelContainer
-var _pause_banner: PanelContainer
+var _pause_overlay: Control
+var _pause_menu: PanelContainer
+var _settings_menu: PanelContainer
+var _resume_button: Button
+var _settings_button: Button
+var _resign_button: Button
+var _settings_audio_button: Button
+var _settings_back_button: Button
 var _pause_button: Button
 var _audio_button: Button
 var _fog_button: Button
@@ -120,6 +133,17 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		if key.keycode == KEY_ESCAPE and state == STATE_FACTION:
 			audio_director.play_ui(&"ui_cancel")
 			_show_title()
+		return
+	if paused:
+		match key.keycode:
+			KEY_ESCAPE:
+				if _settings_menu != null and _settings_menu.visible:
+					_show_pause_menu()
+				else:
+					_set_paused(false)
+			KEY_P:
+				_set_paused(false)
+		get_viewport().set_input_as_handled()
 		return
 	var control_group := _control_group_index(key)
 	if control_group >= 0:
@@ -193,7 +217,7 @@ func _clear_screen() -> void:
 	_screen = null
 	battlefield = null
 	_resource_label = null
-	_faction_label = null
+	_score_label = null
 	_resource_values.clear()
 	_resource_icons.clear()
 	_selection_title = null
@@ -210,7 +234,14 @@ func _clear_screen() -> void:
 	_queue_tiles.clear()
 	_feedback_label = null
 	_toast_panel = null
-	_pause_banner = null
+	_pause_overlay = null
+	_pause_menu = null
+	_settings_menu = null
+	_resume_button = null
+	_settings_button = null
+	_resign_button = null
+	_settings_audio_button = null
+	_settings_back_button = null
 	_pause_button = null
 	_audio_button = null
 	_fog_button = null
@@ -415,10 +446,11 @@ func _build_top_bar(root: Control) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override(&"separation", 5)
 	panel.add_child(row)
-	_faction_label = ThemeFactory.label("", 14, ThemeFactory.GOLD)
-	_faction_label.custom_minimum_size.x = 222
-	_faction_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(_faction_label)
+	_score_label = ThemeFactory.label("SCORE: 0", 14, ThemeFactory.GOLD)
+	_score_label.name = "ScoreLabel"
+	_score_label.custom_minimum_size.x = 222
+	_score_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(_score_label)
 	_add_resource_chip(row, &"jade", &"jade", "JADE", ThemeFactory.JADE, 88.0)
 	_add_resource_chip(row, &"lumber", &"lumber", "LUMBER", ThemeFactory.LUMBER, 100.0)
 	_add_resource_chip(row, &"essence", &"essence", "ESSENCE", ThemeFactory.ESSENCE, 108.0)
@@ -426,19 +458,15 @@ func _build_top_bar(root: Control) -> void:
 	_add_resource_chip(row, &"population", &"population", "POP", ThemeFactory.IVORY, 88.0)
 	_add_resource_chip(row, &"dens", &"den", "DENS", ThemeFactory.GOLD, 82.0)
 	_add_resource_chip(row, &"time", &"clock", "TIME", ThemeFactory.MUTED, 82.0)
-	_pause_button = ThemeFactory.button("Ⅱ  P", "Pause the realm")
+	_pause_button = ThemeFactory.icon_button(HUD_UTILITY_ICON_TEXTURES[&"pause"], "Pause the realm")
 	_pause_button.name = "PauseButton"
-	_pause_button.custom_minimum_size = Vector2(58.0, 34.0)
-	_pause_button.add_theme_font_size_override(&"font_size", 14)
 	_pause_button.pressed.connect(_toggle_pause)
 	row.add_child(_pause_button)
-	_audio_button = ThemeFactory.button(
-		"AUDIO OFF  M" if audio_director.muted else "AUDIO ON  M",
+	_audio_button = ThemeFactory.icon_button(
+		HUD_UTILITY_ICON_TEXTURES[&"audio_muted" if audio_director.muted else &"audio_on"],
 		"Toggle music and sound effects",
 	)
 	_audio_button.name = "AudioButton"
-	_audio_button.custom_minimum_size = Vector2(104.0, 34.0)
-	_audio_button.add_theme_font_size_override(&"font_size", 12)
 	_audio_button.pressed.connect(_toggle_audio)
 	row.add_child(_audio_button)
 
@@ -555,8 +583,8 @@ func _make_utility_button(
 	button.custom_minimum_size = Vector2(32.0, 30.0)
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	button.add_theme_font_size_override(&"font_size", 12)
-	button.add_theme_stylebox_override(&"normal", ThemeFactory.command_button_style(Color("102020"), Color("4b655f")))
-	button.add_theme_stylebox_override(&"hover", ThemeFactory.command_button_style(Color("183633"), ThemeFactory.JADE, 2))
+	button.add_theme_stylebox_override(&"normal", ThemeFactory.command_button_style(ThemeFactory.BUTTON_SURFACE, ThemeFactory.BUTTON_BORDER))
+	button.add_theme_stylebox_override(&"hover", ThemeFactory.command_button_style(ThemeFactory.BUTTON_SURFACE_HOVER, ThemeFactory.JADE, 2))
 	button.add_theme_stylebox_override(&"pressed", ThemeFactory.command_button_style(ThemeFactory.GOLD, Color("ffe8a0"), 2))
 	button.pressed.connect(action)
 	if not glyph.is_empty():
@@ -644,7 +672,7 @@ func _build_queue_panel() -> PanelContainer:
 	var panel := PanelContainer.new()
 	panel.name = "ProductionQueue"
 	panel.custom_minimum_size.y = 48.0
-	panel.add_theme_stylebox_override(&"panel", ThemeFactory.queue_tile_style(ThemeFactory.GOLD))
+	panel.add_theme_stylebox_override(&"panel", ThemeFactory.queue_panel_style(ThemeFactory.GOLD))
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override(&"separation", 4)
 	panel.add_child(row)
@@ -662,7 +690,7 @@ func _build_queue_panel() -> PanelContainer:
 		tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		tile.add_theme_font_size_override(&"font_size", 9)
 		tile.add_theme_stylebox_override(&"normal", ThemeFactory.queue_tile_style())
-		tile.add_theme_stylebox_override(&"hover", ThemeFactory.queue_tile_style(ThemeFactory.JADE))
+		tile.add_theme_stylebox_override(&"hover", ThemeFactory.queue_tile_style(ThemeFactory.JADE, ThemeFactory.BUTTON_SURFACE_HOVER))
 		tile.expand_icon = true
 		tile.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		tile.pressed.connect(_on_queue_tile_pressed.bind(tile))
@@ -745,11 +773,11 @@ func _add_command_button(
 		button.toggle_mode = true
 		button.button_group = _command_mode_group
 	button.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	button.add_theme_stylebox_override(&"normal", ThemeFactory.command_button_style(Color("102020"), Color("4b655f")))
-	button.add_theme_stylebox_override(&"hover", ThemeFactory.command_button_style(Color("183633"), ThemeFactory.JADE, 2))
+	button.add_theme_stylebox_override(&"normal", ThemeFactory.command_button_style(ThemeFactory.BUTTON_SURFACE, ThemeFactory.BUTTON_BORDER))
+	button.add_theme_stylebox_override(&"hover", ThemeFactory.command_button_style(ThemeFactory.BUTTON_SURFACE_HOVER, ThemeFactory.JADE, 2))
 	button.add_theme_stylebox_override(&"pressed", ThemeFactory.command_button_style(ThemeFactory.GOLD, Color("ffe8a0"), 2))
-	button.add_theme_stylebox_override(&"focus", ThemeFactory.command_button_style(Color("102020"), ThemeFactory.GOLD, 2))
-	button.add_theme_stylebox_override(&"disabled", ThemeFactory.command_button_style(Color("0c1516"), Color("40504e")))
+	button.add_theme_stylebox_override(&"focus", ThemeFactory.command_button_style(ThemeFactory.BUTTON_SURFACE, ThemeFactory.GOLD, 2))
+	button.add_theme_stylebox_override(&"disabled", ThemeFactory.command_button_style(ThemeFactory.BUTTON_SURFACE_DISABLED, ThemeFactory.BUTTON_BORDER_DISABLED))
 	button.pressed.connect(action)
 	button.visible = false
 	_command_slots[slot_index].add_child(button)
@@ -778,20 +806,106 @@ func _build_toast(root: Control) -> void:
 	_feedback_label.clip_text = true
 	row.add_child(_feedback_label)
 	_toast_panel.visible = false
-	_pause_banner = PanelContainer.new()
-	_pause_banner.name = "PauseBanner"
-	_pause_banner.set_anchors_preset(Control.PRESET_CENTER)
-	_pause_banner.position = Vector2(-110.0, -46.0)
-	_pause_banner.size = Vector2(220.0, 78.0)
-	_pause_banner.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_pause_banner.add_theme_stylebox_override(&"panel", ThemeFactory.toast_style(ThemeFactory.GOLD))
-	root.add_child(_pause_banner)
-	var pause_copy := ThemeFactory.label("REALM PAUSED\nP  TO RESUME", 18, ThemeFactory.GOLD)
-	pause_copy.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	pause_copy.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	pause_copy.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_pause_banner.add_child(pause_copy)
-	_pause_banner.visible = false
+	_build_pause_overlay(root)
+
+
+func _build_pause_overlay(root: Control) -> void:
+	_pause_overlay = Control.new()
+	_pause_overlay.name = "PauseOverlay"
+	_pause_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.add_child(_pause_overlay)
+
+	var shade := ColorRect.new()
+	shade.name = "Shade"
+	shade.color = Color(0.0, 0.02, 0.022, 0.72)
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_pause_overlay.add_child(shade)
+
+	_pause_menu = _make_modal_menu("PauseMenu", "PAUSED", "THE MANDATE AWAITS")
+	_pause_overlay.add_child(_pause_menu)
+	var pause_column := _pause_menu.get_node("MenuColumn") as VBoxContainer
+	_resume_button = _make_modal_button("RESUME", "Return to the battle")
+	_resume_button.name = "ResumeButton"
+	_connect_button(_resume_button, func() -> void: _set_paused(false))
+	pause_column.add_child(_resume_button)
+	_settings_button = _make_modal_button("SETTINGS", "Open game settings")
+	_settings_button.name = "SettingsButton"
+	_connect_button(_settings_button, _show_settings_menu)
+	pause_column.add_child(_settings_button)
+	_resign_button = _make_modal_button("RESIGN", "Concede this match")
+	_resign_button.name = "ResignButton"
+	_resign_button.add_theme_color_override(&"font_color", ThemeFactory.DANGER)
+	_resign_button.add_theme_color_override(&"font_hover_color", Color("ff8b7f"))
+	_connect_button(_resign_button, _resign_match, &"ui_cancel")
+	pause_column.add_child(_resign_button)
+	var pause_hint := ThemeFactory.label("ESC OR P TO RESUME", 12, ThemeFactory.MUTED_SAGE)
+	pause_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pause_column.add_child(pause_hint)
+
+	_settings_menu = _make_modal_menu("SettingsMenu", "SETTINGS", "GAME OPTIONS")
+	_pause_overlay.add_child(_settings_menu)
+	var settings_column := _settings_menu.get_node("MenuColumn") as VBoxContainer
+	var audio_heading := ThemeFactory.label("AUDIO", 12, ThemeFactory.MUTED_SAGE)
+	audio_heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	settings_column.add_child(audio_heading)
+	_settings_audio_button = _make_modal_button("", "Toggle music and sound effects")
+	_settings_audio_button.name = "AudioSettingButton"
+	_connect_button(_settings_audio_button, _toggle_audio, &"")
+	settings_column.add_child(_settings_audio_button)
+	var settings_spacer := Control.new()
+	settings_spacer.custom_minimum_size.y = 10.0
+	settings_column.add_child(settings_spacer)
+	_settings_back_button = _make_modal_button("BACK", "Return to the pause menu")
+	_settings_back_button.name = "SettingsBackButton"
+	_connect_button(_settings_back_button, _show_pause_menu, &"ui_cancel")
+	settings_column.add_child(_settings_back_button)
+	var settings_hint := ThemeFactory.label("ESC TO GO BACK", 12, ThemeFactory.MUTED_SAGE)
+	settings_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	settings_column.add_child(settings_hint)
+
+	_update_audio_controls()
+	_pause_overlay.visible = false
+	_settings_menu.visible = false
+
+
+func _make_modal_menu(node_name: String, title_text: String, subtitle_text: String) -> PanelContainer:
+	var panel := PanelContainer.new()
+	panel.name = node_name
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.position = Vector2(-210.0, -190.0)
+	panel.size = Vector2(420.0, 380.0)
+	panel.add_theme_stylebox_override(
+		&"panel",
+		ThemeFactory.panel_style(Color("071313fc"), Color(ThemeFactory.GOLD, 0.92), 2, 6),
+	)
+	var column := VBoxContainer.new()
+	column.name = "MenuColumn"
+	column.alignment = BoxContainer.ALIGNMENT_CENTER
+	column.add_theme_constant_override(&"separation", 12)
+	panel.add_child(column)
+	var title := ThemeFactory.label(title_text, 34, ThemeFactory.GOLD)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(title)
+	var subtitle := ThemeFactory.label(subtitle_text, 12, ThemeFactory.JADE)
+	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(subtitle)
+	var divider := ColorRect.new()
+	divider.color = Color(ThemeFactory.GOLD, 0.58)
+	divider.custom_minimum_size = Vector2(0.0, 1.0)
+	divider.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_child(divider)
+	var spacer := Control.new()
+	spacer.custom_minimum_size.y = 4.0
+	column.add_child(spacer)
+	return panel
+
+
+func _make_modal_button(text: String, tooltip: String) -> Button:
+	var button := ThemeFactory.button(text, tooltip)
+	button.custom_minimum_size = Vector2(300.0, 48.0)
+	button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	return button
 
 
 func _build_help_panel(root: Control) -> void:
@@ -808,7 +922,7 @@ func _build_help_panel(root: Control) -> void:
 	_objective_toggle.name = "ObjectiveToggle"
 	_objective_toggle.custom_minimum_size.y = 22.0
 	_objective_toggle.add_theme_font_size_override(&"font_size", 11)
-	_objective_toggle.add_theme_stylebox_override(&"normal", ThemeFactory.command_button_style(Color("0b1919"), ThemeFactory.GOLD))
+	_objective_toggle.add_theme_stylebox_override(&"normal", ThemeFactory.command_button_style(ThemeFactory.BUTTON_SURFACE, ThemeFactory.GOLD))
 	_objective_toggle.pressed.connect(_toggle_objectives)
 	column.add_child(_objective_toggle)
 	for index in range(3):
@@ -830,11 +944,9 @@ func _update_hud() -> void:
 	if simulation == null or simulation.players.is_empty() or _resource_values.is_empty():
 		return
 	var player := simulation.players[RtsSimulation.TEAM_PLAYER]
-	var enemy := simulation.players[RtsSimulation.TEAM_ENEMY]
 	var player_definition := FactionCatalog.definition(player["faction"] as StringName)
-	var enemy_definition := FactionCatalog.definition(enemy["faction"] as StringName)
-	_faction_label.text = "%s  ·  VS  ·  %s" % [player_definition["name"], enemy_definition["name"]]
-	_faction_label.add_theme_color_override(&"font_color", player_definition["accent"] as Color)
+	_score_label.text = "SCORE: %d" % simulation.team_score(RtsSimulation.TEAM_PLAYER)
+	_score_label.add_theme_color_override(&"font_color", player_definition["accent"] as Color)
 	var minutes := floori(simulation.elapsed_time / 60.0)
 	var seconds := int(simulation.elapsed_time) % 60
 	(_resource_values[&"jade"] as Label).text = "%d" % int(player["jade"])
@@ -1389,12 +1501,12 @@ func _update_armed_command_styles() -> void:
 		button.set_pressed_no_signal(is_active)
 		button.tooltip_text = button.tooltip_text.trim_suffix(ARMED_TOOLTIP_SUFFIX)
 		if is_active:
-			var armed_style := ThemeFactory.command_button_style(Color("173a33"), ThemeFactory.JADE, 2)
+			var armed_style := ThemeFactory.command_button_style(ThemeFactory.BUTTON_SURFACE_ACTIVE, ThemeFactory.JADE, 2)
 			button.add_theme_stylebox_override(&"normal", armed_style)
 			button.add_theme_stylebox_override(&"pressed", armed_style)
 			button.tooltip_text += ARMED_TOOLTIP_SUFFIX
 		else:
-			button.add_theme_stylebox_override(&"normal", ThemeFactory.command_button_style(Color("102020"), Color("4b655f")))
+			button.add_theme_stylebox_override(&"normal", ThemeFactory.command_button_style(ThemeFactory.BUTTON_SURFACE, ThemeFactory.BUTTON_BORDER))
 			button.add_theme_stylebox_override(&"pressed", ThemeFactory.command_button_style(ThemeFactory.GOLD, Color("ffe8a0"), 2))
 
 
@@ -1530,13 +1642,52 @@ func _show_feedback(message: String, is_error: bool = false) -> void:
 func _toggle_pause() -> void:
 	if state != STATE_MATCH or simulation == null or not simulation.outcome.is_empty():
 		return
-	paused = not paused
-	_pause_button.text = "▶  P" if paused else "Ⅱ  P"
+	_set_paused(not paused)
+
+
+func _set_paused(next_paused: bool) -> void:
+	if state != STATE_MATCH or simulation == null or not simulation.outcome.is_empty():
+		return
+	paused = next_paused
+	ThemeFactory.set_icon_button_texture(
+		_pause_button,
+		HUD_UTILITY_ICON_TEXTURES[&"resume" if paused else &"pause"],
+	)
 	_pause_button.tooltip_text = "Resume the realm" if paused else "Pause the realm"
-	_pause_banner.visible = paused
+	if battlefield != null:
+		battlefield.set_process(not paused)
+	if paused:
+		_show_pause_menu()
+	else:
+		_pause_overlay.visible = false
 	audio_director.set_music_state(&"paused" if paused else STATE_MATCH)
 	audio_director.play_ui(&"ui_cancel" if paused else &"ui_confirm")
 	_show_feedback("The realm is paused." if paused else "The realm resumes.", false)
+
+
+func _show_pause_menu() -> void:
+	if not paused or _pause_overlay == null:
+		return
+	_pause_overlay.visible = true
+	_pause_menu.visible = true
+	_settings_menu.visible = false
+	_resume_button.call_deferred("grab_focus")
+
+
+func _show_settings_menu() -> void:
+	if not paused or _pause_overlay == null:
+		return
+	_pause_overlay.visible = true
+	_pause_menu.visible = false
+	_settings_menu.visible = true
+	_update_audio_controls()
+	_settings_audio_button.call_deferred("grab_focus")
+
+
+func _resign_match() -> void:
+	if simulation == null:
+		return
+	simulation.command_resign(RtsSimulation.TEAM_PLAYER)
 
 
 func _toggle_fog_of_war() -> void:
@@ -1549,15 +1700,30 @@ func _toggle_fog_of_war() -> void:
 
 func _toggle_audio() -> void:
 	var is_muted := audio_director.toggle_muted()
-	if _audio_button != null:
-		_audio_button.text = "AUDIO OFF  M" if is_muted else "AUDIO ON  M"
+	_update_audio_controls()
 	if not is_muted:
 		audio_director.play_ui(&"ui_confirm")
+
+
+func _update_audio_controls() -> void:
+	if _audio_button != null:
+		ThemeFactory.set_icon_button_texture(
+			_audio_button,
+			HUD_UTILITY_ICON_TEXTURES[&"audio_muted" if audio_director.muted else &"audio_on"],
+		)
+	if _settings_audio_button != null:
+		_settings_audio_button.text = "AUDIO: OFF" if audio_director.muted else "AUDIO: ON"
+		_settings_audio_button.tooltip_text = (
+			"Enable music and sound effects" if audio_director.muted
+			else "Mute music and sound effects"
+		)
 
 
 func _on_match_ended(result: StringName) -> void:
 	paused = true
 	state = STATE_RESULT
+	if _pause_overlay != null:
+		_pause_overlay.visible = false
 	audio_director.play_outcome(result)
 	_result_overlay = Control.new()
 	_result_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -1577,7 +1743,7 @@ func _on_match_ended(result: StringName) -> void:
 	column.alignment = BoxContainer.ALIGNMENT_CENTER
 	column.add_theme_constant_override(&"separation", 13)
 	panel.add_child(column)
-	var title := ThemeFactory.label("MANDATE SECURED" if result == &"victory" else "THE MANDATE IS LOST", 30, accent)
+	var title := ThemeFactory.label("VICTORY" if result == &"victory" else "DEFEAT", 30, accent)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(title)
 	var detail := ThemeFactory.label(

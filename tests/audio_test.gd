@@ -11,8 +11,8 @@ func _run() -> void:
 	root.add_child(director)
 	await process_frame
 
-	if director.registered_cue_count() != 24:
-		failures.append("expected 24 registered runtime SFX cues, got %d" % director.registered_cue_count())
+	if director.registered_cue_count() != 23:
+		failures.append("expected 23 registered runtime SFX cues, got %d" % director.registered_cue_count())
 	if director.sfx_voice_count() != AudioDirector.SFX_POOL_SIZE:
 		failures.append("SFX pool does not match its bounded voice count")
 	if not director.is_bgm_looping():
@@ -23,9 +23,7 @@ func _run() -> void:
 
 	var representative_events := {
 		&"structure_placed": {"type": &"build"},
-		&"structure_complete": {"type": &"complete", "category": &"structure"},
 		&"unit_ready": {"type": &"complete", "category": &"unit"},
-		&"gather_resource": {"type": &"gather", "resource_kind": &"jade"},
 		&"deposit_resource": {"type": &"deposit"},
 		&"harvest_food": {"type": &"food"},
 		&"repair_tick": {"type": &"repair"},
@@ -42,6 +40,10 @@ func _run() -> void:
 		var actual := director.cue_for_event(representative_events[expected_cue] as Dictionary)
 		if actual != expected_cue:
 			failures.append("event mapped to %s instead of %s" % [actual, expected_cue])
+	if not director.cue_for_event({"type": &"complete", "category": &"structure"}).is_empty():
+		failures.append("structure completion still mapped to the disabled bronze-bell cue")
+	if not director.cue_for_event({"type": &"gather", "resource_kind": &"jade"}).is_empty():
+		failures.append("worker gather cycles still mapped to a repetitive work cue")
 
 	var simulation := RtsSimulation.new()
 	simulation.setup(&"human")
@@ -126,7 +128,7 @@ func _run() -> void:
 	await process_frame
 
 	if failures.is_empty():
-		print("PASS audio_test: 24 generated cues, persistent loop, semantic mapping, cooldowns, buses, and bounded voices")
+		print("PASS audio_test: 23 runtime SFX, persistent loop, semantic mapping, cooldowns, buses, and bounded voices")
 		quit(0)
 	else:
 		for failure in failures:

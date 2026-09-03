@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 LETTERS = ("A", "B", "C")
+RETIRED_SFX = {"gather_resource"}
 SAMPLE_RATE = 48_000
 SILENCE_AMPLITUDE = 10 ** (-48.0 / 20.0)
 
@@ -285,6 +286,8 @@ def main() -> None:
     work_dir = candidate_root / ".work"
     for directory in (split_dir, bgm_dir, sfx_dir, work_dir):
         directory.mkdir(parents=True, exist_ok=True)
+    for retired_name in RETIRED_SFX:
+        (sfx_dir / f"{retired_name}.ogg").unlink(missing_ok=True)
 
     report_path = runtime_root / "audio-report.json"
     if args.only_sfx or args.skip_bgm:
@@ -298,7 +301,11 @@ def main() -> None:
     report["selection_policy"] = "Highest technical score across equal-third A/B/C reel windows"
     report.setdefault("sfx", {})
 
-    reels = sorted(reel_dir.glob("*.mp3"))
+    reels = [
+        reel
+        for reel in sorted(reel_dir.glob("*.mp3"))
+        if reel.stem not in RETIRED_SFX
+    ]
     if args.only_sfx:
         requested = set(args.only_sfx)
         available = {reel.stem for reel in reels}

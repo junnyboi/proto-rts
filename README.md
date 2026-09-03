@@ -76,7 +76,7 @@ The design borrows the clean model/view boundary from [`junnyboi/proto-td`](http
 
 ## Generated asset pipelines
 
-All representational game art was generated specifically for this project with **GPT Image 2**. The active runtime manifest contains 50 optimized derivatives generated from immutable masters under `assets/source/`; retired concepts and seasonal tree masters remain outside the runtime build. The repeatable processing tool removes the isolation background, preserves transparent silhouettes, resizes by asset category, and writes SHA-256 hashes.
+All representational game art was generated specifically for this project with **GPT Image 2**. The active runtime manifest contains 80 optimized derivatives generated from immutable masters under `assets/source/`; retired concepts and seasonal tree masters remain outside the runtime build. The repeatable processing tool removes the isolation background, preserves transparent silhouettes, resizes by asset category, and writes SHA-256 hashes.
 
 ```bash
 python3 -m venv .venv
@@ -106,7 +106,7 @@ Run the focused suite:
 tools/run_tests.sh
 ```
 
-The 14-suite runner verifies the expanded map's size, symmetry, crossings, 2,224-tree grove density and connectivity, mirrored wildlife herds, cave placement, tree-blocked paths, projection round trips, all 101 runtime image and audio asset paths, audio buses, looping and persistent score behavior, cue coverage, cooldown and voice bounds, hidden-event filtering, semantic event metadata, cursor and HUD state, fog and minimap visibility, control groups, Shift-queued orders, repair, patrol, production cancellation, explicit cross-team command authority, live-unit placement rejection, scalable formations, persistent attack-move, terrain-aware combat sight, fair AI economy, faction food restrictions, contextual hunting, prey flight, boar/bear retaliation, Food bounties, AI hunting, harvest cadence, cave capture, combat, match victory, and instrumented Battlefield/minimap draw budgets. A native visual harness also captures the faction-specific food economy, command visualization, redesigned HUD, and a live wildlife hunt:
+The 14-suite runner verifies the expanded map's size, symmetry, crossings, 2,224-tree grove density and connectivity, mirrored wildlife herds, cave placement, tree-blocked paths, projection round trips, all 105 runtime image and audio asset paths, audio buses, looping and persistent score behavior, cue coverage, cooldown and voice bounds, hidden-event filtering, semantic event metadata, cursor and HUD state, fog and minimap visibility, control groups, Shift-queued orders, repair, patrol, production cancellation, explicit cross-team command authority, live-unit placement rejection, scalable formations, persistent attack-move, terrain-aware combat sight, fair AI economy, faction food restrictions, contextual hunting, prey flight, boar/bear retaliation, Food bounties, AI hunting, harvest cadence, cave capture, combat, match victory, and instrumented Battlefield/minimap draw budgets. A native visual harness also captures the faction-specific food economy, command visualization, redesigned HUD, and a live wildlife hunt:
 
 ```bash
 /Applications/Godot.app/Contents/MacOS/Godot --path . --script tests/visual_capture.gd

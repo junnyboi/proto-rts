@@ -243,6 +243,24 @@ def main() -> None:
         )
     )
 
+    for utility_icon in ("pause", "resume", "audio_on"):
+        records.append(
+            save_keyed_icon(
+                SOURCE / "ui" / "utility_icons" / f"{utility_icon}.png",
+                RUNTIME / "ui" / "utility_icons" / f"{utility_icon}.png",
+                (64, 64),
+                (54, 54),
+            )
+        )
+    records.append(
+        save_transparent_icon(
+            SOURCE / "ui" / "utility_icons" / "audio_muted.png",
+            RUNTIME / "ui" / "utility_icons" / "audio_muted.png",
+            (64, 64),
+            (54, 54),
+        )
+    )
+
     for faction in ("celestial", "demon", "beast", "human"):
         records.append(
             save_webp(

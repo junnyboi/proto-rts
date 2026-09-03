@@ -54,7 +54,11 @@ func _run() -> void:
 	game.call("_toggle_pause")
 	await _settle(2)
 	_capture("paused")
-	game.call("_toggle_pause")
+	game._settings_button.pressed.emit()
+	await _settle(2)
+	_capture("settings")
+	game._settings_back_button.pressed.emit()
+	game._resume_button.pressed.emit()
 	game._toast_panel.visible = false
 	var live_battlefield: Battlefield = game.battlefield
 	game.set_process(false)
@@ -239,5 +243,5 @@ func _run() -> void:
 	root.remove_child(game)
 	game.free()
 	await process_frame
-	print("PASS visual_capture: title, faction-select, skirmish, worker cargo icons, pause, enemy inspection, caves, production queue, armed command, multi-selection, food economy, wildlife hunt, command visualization, map overview")
+	print("PASS visual_capture: title, faction-select, skirmish, worker cargo icons, pause, settings, enemy inspection, caves, production queue, armed command, multi-selection, food economy, wildlife hunt, command visualization, map overview")
 	quit(0)
