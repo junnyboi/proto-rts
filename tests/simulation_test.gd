@@ -1175,6 +1175,188 @@ func _test_wildlife_hunting(failures: Array[String]) -> void:
 		failures.append("Celestial Court could hunt through a directly spawned Hunter")
 
 
+func _test_wildlife_regeneration(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human", false)
+	var herd_id := 0
+	var definition := MapCatalog.WILDLIFE_HERDS[herd_id]
+	var target_count := int(definition["count"])
+	var spawn_interval := RtsSimulation.WILDLIFE_REGENERATION_CYCLE_SECONDS / float(target_count)
+	var herd_ids: Array[int] = []
+	for wildlife_id in simulation.wildlife_ids():
+		if int(simulation.entity(wildlife_id).get("herd_id", -1)) == herd_id:
+			herd_ids.append(wildlife_id)
+	if herd_ids.size() != target_count:
+		failures.append("wildlife regeneration fixture did not begin at authored herd capacity")
+		return
+	for wildlife_id in simulation.wildlife_ids():
+		simulation._kill(simulation.entity(wildlife_id), {})
+	if simulation._living_wildlife_count_for_herd(herd_id) != 0:
+		failures.append("depleted wildlife herd still reported living members")
+	if not simulation.wildlife_ids().is_empty():
+		failures.append("full-map wildlife depletion left living animals")
+	if not simulation.entity(herd_ids[0]).is_empty():
+		failures.append("dead renewable wildlife remained in authoritative entity storage")
+	var preserved_death_event := false
+	for event in simulation.drain_events():
+		if (
+			event.get("type") == &"death"
+			and int(event.get("entity_id", -1)) == herd_ids[0]
+			and event.get("category") == &"wildlife"
+			and event.get("kind") == definition["kind"]
+		):
+			preserved_death_event = true
+			break
+	if not preserved_death_event:
+		failures.append("wildlife cleanup discarded its immutable death event")
+
+	simulation._advance_wildlife_regeneration(spawn_interval - RtsSimulation.TICK_SECONDS)
+	if simulation._living_wildlife_count_for_herd(herd_id) != 0:
+		failures.append("wildlife regenerated before its gradual herd cadence elapsed")
+	simulation._advance_wildlife_regeneration(RtsSimulation.TICK_SECONDS)
+	if simulation._living_wildlife_count_for_herd(herd_id) != 1:
+		failures.append("wildlife herd did not regenerate its first member on cadence")
+	else:
+		var regenerated: Dictionary = {}
+		for wildlife_id in simulation.wildlife_ids(definition["kind"] as StringName):
+			var candidate := simulation.entity(wildlife_id)
+			if int(candidate.get("herd_id", -1)) == herd_id:
+				regenerated = candidate
+				break
+		if (
+			regenerated.is_empty()
+			or int(regenerated.get("herd_id", -1)) != herd_id
+			or regenerated.get("kind") != definition["kind"]
+			or not is_equal_approx(float(regenerated["hp"]), float(regenerated["max_hp"]))
+			or (regenerated["position"] as Vector2).distance_to(Vector2(definition["center"]))
+			> float(definition["radius"]) + 0.01
+		):
+			failures.append("regenerated wildlife did not inherit its authored herd state")
+
+	var remaining_recovery_steps := roundi(
+		(RtsSimulation.WILDLIFE_REGENERATION_CYCLE_SECONDS - spawn_interval)
+		/ RtsSimulation.TICK_SECONDS
+	)
+	for _step in range(remaining_recovery_steps):
+		simulation._advance_wildlife_regeneration(RtsSimulation.TICK_SECONDS)
+	if simulation._living_wildlife_count_for_herd(herd_id) != target_count:
+		failures.append("a fully depleted wildlife herd did not recover within five minutes")
+	if simulation.wildlife_ids().size() != 68:
+		failures.append("five-minute wildlife recovery did not restore the authored map population")
+	for authored_herd_id in range(MapCatalog.WILDLIFE_HERDS.size()):
+		var authored_count := int(MapCatalog.WILDLIFE_HERDS[authored_herd_id]["count"])
+		if simulation._living_wildlife_count_for_herd(authored_herd_id) != authored_count:
+			failures.append("wildlife herd %d did not recover to its authored population" % authored_herd_id)
+	simulation._advance_wildlife_regeneration(RtsSimulation.WILDLIFE_REGENERATION_CYCLE_SECONDS)
+	if simulation._living_wildlife_count_for_herd(herd_id) != target_count:
+		failures.append("wildlife regeneration exceeded the authored herd population cap")
+
+	var blocked_replacement_id := -1
+	for wildlife_id in simulation.wildlife_ids():
+		if int(simulation.entity(wildlife_id).get("herd_id", -1)) == herd_id:
+			blocked_replacement_id = wildlife_id
+			break
+	if blocked_replacement_id < 0:
+		failures.append("blocked wildlife regeneration fixture could not find a herd member")
+		return
+	simulation._kill(simulation.entity(blocked_replacement_id), {})
+	var blocked_cells: Array[Vector2i] = []
+	var center := definition["center"] as Vector2i
+	var radius := float(definition["radius"])
+	var cell_radius := int(ceil(radius))
+	for y in range(-cell_radius, cell_radius + 1):
+		for x in range(-cell_radius, cell_radius + 1):
+			var candidate := center + Vector2i(x, y)
+			if (
+				MapCatalog.in_bounds(candidate)
+				and Vector2(candidate).distance_to(Vector2(center)) <= radius
+				and not simulation._astar.is_point_solid(candidate)
+			):
+				simulation._astar.set_point_solid(candidate, true)
+				blocked_cells.append(candidate)
+	simulation._wildlife_regeneration_progress[herd_id] = spawn_interval
+	simulation._advance_wildlife_regeneration(RtsSimulation.TICK_SECONDS)
+	if simulation._living_wildlife_count_for_herd(herd_id) != target_count - 1:
+		failures.append("wildlife regenerated into fully blocked herd territory")
+	if simulation._wildlife_regeneration_progress[herd_id] > spawn_interval + 0.001:
+		failures.append("blocked wildlife regeneration accumulated an unbounded spawn burst")
+	for blocked_cell in blocked_cells:
+		simulation._astar.set_point_solid(blocked_cell, false)
+	simulation._advance_wildlife_regeneration(RtsSimulation.TICK_SECONDS)
+	if simulation._living_wildlife_count_for_herd(herd_id) != target_count:
+		failures.append("wildlife regeneration did not retry after herd territory reopened")
+
+	var replacement_id := -1
+	for wildlife_id in simulation.wildlife_ids():
+		if int(simulation.entity(wildlife_id).get("herd_id", -1)) == herd_id:
+			replacement_id = wildlife_id
+			break
+	if replacement_id < 0:
+		failures.append("wildlife regeneration fixture could not find a replacement member")
+		return
+	simulation._kill(simulation.entity(replacement_id), {})
+	simulation._wildlife_regeneration_progress[herd_id] = spawn_interval - RtsSimulation.TICK_SECONDS
+	simulation.advance(RtsSimulation.TICK_SECONDS * 2.0)
+	if simulation._living_wildlife_count_for_herd(herd_id) != target_count:
+		failures.append("authoritative fixed ticks did not advance wildlife regeneration")
+
+	var bounded_entity_count := simulation.entities.size()
+	for _cycle in range(3):
+		for wildlife_id in simulation.wildlife_ids():
+			simulation._kill(simulation.entity(wildlife_id), {})
+		simulation._advance_wildlife_regeneration(
+			RtsSimulation.WILDLIFE_REGENERATION_CYCLE_SECONDS
+		)
+		simulation.drain_events()
+		if simulation.entities.size() != bounded_entity_count:
+			failures.append("renewable wildlife caused unbounded entity storage growth")
+			break
+
+	var occupied_herd_ids: Array[int] = []
+	for wildlife_id in simulation.wildlife_ids():
+		if int(simulation.entity(wildlife_id).get("herd_id", -1)) == herd_id:
+			occupied_herd_ids.append(wildlife_id)
+	for wildlife_id in occupied_herd_ids:
+		simulation._kill(simulation.entity(wildlife_id), {})
+	var live_blocker_ids: Array[int] = []
+	var free_candidate := Vector2i(-1, -1)
+	for y in range(-cell_radius, cell_radius + 1):
+		for x in range(-cell_radius, cell_radius + 1):
+			var candidate := center + Vector2i(x, y)
+			if (
+				not MapCatalog.in_bounds(candidate)
+				or Vector2(candidate).distance_to(Vector2(center)) > radius
+				or simulation._astar.is_point_solid(candidate)
+			):
+				continue
+			var blocker_id := simulation._spawn_unit(
+				RtsSimulation.TEAM_PLAYER,
+				&"worker",
+				candidate,
+			)
+			live_blocker_ids.append(blocker_id)
+			if free_candidate.x < 0:
+				free_candidate = candidate
+	simulation._wildlife_regeneration_progress[herd_id] = spawn_interval
+	simulation._advance_wildlife_regeneration(RtsSimulation.TICK_SECONDS)
+	if simulation._living_wildlife_count_for_herd(herd_id) != 0:
+		failures.append("wildlife regenerated on top of live units")
+	if live_blocker_ids.is_empty():
+		failures.append("live-unit wildlife regeneration fixture had no valid blockers")
+		return
+	simulation._kill(simulation.entity(live_blocker_ids[0]), {})
+	simulation._advance_wildlife_regeneration(RtsSimulation.TICK_SECONDS)
+	if simulation._living_wildlife_count_for_herd(herd_id) != 1:
+		failures.append("wildlife regeneration did not retry when a live-unit blocker moved")
+	else:
+		for wildlife_id in simulation.wildlife_ids():
+			var regenerated := simulation.entity(wildlife_id)
+			if int(regenerated.get("herd_id", -1)) == herd_id:
+				if regenerated["cell"] as Vector2i != free_candidate:
+					failures.append("wildlife regeneration did not use the newly opened herd cell")
+				break
+
+
 func _test_idle_hunter_wandering(failures: Array[String]) -> void:
 	var simulation := RtsSimulation.new()
 	simulation.setup(&"human")
@@ -1252,7 +1434,7 @@ func _test_hunter_hunting_pasture_priority(failures: Array[String]) -> void:
 	for wildlife_id in simulation.wildlife_ids():
 		var wildlife := simulation.entity(wildlife_id)
 		if local_herd_ids.has(int(wildlife.get("herd_id", -1))):
-			wildlife["alive"] = false
+			simulation._kill(wildlife, {})
 	hunter["order"] = &"idle"
 	hunter["path"] = []
 	hunter["wander_timer"] = 0.0
@@ -1276,7 +1458,7 @@ func _test_hunter_hunting_pasture_priority(failures: Array[String]) -> void:
 		failures.append("Hunter abandoned its current living pasture to roam elsewhere")
 
 	for wildlife_id in simulation.wildlife_ids():
-		simulation.entity(wildlife_id)["alive"] = false
+		simulation._kill(simulation.entity(wildlife_id), {})
 	hunter["order"] = &"idle"
 	hunter["path"] = []
 	hunter["wander_timer"] = 0.0
@@ -1800,6 +1982,7 @@ func _run() -> void:
 	_test_ai_skill_test_invasion(failures)
 	_test_faction_food_traditions(failures)
 	_test_wildlife_hunting(failures)
+	_test_wildlife_regeneration(failures)
 	_test_idle_hunter_wandering(failures)
 	_test_hunter_hunting_pasture_priority(failures)
 	_test_hunter_avoids_unordered_combat(failures)
@@ -2072,7 +2255,7 @@ func _run() -> void:
 			failures.append("destroying all rival Strongholds did not produce victory")
 
 	if failures.is_empty():
-		print("PASS simulation_test: four-faction free-for-all roster and island starts, deposits, cargo integrity, attack-move, formations, harmless-wildlife pass-through, hostile separation, Food costs and producers, Stronghold population upgrades, AI food economy, assault waves, and one-hour skill test, guardian wandering, tree retargeting, monster bounties, cave capture and recapture, Jadeclaw production, economy, construction, combat, victory, and resignation")
+		print("PASS simulation_test: four-faction free-for-all roster and island starts, deposits, cargo integrity, attack-move, formations, harmless-wildlife pass-through, hostile separation, Food costs and producers, Stronghold population upgrades, AI food economy, assault waves, and one-hour skill test, guardian wandering, wildlife regeneration, tree retargeting, monster bounties, cave capture and recapture, Jadeclaw production, economy, construction, combat, victory, and resignation")
 		quit(0)
 	else:
 		for failure in failures:

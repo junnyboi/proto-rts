@@ -58,6 +58,7 @@ const GUARDIAN_WANDER_SEED := 0x4D595448
 const WILDLIFE_WANDER_MIN_DELAY := 1.8
 const WILDLIFE_WANDER_MAX_DELAY := 4.5
 const WILDLIFE_WANDER_SEED := 0x57494C44
+const WILDLIFE_REGENERATION_CYCLE_SECONDS := 5.0 * 60.0
 const WILDLIFE_FLEE_DISTANCE := 4.5
 const WILDLIFE_RETALIATION_LEASH_BONUS := 3.0
 const HUNTER_WILDLIFE_DAMAGE_MULTIPLIER := 3.0
@@ -158,6 +159,8 @@ var _pathfinding_revision := 0
 var _wander_rng := RandomNumberGenerator.new()
 var _wildlife_rng := RandomNumberGenerator.new()
 var _hunter_rng := RandomNumberGenerator.new()
+var _wildlife_regeneration_progress: Array[float] = []
+var _wildlife_live_counts: Array[int] = []
 var _events: Array[Dictionary] = []
 var _ai_strategy_timer := 0.5
 var _ai_attack_timer := AI_INITIAL_ASSAULT_DELAY
@@ -199,6 +202,7 @@ func setup(player_faction: StringName, enable_ai: bool = true) -> void:
 	_wander_rng.seed = GUARDIAN_WANDER_SEED
 	_wildlife_rng.seed = WILDLIFE_WANDER_SEED
 	_hunter_rng.seed = HUNTER_WANDER_SEED
+	_reset_wildlife_population_tracking()
 	var rival_factions := FactionCatalog.opposing_factions(player_faction)
 	assert(rival_factions.size() == TEAM_COUNT - 1, "Every match requires exactly three rival factions")
 	players = [_player_state(player_faction, false)]
@@ -257,6 +261,7 @@ func _tick(delta: float) -> void:
 	_advance_worker_orders(delta)
 	_advance_combat_and_movement(delta)
 	_resolve_unit_separation(delta)
+	_advance_wildlife_regeneration(delta)
 	_sync_carried_eggs()
 	_refresh_visibility()
 	_advance_cave_capture(delta)
@@ -614,6 +619,112 @@ func _spawn_wildlife_herd(herd_id: int, definition: Dictionary) -> void:
 		_spawn_wildlife(kind, spawn_cell, herd_id, center, radius)
 
 
+func _advance_wildlife_regeneration(delta: float) -> void:
+	if delta <= 0.0:
+		return
+	_ensure_wildlife_population_tracking()
+	for herd_id in range(MapCatalog.WILDLIFE_HERDS.size()):
+		var definition := MapCatalog.WILDLIFE_HERDS[herd_id]
+		var target_count := maxi(1, int(definition.get("count", 1)))
+		var living_count := _wildlife_live_counts[herd_id]
+		if living_count >= target_count:
+			_wildlife_regeneration_progress[herd_id] = 0.0
+			continue
+		var spawn_interval := WILDLIFE_REGENERATION_CYCLE_SECONDS / float(target_count)
+		_wildlife_regeneration_progress[herd_id] += delta
+		while (
+			(
+				_wildlife_regeneration_progress[herd_id] >= spawn_interval
+				or is_equal_approx(_wildlife_regeneration_progress[herd_id], spawn_interval)
+			)
+			and living_count < target_count
+		):
+			if not _regenerate_wildlife_member(herd_id, definition):
+				_wildlife_regeneration_progress[herd_id] = minf(
+					_wildlife_regeneration_progress[herd_id],
+					spawn_interval,
+				)
+				break
+			_wildlife_regeneration_progress[herd_id] = maxf(
+				0.0,
+				_wildlife_regeneration_progress[herd_id] - spawn_interval,
+			)
+			living_count += 1
+			_wildlife_live_counts[herd_id] = living_count
+
+
+func _regenerate_wildlife_member(herd_id: int, definition: Dictionary) -> bool:
+	var spawn_cell := _wildlife_regeneration_cell(definition)
+	if not MapCatalog.in_bounds(spawn_cell):
+		return false
+	_spawn_wildlife(
+		definition["kind"] as StringName,
+		spawn_cell,
+		herd_id,
+		definition["center"] as Vector2i,
+		float(definition.get("radius", 3.0)),
+	)
+	return true
+
+
+func _wildlife_regeneration_cell(definition: Dictionary) -> Vector2i:
+	var center := definition["center"] as Vector2i
+	var radius := float(definition.get("radius", 3.0))
+	var candidates: Array[Vector2i] = []
+	var seen: Dictionary = {}
+	for offset in HERD_SPAWN_OFFSETS:
+		var authored_candidate := center + offset
+		if Vector2(authored_candidate).distance_to(Vector2(center)) <= radius:
+			candidates.append(authored_candidate)
+			seen[authored_candidate] = true
+	var cell_radius := int(ceil(radius))
+	for y in range(-cell_radius, cell_radius + 1):
+		for x in range(-cell_radius, cell_radius + 1):
+			var candidate := center + Vector2i(x, y)
+			if seen.has(candidate) or Vector2(candidate).distance_to(Vector2(center)) > radius:
+				continue
+			candidates.append(candidate)
+			seen[candidate] = true
+	for candidate in candidates:
+		if not MapCatalog.in_bounds(candidate) or _astar.is_point_solid(candidate):
+			continue
+		if not _cell_occupied_by_live_unit(candidate):
+			return candidate
+	return Vector2i(-1, -1)
+
+
+func _reset_wildlife_population_tracking() -> void:
+	_wildlife_regeneration_progress.clear()
+	_wildlife_regeneration_progress.resize(MapCatalog.WILDLIFE_HERDS.size())
+	_wildlife_regeneration_progress.fill(0.0)
+	_wildlife_live_counts.clear()
+	_wildlife_live_counts.resize(MapCatalog.WILDLIFE_HERDS.size())
+	_wildlife_live_counts.fill(0)
+
+
+func _ensure_wildlife_population_tracking() -> void:
+	if (
+		_wildlife_regeneration_progress.size() == MapCatalog.WILDLIFE_HERDS.size()
+		and _wildlife_live_counts.size() == MapCatalog.WILDLIFE_HERDS.size()
+	):
+		return
+	_reset_wildlife_population_tracking()
+	for raw_entity in entities.values():
+		var entity_state := raw_entity as Dictionary
+		if not bool(entity_state.get("alive", false)) or entity_state.get("category") != &"wildlife":
+			continue
+		var herd_id := int(entity_state.get("herd_id", -1))
+		if herd_id >= 0 and herd_id < _wildlife_live_counts.size():
+			_wildlife_live_counts[herd_id] += 1
+
+
+func _living_wildlife_count_for_herd(herd_id: int) -> int:
+	if herd_id < 0 or herd_id >= MapCatalog.WILDLIFE_HERDS.size():
+		return 0
+	_ensure_wildlife_population_tracking()
+	return _wildlife_live_counts[herd_id]
+
+
 func _spawn_shenlong_objective() -> void:
 	var egg_id := _next_entity_id
 	var egg := {
@@ -653,6 +764,8 @@ func _spawn_wildlife(
 	herd_origin: Vector2i,
 	herd_radius: float,
 ) -> int:
+	if herd_id >= 0:
+		_ensure_wildlife_population_tracking()
 	var stats := FactionCatalog.stats(kind, &"neutral")
 	var entity_state := {
 		"id": _next_entity_id,
@@ -694,6 +807,8 @@ func _spawn_wildlife(
 		"food_bounty": int(stats.get("food_bounty", 0)),
 	}
 	entities[_next_entity_id] = entity_state
+	if herd_id >= 0 and herd_id < _wildlife_live_counts.size():
+		_wildlife_live_counts[herd_id] += 1
 	_next_entity_id += 1
 	return int(entity_state["id"])
 
@@ -3135,6 +3250,10 @@ func _apply_attack(attacker: Dictionary, target: Dictionary) -> void:
 func _kill(target: Dictionary, killer: Dictionary) -> void:
 	if not bool(target.get("alive", false)):
 		return
+	var target_category := target.get("category", &"") as StringName
+	var wildlife_herd_id := int(target.get("herd_id", -1)) if target_category == &"wildlife" else -1
+	if wildlife_herd_id >= 0:
+		_ensure_wildlife_population_tracking()
 	var displaced_farm_worker: Dictionary = {}
 	if target.get("kind") == &"worker":
 		_release_farm_assignment(target)
@@ -3153,6 +3272,11 @@ func _kill(target: Dictionary, killer: Dictionary) -> void:
 		_eject_garrisoned_units(target)
 	target["alive"] = false
 	target["hp"] = 0.0
+	if wildlife_herd_id >= 0 and wildlife_herd_id < _wildlife_live_counts.size():
+		_wildlife_live_counts[wildlife_herd_id] = maxi(
+			0,
+			_wildlife_live_counts[wildlife_herd_id] - 1,
+		)
 	if not displaced_farm_worker.is_empty():
 		_finish_unit_order(displaced_farm_worker)
 	var killer_team := int(killer.get("team", TEAM_NEUTRAL))
@@ -3195,6 +3319,8 @@ func _kill(target: Dictionary, killer: Dictionary) -> void:
 		_rebuild_pathfinding()
 	if target.get("kind") == &"stronghold":
 		_resolve_stronghold_elimination(int(target["team"]))
+	if target_category == &"wildlife":
+		entities.erase(int(target.get("id", -1)))
 
 
 func _unlock_shenlong_egg(killer_team: int) -> void:
