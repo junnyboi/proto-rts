@@ -1,6 +1,7 @@
 # Mandate of Myth — ElevenLabs Audio Asset Provenance
 
 **Generation date:** 2 September 2026
+**Interface-family regeneration:** 3 September 2026
 **Generator:** Built-in ElevenLabs integrations exposed through Manus
 **Runtime target:** Godot 4.7 single-threaded Web export
 
@@ -10,7 +11,13 @@ One background-music source and twenty-four SFX audition reels were generated fo
 
 The score prompt specified instrumental-only cinematic Chinese-mythology strategy music at approximately 76 BPM in D minor with D-pentatonic emphasis. Its palette comprises guzheng, xiao, restrained erhu, pipa harmonics, low bowed strings, sparse tanggu, muted bronze bells, and subtle wind-and-water ambience. The composition moves from a sparse title opening to measured economy and exploration, reaches a controlled tactical lift, then returns to the original tonal center and density. Vocals, choir, EDM bass, modern drums, trailer braams, abrupt endings, and existing melodies were explicitly excluded.
 
-The SFX prompts share a hand-crafted, family-friendly fantasy treatment. Jade-like stone, antique bronze, bamboo, silk, timber, packed earth, tile, leather, rice, woven baskets, armor, bows, blades, spiritual air, and restrained bestial mass form a coherent material vocabulary. Voices, gore, modern weapons, electronic alarms, comedy buzzers, and excessive cinematic sub-bass were excluded.
+The SFX prompts share a hand-crafted, family-friendly fantasy treatment. The regenerated interface family uses pipa, guzheng, guqin, bamboo, bangu, and paiban; gameplay actions retain jade-like stone, antique bronze, timber, packed earth, tile, leather, rice, woven baskets, armor, bows, blades, spiritual air, and restrained bestial mass. Voices, gore, modern weapons, electronic alarms, comedy buzzers, and excessive cinematic sub-bass were excluded.
+
+## Interface-family regeneration
+
+On 3 September 2026, the previous `ui_confirm`, `ui_cancel`, `ui_error`, and `unit_select` source reels, split candidates, and runtime OGG derivatives were deleted before replacement. Four new six-second ElevenLabs reels each contain three evenly spaced candidates. Confirmation uses upward pipa/guzheng and woodblock; cancellation uses descending pipa and bamboo; invalid actions use bangu and paiban; selection uses a quiet guqin or pipa articulation with bamboo. The semantic filenames remain stable so every existing menu, HUD, command-deck, production, pause, and selection trigger inherits the new palette without duplicating playback code.
+
+Targeted processing selected candidate A for all four replacements. The resulting runtime SHA-256 hashes are `0ca070cdbc5170b231d7cb13dffa94538116293963cafc799cec0ab7be244423` (`ui_confirm`), `79cb48e72a9c3419fe731974d67de6683ff593c3a85fc406d340f1ed9394a230` (`ui_cancel`), `64386e4985ee6a397f25480a8e3f2b9e6e52a5f4d7c21a5cebd6c3045eeea511` (`ui_error`), and `4de5e6871d4a31aab85a59710981ffe1c7d5d200a5982c50ea87ac9da28a68e2` (`unit_select`). All are 48 kHz stereo Ogg Vorbis. The processor's new `--only-sfx ... --skip-bgm` mode preserves every unrelated runtime audio byte and report entry during focused replacement.
 
 ## Runtime inventory
 
@@ -27,7 +34,7 @@ The SFX prompts share a hand-crafted, family-friendly fantasy treatment. Jade-li
 
 ## Candidate selection
 
-`tools/process_audio_assets.py` splits each audition reel into three equal windows labeled A, B, and C. Each window is decoded to mono PCM for deterministic analysis. The score uses duration, RMS level, peak headroom, active-signal ratio, excessive-silence penalties, and clipping penalties. The highest technically valid score wins. Across this generation, twenty A windows, two B windows, and two C windows were selected.
+`tools/process_audio_assets.py` splits each audition reel into three equal windows labeled A, B, and C. Each window is decoded to mono PCM for deterministic analysis. The score uses duration, RMS level, peak headroom, active-signal ratio, excessive-silence penalties, and clipping penalties. The highest technically valid score wins. After the interface regeneration, twenty-one A windows, two B windows, and one C window are selected across the complete runtime SFX set.
 
 Technical selection does not pretend to replace a human mastering session. It establishes a repeatable baseline and preserves stable cue IDs. Any future subjective replacement can overwrite one semantic OGG path without changing simulation or UI code. The machine-readable `assets/runtime/audio/audio-report.json` records source-reel hashes, per-candidate metrics and hashes, selected windows, runtime hashes, durations, and sizes.
 

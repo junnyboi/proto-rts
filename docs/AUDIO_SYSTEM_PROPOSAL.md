@@ -12,7 +12,7 @@ The system will use non-positional `AudioStreamPlayer` nodes because the game is
 
 ## Audio identity
 
-The score and effects should sound as though the Jade Meridian is a functioning mythological realm rather than a museum exhibit. **Jade and bronze** define interface confirmation and objective rewards. **Wood, stone, cloth, bowstrings, metal, and earth** define economic and martial actions. **Breath, resonant air, and restrained spectral tails** define Celestial and Mystic power. **Low animal mass and bone-heavy impacts** define Jadeclaw attacks. No cue should use spoken language, modern firearms, science-fiction lasers, comedy stingers, or exaggerated cinematic sub-bass.
+The score and effects should sound as though the Jade Meridian is a functioning mythological realm rather than a museum exhibit. **Pipa, guzheng, guqin, bamboo, bangu, and paiban** define interface confirmation, cancellation, rejection, and selection. **Wood, stone, cloth, bowstrings, metal, and earth** define economic and martial actions. **Breath, resonant air, and restrained spectral tails** define Celestial and Mystic power. **Low animal mass and bone-heavy impacts** define Jadeclaw attacks. No cue should use spoken language, modern firearms, science-fiction lasers, comedy stingers, or exaggerated cinematic sub-bass.
 
 The mix should prioritize information. Commands and warnings must be audible over music. Repeating economy cues must remain quiet and short. Combat cues must overlap without clipping or becoming an undifferentiated percussion solo. Godot routes audio through named buses and uses decibel gain; the master output should remain below 0 dB to avoid clipping.[3]
 
@@ -22,10 +22,10 @@ The following cue families cover every player-visible interaction and unit actio
 
 | Cue ID | Trigger coverage | Target character | Duration | Priority | Cooldown |
 |---|---|---|---:|---:|---:|
-| `ui_confirm` | Start, faction choice, train queue, resume, fog toggle | Small jade tile with a soft bronze tick | 0.55 s | High | 0.05 s |
-| `ui_cancel` | Back, cancel order, cancel production, pause | Reversed silk swish and muted woodblock | 0.60 s | High | 0.05 s |
-| `ui_error` | Invalid placement, insufficient resources, invalid target | Dry bamboo clack with a low rejected chime | 0.70 s | Critical | 0.15 s |
-| `unit_select` | Unit or structure selection | Quiet jade bead and cloth movement | 0.65 s | Medium | 0.10 s |
+| `ui_confirm` | Start, faction choice, train queue, resume, fog toggle | Bright upward pipa/guzheng plucks with a light woodblock tap | 0.45 s | High | 0.05 s |
+| `ui_cancel` | Back, cancel order, cancel production, pause | Soft descending pipa plucks ending in a muted bamboo clack | 0.50 s | High | 0.05 s |
+| `ui_error` | Invalid placement, insufficient resources, invalid target | Compact bangu and paiban low-high-low rejection figure | 0.70 s | Critical | 0.15 s |
+| `unit_select` | Unit or structure selection | Quiet guqin harmonic or pipa pluck with a tiny bamboo tap | 0.40 s | Medium | 0.10 s |
 | `order_move` | Move, rally, patrol, control-group recall | Brief command drum and leather step | 0.75 s | High | 0.10 s |
 | `order_attack` | Focus fire, attack-move, hunt order | Taut bowstring snap with a low war-drum accent | 0.90 s | High | 0.10 s |
 | `order_work` | Gather assignment, repair, construction assignment | Tool pickup, cloth movement, small wooden knock | 0.85 s | High | 0.10 s |

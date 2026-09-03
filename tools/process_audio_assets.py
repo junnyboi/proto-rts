@@ -263,6 +263,17 @@ def main() -> None:
         type=Path,
         default=Path("assets/runtime/audio"),
     )
+    parser.add_argument(
+        "--only-sfx",
+        nargs="+",
+        default=[],
+        help="Process only the named SFX reel stems and preserve all other report entries.",
+    )
+    parser.add_argument(
+        "--skip-bgm",
+        action="store_true",
+        help="Preserve the existing BGM derivative and report entry.",
+    )
     args = parser.parse_args()
 
     candidate_root = args.candidates.resolve()
@@ -275,14 +286,27 @@ def main() -> None:
     for directory in (split_dir, bgm_dir, sfx_dir, work_dir):
         directory.mkdir(parents=True, exist_ok=True)
 
-    report: dict[str, object] = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "generator": "Built-in ElevenLabs via Manus generate_music/generate_sound_effect",
-        "selection_policy": "Highest technical score across equal-third A/B/C reel windows",
-        "sfx": {},
-    }
+    report_path = runtime_root / "audio-report.json"
+    if args.only_sfx or args.skip_bgm:
+        if not report_path.exists():
+            raise RuntimeError("Targeted processing requires an existing audio report")
+        report: dict[str, object] = json.loads(report_path.read_text())
+    else:
+        report = {"sfx": {}}
+    report["generated_at"] = datetime.now(timezone.utc).isoformat()
+    report["generator"] = "Built-in ElevenLabs via Manus generate_music/generate_sound_effect"
+    report["selection_policy"] = "Highest technical score across equal-third A/B/C reel windows"
+    report.setdefault("sfx", {})
 
-    for reel in sorted(reel_dir.glob("*.mp3")):
+    reels = sorted(reel_dir.glob("*.mp3"))
+    if args.only_sfx:
+        requested = set(args.only_sfx)
+        available = {reel.stem for reel in reels}
+        missing = sorted(requested - available)
+        if missing:
+            raise RuntimeError(f"Missing requested SFX reels: {', '.join(missing)}")
+        reels = [reel for reel in reels if reel.stem in requested]
+    for reel in reels:
         candidates = split_reel(reel, split_dir)
         selected_letter, selected_path, selected_metrics = max(
             candidates,
@@ -307,20 +331,23 @@ def main() -> None:
         }
         print(f"{reel.stem}: selected {selected_letter} -> {runtime_path.name}")
 
-    bgm_source = candidate_root / "bgm" / "the_jade_meridian_endures.wav"
     bgm_output = bgm_dir / "the_jade_meridian_endures.ogg"
-    bgm_metrics = process_bgm(bgm_source, bgm_output, work_dir)
-    report["bgm"] = {
-        "source": str(bgm_source),
-        "source_sha256": sha256(bgm_source),
-        "runtime_path": str(bgm_output),
-        "runtime_sha256": sha256(bgm_output),
-        "runtime_size_bytes": bgm_output.stat().st_size,
-        **bgm_metrics,
-    }
+    if args.skip_bgm:
+        if not bgm_output.exists() or "bgm" not in report:
+            raise RuntimeError("Cannot preserve a missing BGM derivative or report entry")
+    else:
+        bgm_source = candidate_root / "bgm" / "the_jade_meridian_endures.wav"
+        bgm_metrics = process_bgm(bgm_source, bgm_output, work_dir)
+        report["bgm"] = {
+            "source": str(bgm_source),
+            "source_sha256": sha256(bgm_source),
+            "runtime_path": str(bgm_output),
+            "runtime_sha256": sha256(bgm_output),
+            "runtime_size_bytes": bgm_output.stat().st_size,
+            **bgm_metrics,
+        }
 
     shutil.rmtree(work_dir, ignore_errors=True)
-    report_path = runtime_root / "audio-report.json"
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     runtime_audio_paths = sorted([bgm_output, *sfx_dir.glob("*.ogg")])
     checksum_path = runtime_root / "SHA256SUMS"

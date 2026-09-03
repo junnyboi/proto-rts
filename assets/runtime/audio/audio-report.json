@@ -9,7 +9,7 @@
     "source_duration_seconds": 145.658708,
     "source_sha256": "b022d8176a0b16abf0f047674ad21871555d48cf17e7366a42750c337d490007"
   },
-  "generated_at": "2026-09-02T14:35:59.129544+00:00",
+  "generated_at": "2026-09-03T06:02:25.206593+00:00",
   "generator": "Built-in ElevenLabs via Manus generate_music/generate_sound_effect",
   "selection_policy": "Highest technical score across equal-third A/B/C reel windows",
   "sfx": {
@@ -696,122 +696,122 @@
     "ui_cancel": {
       "candidates": {
         "A": {
-          "active_ratio": 0.7242022185625951,
+          "active_ratio": 0.7543837843996313,
           "duration_seconds": 2.0114375,
           "path": "/home/ubuntu/proto-rts-audio-candidates/sfx/ui_cancel_A.mp3",
-          "peak_dbfs": -0.32735975142784335,
-          "rms_dbfs": -18.697473634948246,
-          "score": -13.62805810501008,
-          "sha256": "563723d28ce92bd9b575f53031b82007a74655645d820f01aa297cf9ef635abb"
+          "peak_dbfs": -1.2276585936162665,
+          "rms_dbfs": -20.71625262497507,
+          "score": -15.435566134177652,
+          "sha256": "2dca3cc2183ec029ace4de1d000f2afe6af11be75fb598e16b7fc14d2ee9cec0"
         },
         "B": {
-          "active_ratio": 0.07976260758785694,
+          "active_ratio": 0.08070513418057153,
           "duration_seconds": 2.0114375,
           "path": "/home/ubuntu/proto-rts-audio-candidates/sfx/ui_cancel_B.mp3",
-          "peak_dbfs": -34.07749858178249,
-          "rms_dbfs": -52.34688620899172,
-          "score": -53.398043652362446,
-          "sha256": "f3ded7c82a71c65bd49a2ecfc1d54e8449dea42cee8e9cad72e0da8686868747"
+          "peak_dbfs": -39.52747672333883,
+          "rms_dbfs": -53.538721951009485,
+          "score": -54.54558064452262,
+          "sha256": "77fe89a912ea1677f5de48beaf2d75a6aa7cc1b654d798f280585b2b2740ef15"
         },
         "C": {
-          "active_ratio": 0.0,
+          "active_ratio": 0.00026342686743306324,
           "duration_seconds": 1.9771458333333334,
           "path": "/home/ubuntu/proto-rts-audio-candidates/sfx/ui_cancel_C.mp3",
-          "peak_dbfs": -49.095041892122126,
-          "rms_dbfs": -73.17584629523085,
-          "score": -77.97584629523085,
-          "sha256": "3353f9d550d02f0734aaf3baab6cbb77d31b1121402d883c3f145db57630e3e8"
+          "peak_dbfs": -39.47741382026274,
+          "rms_dbfs": -72.90589685017653,
+          "score": -77.69351578740718,
+          "sha256": "f02155cef4fed291a5d6c7d03d4cb6dcca325667eedf68bb11301366a858d5eb"
         }
       },
       "runtime_duration_seconds": 1.991438,
       "runtime_path": "/home/ubuntu/proto-rts-source/assets/runtime/audio/sfx/ui_cancel.ogg",
-      "runtime_sha256": "05451b5de52987c00ecc87ebb297b857cad5afbcc8c07a50a7944a6ea9003745",
-      "runtime_size_bytes": 32114,
+      "runtime_sha256": "79cb48e72a9c3419fe731974d67de6683ff593c3a85fc406d340f1ed9394a230",
+      "runtime_size_bytes": 27626,
       "selected_candidate": "A",
       "selected_source": "/home/ubuntu/proto-rts-audio-candidates/sfx/ui_cancel_A.mp3",
-      "selected_source_sha256": "563723d28ce92bd9b575f53031b82007a74655645d820f01aa297cf9ef635abb",
+      "selected_source_sha256": "2dca3cc2183ec029ace4de1d000f2afe6af11be75fb598e16b7fc14d2ee9cec0",
       "source_reel": "/home/ubuntu/proto-rts-audio-candidates/reels/ui_cancel.mp3",
-      "source_reel_sha256": "300f58451d34149e6d4243697132cc9486b43880f2a40bb6322aa859889368a6"
+      "source_reel_sha256": "54c4c459c9468b8203ede9c5d3a650e62dbc06765018705f1f0e0449eb0fdf6a"
     },
     "ui_confirm": {
       "candidates": {
         "A": {
-          "active_ratio": 0.8546748283255134,
+          "active_ratio": 0.669142093651928,
           "duration_seconds": 2.0114375,
           "path": "/home/ubuntu/proto-rts-audio-candidates/sfx/ui_confirm_A.mp3",
-          "peak_dbfs": -0.27330343142436625,
-          "rms_dbfs": -16.856017187093567,
-          "score": -10.873293388814972,
-          "sha256": "1eb766e52548906f75cf6671f1de35ecd1f4299be3c2f1910a804ed99b9eaeea"
+          "peak_dbfs": -4.018593117960659,
+          "rms_dbfs": -26.982866603074378,
+          "score": -22.298871947510882,
+          "sha256": "a1f82d5d1e5dc5ab1563782917e99922b4a16973cc3c6ba943c537afb639d595"
         },
         "B": {
-          "active_ratio": 0.04388445245419424,
+          "active_ratio": 0.005696589296626584,
           "duration_seconds": 2.0114375,
           "path": "/home/ubuntu/proto-rts-audio-candidates/sfx/ui_confirm_B.mp3",
-          "peak_dbfs": -36.922661087872115,
-          "rms_dbfs": -55.75294984687748,
-          "score": -58.490380581530346,
-          "sha256": "390f365e62791110d904892d583ecfadc019ff5ed6f059ffabd0948632447c58"
+          "peak_dbfs": -44.24507755078458,
+          "rms_dbfs": -59.32515524417334,
+          "score": -63.857415547231895,
+          "sha256": "b5f1f762455a8055aa467ed50e1f2d1f1d9b2fa09161e06550b00add2ce696e2"
         },
         "C": {
           "active_ratio": 0.0,
           "duration_seconds": 1.9771458333333334,
           "path": "/home/ubuntu/proto-rts-audio-candidates/sfx/ui_confirm_C.mp3",
-          "peak_dbfs": -53.16234877056899,
-          "rms_dbfs": -81.42455943070941,
-          "score": -86.2245594307094,
-          "sha256": "76406885eacc5e062b6048d45090927310f16a8260dfa4ea66087380a778cb2b"
+          "peak_dbfs": -60.48176482250891,
+          "rms_dbfs": -78.04233852576327,
+          "score": -82.84233852576327,
+          "sha256": "ca94d6795fc83994cdcf300115a543b84acff526730387591b8f45bc336370c6"
         }
       },
       "runtime_duration_seconds": 1.991438,
       "runtime_path": "/home/ubuntu/proto-rts-source/assets/runtime/audio/sfx/ui_confirm.ogg",
-      "runtime_sha256": "4127bbf241116df916916a208497d84a265e62aedc39c7442bce33fbca4ff575",
-      "runtime_size_bytes": 34144,
+      "runtime_sha256": "0ca070cdbc5170b231d7cb13dffa94538116293963cafc799cec0ab7be244423",
+      "runtime_size_bytes": 36506,
       "selected_candidate": "A",
       "selected_source": "/home/ubuntu/proto-rts-audio-candidates/sfx/ui_confirm_A.mp3",
-      "selected_source_sha256": "1eb766e52548906f75cf6671f1de35ecd1f4299be3c2f1910a804ed99b9eaeea",
+      "selected_source_sha256": "a1f82d5d1e5dc5ab1563782917e99922b4a16973cc3c6ba943c537afb639d595",
       "source_reel": "/home/ubuntu/proto-rts-audio-candidates/reels/ui_confirm.mp3",
-      "source_reel_sha256": "1c685331a0e5e944bf280f37ef284fcb94ca958c1d5869a3cd88f0950aaf0a36"
+      "source_reel_sha256": "6ed97a980cae66c12999639aa6aba454135485f478a373862087658122a160f4"
     },
     "ui_error": {
       "candidates": {
         "A": {
-          "active_ratio": 0.40768935980693743,
+          "active_ratio": 0.3484966182974448,
           "duration_seconds": 2.0114375,
           "path": "/home/ubuntu/proto-rts-audio-candidates/sfx/ui_error_A.mp3",
-          "peak_dbfs": -3.2306740807870984,
-          "rms_dbfs": -24.477478257730883,
-          "score": -21.62365273908232,
-          "sha256": "10eb945f56f7658215de06a5c449fe51719f0bd07dc6a740375eccb471b68363"
+          "peak_dbfs": -4.246806258052317,
+          "rms_dbfs": -23.49309358376461,
+          "score": -21.053617255682497,
+          "sha256": "e03130185b82451817baad43ff1699842bbfd48ee6e425935c2ab9c71f41b1f0"
         },
         "B": {
-          "active_ratio": 0.0,
+          "active_ratio": 0.0013361091259360533,
           "duration_seconds": 2.0114375,
           "path": "/home/ubuntu/proto-rts-audio-candidates/sfx/ui_error_B.mp3",
-          "peak_dbfs": -48.945281464271126,
-          "rms_dbfs": -61.53550681417293,
-          "score": -66.33550681417293,
-          "sha256": "7bb9e5ad160a90c0b1eb839ec8e9b87d33634bbeba2920093ceb6e39d0f18979"
+          "peak_dbfs": -47.141748857289365,
+          "rms_dbfs": -55.86607416434756,
+          "score": -60.60327703542856,
+          "sha256": "50caefa41a5b23e89d74793cdb1db197b3799542b3f4692ccb54b228025218e9"
         },
         "C": {
-          "active_ratio": 0.00029503809152503084,
+          "active_ratio": 0.00018966734455180552,
           "duration_seconds": 1.9771458333333334,
           "path": "/home/ubuntu/proto-rts-audio-candidates/sfx/ui_error_C.mp3",
-          "peak_dbfs": -42.043003417569324,
-          "rms_dbfs": -75.78534422713838,
-          "score": -80.57147743683672,
-          "sha256": "39959588a3a20ddfc1a084f35bb7bd43c71ab0e5d06294a59706ecfcfd55f5af"
+          "peak_dbfs": -43.188481555331904,
+          "rms_dbfs": -72.03167213950358,
+          "score": -76.82275777430965,
+          "sha256": "09b280ef1eb9409524ea45544db41aac3fb3b37251e71c6a7a5addbf657845ee"
         }
       },
-      "runtime_duration_seconds": 1.991438,
+      "runtime_duration_seconds": 1.2955,
       "runtime_path": "/home/ubuntu/proto-rts-source/assets/runtime/audio/sfx/ui_error.ogg",
-      "runtime_sha256": "cc522f477e6b39810e0373a7b9ebc10da03ae77fa46fdb2d5bfd7556e8828466",
-      "runtime_size_bytes": 35673,
+      "runtime_sha256": "64386e4985ee6a397f25480a8e3f2b9e6e52a5f4d7c21a5cebd6c3045eeea511",
+      "runtime_size_bytes": 20977,
       "selected_candidate": "A",
       "selected_source": "/home/ubuntu/proto-rts-audio-candidates/sfx/ui_error_A.mp3",
-      "selected_source_sha256": "10eb945f56f7658215de06a5c449fe51719f0bd07dc6a740375eccb471b68363",
+      "selected_source_sha256": "e03130185b82451817baad43ff1699842bbfd48ee6e425935c2ab9c71f41b1f0",
       "source_reel": "/home/ubuntu/proto-rts-audio-candidates/reels/ui_error.mp3",
-      "source_reel_sha256": "52a3de549396bda8564c12c789f09f28219de1dacb4a40c8539117e793efe4b3"
+      "source_reel_sha256": "3672dec64f1ea8d5bcefba4ec57093b099b2057b8e7815d3fe969300085f2d2e"
     },
     "unit_death": {
       "candidates": {
@@ -896,42 +896,42 @@
     "unit_select": {
       "candidates": {
         "A": {
-          "active_ratio": 0.3753016602968441,
+          "active_ratio": 0.06282820122424883,
           "duration_seconds": 2.0114375,
           "path": "/home/ubuntu/proto-rts-audio-candidates/sfx/unit_select_A.mp3",
-          "peak_dbfs": -6.7790704685870224,
-          "rms_dbfs": -26.383232884950196,
-          "score": -23.756121262872288,
-          "sha256": "8905abe136fb2c48b6fc00837d2034a3a604993d2ec422481812aa1a39280f4b"
+          "peak_dbfs": -4.5230181216260315,
+          "rms_dbfs": -30.769171145388622,
+          "score": -32.616245687848924,
+          "sha256": "6642bb3e6e328a68c57c8f948c570ee44ee8090a7bfcc6100917051d4fef9e46"
         },
         "B": {
-          "active_ratio": 0.3843644159960227,
+          "active_ratio": 0.03068908015619012,
           "duration_seconds": 2.0114375,
           "path": "/home/ubuntu/proto-rts-audio-candidates/sfx/unit_select_B.mp3",
-          "peak_dbfs": -12.56115431975742,
-          "rms_dbfs": -32.3614416598541,
-          "score": -29.67089074788194,
-          "sha256": "5ef8464ebc96ad3757c61293a1b90183ff89e2b61e44fec91f0a3b9208696eb8"
+          "peak_dbfs": -18.996764201153184,
+          "rms_dbfs": -45.95260009882339,
+          "score": -49.31021333148245,
+          "sha256": "5b60697c004ef919fedcf731f90dbf2b2eab9542a8cf84f7ce7239cd4691f4a8"
         },
         "C": {
-          "active_ratio": 0.20610518107962866,
+          "active_ratio": 0.0,
           "duration_seconds": 1.9771458333333334,
           "path": "/home/ubuntu/proto-rts-audio-candidates/sfx/unit_select_C.mp3",
-          "peak_dbfs": -1.4340412097762347,
-          "rms_dbfs": -24.490166109857128,
-          "score": -23.047429842299728,
-          "sha256": "095933db566a434efb0285e20cdeba785b0b07725abef48a6ce23f649510c936"
+          "peak_dbfs": -50.39629480724336,
+          "rms_dbfs": -81.85272621518762,
+          "score": -86.65272621518761,
+          "sha256": "2aadc6d89db5d57e5cc9e72d9a57d6c16aa49f97dcf1e0f0e107ac6270e7ab1a"
         }
       },
-      "runtime_duration_seconds": 0.975854,
+      "runtime_duration_seconds": 0.372208,
       "runtime_path": "/home/ubuntu/proto-rts-source/assets/runtime/audio/sfx/unit_select.ogg",
-      "runtime_sha256": "e1f9cfe3bf2b8772a1aeeb27906af97b4b1ea82a659ccce428590cd5ae22deab",
-      "runtime_size_bytes": 16671,
-      "selected_candidate": "C",
-      "selected_source": "/home/ubuntu/proto-rts-audio-candidates/sfx/unit_select_C.mp3",
-      "selected_source_sha256": "095933db566a434efb0285e20cdeba785b0b07725abef48a6ce23f649510c936",
+      "runtime_sha256": "4de5e6871d4a31aab85a59710981ffe1c7d5d200a5982c50ea87ac9da28a68e2",
+      "runtime_size_bytes": 10774,
+      "selected_candidate": "A",
+      "selected_source": "/home/ubuntu/proto-rts-audio-candidates/sfx/unit_select_A.mp3",
+      "selected_source_sha256": "6642bb3e6e328a68c57c8f948c570ee44ee8090a7bfcc6100917051d4fef9e46",
       "source_reel": "/home/ubuntu/proto-rts-audio-candidates/reels/unit_select.mp3",
-      "source_reel_sha256": "456e9a112cb5114775b79c4fea11c737dc616f62c96007577aaf9967686c588b"
+      "source_reel_sha256": "ebfc4ca721bac11975fdc9b0fc57b37c7302a14b6012c2ab6b31babe6db44103"
     },
     "victory": {
       "candidates": {
