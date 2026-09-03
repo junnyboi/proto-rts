@@ -46,6 +46,13 @@ const WILDLIFE_WANDER_SEED := 0x57494C44
 const WILDLIFE_FLEE_DISTANCE := 4.5
 const WILDLIFE_RETALIATION_LEASH_BONUS := 3.0
 const HUNTER_WILDLIFE_DAMAGE_MULTIPLIER := 3.0
+const HUNTER_WANDER_MIN_DELAY := 0.8
+const HUNTER_WANDER_MAX_DELAY := 1.6
+const HUNTER_WANDER_SEED := 0x48554E54
+const AI_INITIAL_ASSAULT_DELAY := 20.0
+const AI_ASSAULT_INTERVAL := 28.0
+const AI_ASSAULT_MIN_READY_UNITS := 4
+const AI_ASSAULT_WAVE_SIZE := 3
 const HERD_SPAWN_OFFSETS: Array[Vector2i] = [
 	Vector2i.ZERO,
 	Vector2i(1, 0),
@@ -71,9 +78,10 @@ var _accumulator := 0.0
 var _astar := AStarGrid2D.new()
 var _wander_rng := RandomNumberGenerator.new()
 var _wildlife_rng := RandomNumberGenerator.new()
+var _hunter_rng := RandomNumberGenerator.new()
 var _events: Array[Dictionary] = []
 var _ai_strategy_timer := 0.5
-var _ai_attack_timer := 14.0
+var _ai_attack_timer := AI_INITIAL_ASSAULT_DELAY
 var _ai_cave_timer := 3.0
 var _ai_hunt_timer := 4.0
 var _ai_training_flip := false
@@ -94,12 +102,13 @@ func setup(player_faction: StringName, enable_ai: bool = true) -> void:
 	_accumulator = 0.0
 	_ai_enabled = enable_ai
 	_ai_strategy_timer = 0.5
-	_ai_attack_timer = 14.0
+	_ai_attack_timer = AI_INITIAL_ASSAULT_DELAY
 	_ai_cave_timer = 3.0
 	_ai_hunt_timer = 4.0
 	_ai_training_flip = false
 	_wander_rng.seed = GUARDIAN_WANDER_SEED
 	_wildlife_rng.seed = WILDLIFE_WANDER_SEED
+	_hunter_rng.seed = HUNTER_WANDER_SEED
 	players = [
 		_player_state(player_faction, false),
 		_player_state(FactionCatalog.opposing_faction(player_faction), true),
@@ -137,6 +146,7 @@ func advance(delta: float) -> void:
 
 func _tick(delta: float) -> void:
 	elapsed_time += delta
+	_auto_assign_idle_workers_to_construction()
 	_advance_construction(delta)
 	_advance_food_production(delta)
 	_advance_production(delta)
@@ -209,7 +219,7 @@ func _spawn_unit(team: int, kind: StringName, cell: Vector2i, home_cave_id: int 
 		"home_cave_id": home_cave_id,
 		"leash_origin": Vector2(cell),
 		"leash_radius": GUARDIAN_LEASH_RADIUS,
-		"wander_timer": 0.0,
+		"wander_timer": _next_hunter_wander_delay() if kind == &"hunter" else 0.0,
 	}
 	entities[_next_entity_id] = entity_state
 	if team >= 0:
@@ -555,6 +565,27 @@ func command_repair(issuer_team: int, ids: Array[int], target_id: int, append: b
 	return issued
 
 
+func command_construct(issuer_team: int, ids: Array[int], target_id: int, append: bool = false) -> bool:
+	if not _is_valid_team(issuer_team):
+		return false
+	var target := entity(target_id)
+	if int(target.get("team", TEAM_NEUTRAL)) != issuer_team:
+		return false
+	var issued := false
+	for id in ids:
+		var worker := entity(id)
+		if int(worker.get("team", TEAM_NEUTRAL)) != issuer_team or not _can_worker_construct(worker, target):
+			continue
+		issued = _issue_unit_order(
+			worker,
+			{"type": &"construct", "target_id": target_id},
+			append,
+		) or issued
+	if issued:
+		_add_event(&"command", _entity_center(target), Color("f3d47b"))
+	return issued
+
+
 func command_patrol(issuer_team: int, ids: Array[int], destination: Vector2i, append: bool = false) -> bool:
 	if not _is_valid_team(issuer_team) or not MapCatalog.in_bounds(destination):
 		return false
@@ -655,6 +686,14 @@ func _activate_unit_order(unit: Dictionary, order_data: Dictionary) -> bool:
 			unit["repair_timer"] = 0.0
 			_set_path(unit, repair_target["cell"] as Vector2i)
 			return true
+		&"construct":
+			var construction_target := entity(int(order_data.get("target_id", -1)))
+			if not _can_worker_construct(unit, construction_target):
+				return false
+			unit["order"] = &"build"
+			unit["target_id"] = int(construction_target["id"])
+			_set_path(unit, construction_target["cell"] as Vector2i)
+			return true
 		&"patrol":
 			if not _is_military_unit(unit):
 				return false
@@ -724,6 +763,18 @@ func _can_worker_repair(worker: Dictionary, target: Dictionary) -> bool:
 	)
 
 
+func _can_worker_construct(worker: Dictionary, target: Dictionary) -> bool:
+	return (
+		_is_commandable_unit(worker)
+		and worker.get("kind") == &"worker"
+		and not target.is_empty()
+		and bool(target.get("alive", false))
+		and target.get("category") == &"structure"
+		and int(target.get("team", TEAM_NEUTRAL)) == int(worker.get("team", TEAM_NEUTRAL))
+		and float(target.get("complete", 1.0)) < 1.0
+	)
+
+
 func command_build(issuer_team: int, worker_id: int, structure_kind: StringName, cell: Vector2i) -> bool:
 	if not _is_valid_team(issuer_team) or structure_kind not in BUILDABLE_STRUCTURE_KINDS:
 		return false
@@ -744,12 +795,8 @@ func command_build(issuer_team: int, worker_id: int, structure_kind: StringName,
 		return false
 	_pay(team, stats)
 	var structure_id := _spawn_structure(team, structure_kind, cell, false)
-	_cancel_all_unit_orders(worker)
-	worker["order"] = &"build"
-	worker["target_id"] = structure_id
-	worker["path"] = []
-	_clear_attack_move(worker)
 	_rebuild_pathfinding()
+	command_construct(issuer_team, [worker_id], structure_id)
 	_add_event(
 		&"build",
 		Vector2(cell),
@@ -812,9 +859,14 @@ func command_train(issuer_team: int, structure_id: int, unit_kind: StringName) -
 	if not FactionCatalog.can_train_unit(faction, unit_kind):
 		return false
 	var stats := FactionCatalog.stats(unit_kind, faction)
-	if not _can_afford(team, stats) or not _has_population_room(team, int(stats["population"])):
+	var free_recovery_worker := unit_kind == &"worker" and can_train_free_worker(team)
+	if (
+		not free_recovery_worker
+		and not _can_afford(team, stats)
+	) or not _has_population_room(team, int(stats["population"])):
 		return false
-	_pay(team, stats)
+	if not free_recovery_worker:
+		_pay(team, stats)
 	players[team]["population"] = int(players[team]["population"]) + int(stats["population"])
 	var queue := structure["queue"] as Array
 	queue.append({
@@ -823,10 +875,10 @@ func command_train(issuer_team: int, structure_id: int, unit_kind: StringName) -
 		"total": float(stats["train_time"]),
 		"reserved_population": int(stats["population"]),
 		"costs": {
-			"jade": int(stats.get("jade_cost", 0)),
-			"lumber": int(stats.get("lumber_cost", 0)),
-			"essence": int(stats.get("essence_cost", 0)),
-			"food": int(stats.get("food_cost", 0)),
+			"jade": 0 if free_recovery_worker else int(stats.get("jade_cost", 0)),
+			"lumber": 0 if free_recovery_worker else int(stats.get("lumber_cost", 0)),
+			"essence": 0 if free_recovery_worker else int(stats.get("essence_cost", 0)),
+			"food": 0 if free_recovery_worker else int(stats.get("food_cost", 0)),
 		},
 	})
 	structure["queue"] = queue
@@ -1394,6 +1446,8 @@ func _advance_combat_and_movement(delta: float) -> void:
 			continue
 		if _is_neutral_guardian(current):
 			_advance_guardian_wander(current, delta)
+		elif current.get("kind") == &"hunter":
+			_advance_hunter_wander(current, delta)
 		if current.get("order") in [&"gather", &"return", &"build", &"repair"]:
 			_advance_path(current, delta)
 			continue
@@ -1409,6 +1463,27 @@ func _advance_combat_and_movement(delta: float) -> void:
 				if _advance_attack_order(current, delta):
 					continue
 		_advance_path(current, delta)
+
+
+func _advance_hunter_wander(hunter: Dictionary, delta: float) -> void:
+	if hunter.get("order", &"idle") != &"idle":
+		return
+	hunter["wander_timer"] = float(hunter.get("wander_timer", 0.0)) - delta
+	if float(hunter["wander_timer"]) > 0.0:
+		return
+	hunter["wander_timer"] = _next_hunter_wander_delay()
+	var team := int(hunter.get("team", TEAM_NEUTRAL))
+	var destination := _nearest_wildlife_herd_center(hunter["position"] as Vector2, team)
+	if not MapCatalog.in_bounds(destination):
+		return
+	hunter["order"] = &"wander"
+	_set_path(hunter, destination)
+	if (hunter.get("path", []) as Array).is_empty():
+		hunter["order"] = &"idle"
+
+
+func _next_hunter_wander_delay() -> float:
+	return _hunter_rng.randf_range(HUNTER_WANDER_MIN_DELAY, HUNTER_WANDER_MAX_DELAY)
 
 
 func _advance_attack_order(attacker: Dictionary, delta: float) -> bool:
@@ -1853,18 +1928,33 @@ func _advance_ai(delta: float) -> void:
 		if _ai_cave_timer <= 0.0:
 			_ai_cave_timer = 6.0
 			_issue_ai_cave_order(army)
-	elif army.size() >= 4 and (_ai_attack_timer <= 0.0 or army.size() >= 8):
-		var player_hold := _stronghold_for_team(TEAM_PLAYER)
-		if not player_hold.is_empty():
-			var ids: Array[int] = []
-			for unit in army:
-				ids.append(int(unit["id"]))
-				if is_entity_visible_to_team(TEAM_ENEMY, player_hold):
-					command_attack(TEAM_ENEMY, ids, int(player_hold["id"]))
-				else:
-					command_move(TEAM_ENEMY, ids, player_hold["cell"] as Vector2i, true)
-			_ai_attack_timer = 22.0
+	else:
+		var ready_assault_units := _ready_ai_assault_units(army)
+		if _ai_attack_timer <= 0.0 and ready_assault_units.size() >= AI_ASSAULT_MIN_READY_UNITS:
+			_issue_ai_base_assault(ready_assault_units)
 	_auto_assign_idle_worker(TEAM_ENEMY)
+
+
+func _ready_ai_assault_units(army: Array[Dictionary]) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	for unit in army:
+		if unit.get("order", &"idle") == &"idle":
+			result.append(unit)
+	return result
+
+
+func _issue_ai_base_assault(ready_units: Array[Dictionary]) -> void:
+	var player_hold := _stronghold_for_team(TEAM_PLAYER)
+	if player_hold.is_empty():
+		return
+	var ids: Array[int] = []
+	for index in range(mini(AI_ASSAULT_WAVE_SIZE, ready_units.size())):
+		ids.append(int(ready_units[index]["id"]))
+	if is_entity_visible_to_team(TEAM_ENEMY, player_hold):
+		command_attack(TEAM_ENEMY, ids, int(player_hold["id"]))
+	else:
+		command_move(TEAM_ENEMY, ids, player_hold["cell"] as Vector2i, true)
+	_ai_attack_timer = AI_ASSAULT_INTERVAL
 
 
 func _issue_ai_cave_order(army: Array[Dictionary]) -> void:
@@ -1995,12 +2085,12 @@ func _issue_ai_hunt_orders() -> void:
 			command_move(TEAM_ENEMY, [int(hunter["id"])], scout_cell, true)
 
 
-func _nearest_wildlife_herd_center(origin: Vector2) -> Vector2i:
+func _nearest_wildlife_herd_center(origin: Vector2, team: int = TEAM_ENEMY) -> Vector2i:
 	var best_cell := Vector2i(-1, -1)
 	var best_distance := INF
 	for definition in MapCatalog.WILDLIFE_HERDS:
 		var center := definition["center"] as Vector2i
-		if is_cell_explored_by_team(TEAM_ENEMY, center):
+		if team >= 0 and is_cell_explored_by_team(team, center):
 			continue
 		var distance := origin.distance_to(Vector2(center))
 		if distance < best_distance:
@@ -2008,9 +2098,12 @@ func _nearest_wildlife_herd_center(origin: Vector2) -> Vector2i:
 			best_cell = center
 	if MapCatalog.in_bounds(best_cell):
 		return best_cell
+	best_distance = INF
 	for definition in MapCatalog.WILDLIFE_HERDS:
 		var center := definition["center"] as Vector2i
 		var distance := origin.distance_to(Vector2(center))
+		if distance <= 1.0:
+			continue
 		if distance < best_distance:
 			best_distance = distance
 			best_cell = center
@@ -2049,6 +2142,16 @@ func _auto_assign_workers(team: int) -> void:
 			_assign_nearest_resource(worker)
 
 
+func _auto_assign_idle_workers_to_construction() -> void:
+	for team in range(players.size()):
+		for worker in _team_units_of_kind(team, &"worker"):
+			if worker.get("order") != &"idle":
+				continue
+			var target := _nearest_incomplete_structure(worker)
+			if not target.is_empty():
+				command_construct(team, [int(worker["id"])], int(target["id"]))
+
+
 func _auto_assign_idle_worker(team: int) -> void:
 	for worker in _team_units_of_kind(team, &"worker"):
 		if worker.get("order") == &"idle":
@@ -2083,6 +2186,26 @@ func _assign_nearest_resource(worker: Dictionary, resource_kind: StringName = &"
 		command_gather(int(worker["team"]), [int(worker["id"])], int(resource["id"]))
 		return true
 	return false
+
+
+func _nearest_incomplete_structure(worker: Dictionary) -> Dictionary:
+	var best_structure: Dictionary = {}
+	var best_distance := INF
+	var team := int(worker.get("team", TEAM_NEUTRAL))
+	for raw_structure in entities.values():
+		var structure := raw_structure as Dictionary
+		if (
+			not bool(structure.get("alive", false))
+			or structure.get("category") != &"structure"
+			or int(structure.get("team", TEAM_NEUTRAL)) != team
+			or float(structure.get("complete", 1.0)) >= 1.0
+		):
+			continue
+		var distance := _entity_distance(worker, structure)
+		if distance < best_distance:
+			best_distance = distance
+			best_structure = structure
+	return best_structure
 
 
 func _nearest_resource(worker: Dictionary, resource_kind: StringName = &"") -> Dictionary:
@@ -2247,7 +2370,7 @@ func _resolve_unit_separation(tick_delta: float = TICK_SECONDS) -> void:
 			for second_index in range(first_index + 1, unit_ids.size()):
 				var second_id := unit_ids[second_index]
 				var second := entity(second_id)
-				if _moving_friendly_units_can_overlap(first, second):
+				if _moving_friendly_units_can_overlap(first, second) or not _units_should_separate(first, second):
 					continue
 				var delta := (second["position"] as Vector2) - (first["position"] as Vector2)
 				var distance := delta.length()
@@ -2318,6 +2441,20 @@ func _moving_friendly_units_can_overlap(first: Dictionary, second: Dictionary) -
 func _has_active_path(entity_state: Dictionary) -> bool:
 	var path := entity_state.get("path", []) as Array
 	return not path.is_empty() and int(entity_state.get("path_index", 0)) < path.size()
+
+
+func _units_should_separate(first: Dictionary, second: Dictionary) -> bool:
+	return not (
+		first.get("category") == &"unit" and _is_harmless_wildlife(second)
+		or second.get("category") == &"unit" and _is_harmless_wildlife(first)
+	)
+
+
+func _is_harmless_wildlife(entity_state: Dictionary) -> bool:
+	return (
+		entity_state.get("category") == &"wildlife"
+		and not bool(entity_state.get("retaliates", false))
+	)
 
 
 func _is_walkable_unit_position(position: Vector2) -> bool:
@@ -2612,8 +2749,29 @@ func captured_cave_count(team: int) -> int:
 func can_afford_kind(team: int, kind: StringName) -> bool:
 	if not is_kind_available(team, kind):
 		return false
+	if kind == &"worker" and can_train_free_worker(team):
+		return true
 	var faction := players[team]["faction"] as StringName
 	return _can_afford(team, FactionCatalog.stats(kind, faction))
+
+
+func can_train_free_worker(team: int) -> bool:
+	if team < 0 or team >= players.size():
+		return false
+	if not team_entity_ids(team, [&"worker"]).is_empty():
+		return false
+	for raw_entity in entities.values():
+		var entity_state := raw_entity as Dictionary
+		if (
+			not bool(entity_state.get("alive", false))
+			or int(entity_state.get("team", TEAM_NEUTRAL)) != team
+			or entity_state.get("category") != &"structure"
+		):
+			continue
+		for raw_item in entity_state.get("queue", []) as Array:
+			if (raw_item as Dictionary).get("kind") == &"worker":
+				return false
+	return true
 
 
 func is_kind_available(team: int, kind: StringName) -> bool:

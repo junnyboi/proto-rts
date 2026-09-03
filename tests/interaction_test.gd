@@ -48,6 +48,36 @@ func _run() -> void:
 		failures.append("clicking empty ground did not clear the selection")
 
 	battlefield.set_fog_enabled(false)
+	var resource_id := _find_clickable_entity(battlefield, simulation, &"resource")
+	if resource_id < 0:
+		failures.append("no environmental resource was available for inspection")
+	else:
+		var resource_position := battlefield.entity_screen_position(simulation.entity(resource_id))
+		battlefield.call("_handle_left_press", resource_position)
+		battlefield.call("_handle_left_release", resource_position)
+		if battlefield.selected_ids != [resource_id]:
+			failures.append("clicking an environmental resource did not select its information")
+
+	var enemy_unit_id := _find_clickable_entity(battlefield, simulation, &"unit", RtsSimulation.TEAM_ENEMY)
+	if enemy_unit_id < 0:
+		failures.append("no enemy unit was available for inspection")
+	else:
+		var enemy_unit_position := battlefield.entity_screen_position(simulation.entity(enemy_unit_id))
+		battlefield.call("_handle_left_press", enemy_unit_position)
+		battlefield.call("_handle_left_release", enemy_unit_position)
+		if battlefield.selected_ids != [enemy_unit_id]:
+			failures.append("clicking an enemy unit did not select its information")
+
+	var enemy_structure_id := _find_clickable_entity(battlefield, simulation, &"structure", RtsSimulation.TEAM_ENEMY)
+	if enemy_structure_id < 0:
+		failures.append("no enemy structure was available for inspection")
+	else:
+		var enemy_structure_position := battlefield.entity_screen_position(simulation.entity(enemy_structure_id))
+		battlefield.call("_handle_left_press", enemy_structure_position)
+		battlefield.call("_handle_left_release", enemy_structure_position)
+		if battlefield.selected_ids != [enemy_structure_id]:
+			failures.append("clicking an enemy structure did not select its information")
+
 	var cave_id := simulation.cave_ids()[0]
 	var cave_position := battlefield.entity_screen_position(simulation.entity(cave_id))
 	battlefield.call("_handle_left_press", cave_position)
@@ -151,12 +181,30 @@ func _run() -> void:
 
 	battlefield.queue_free()
 	if failures.is_empty():
-		print("PASS interaction_test: camera, selection, contextual economy, worker cargo icons, building placement, movement and idle visuals, wildlife hunting, and command visualization")
+		print("PASS interaction_test: camera, selection and inspection, contextual economy, worker cargo icons, building placement, movement and idle visuals, wildlife hunting, and command visualization")
 		quit(0)
 	else:
 		for failure in failures:
 			push_error(failure)
 		quit(1)
+
+
+func _find_clickable_entity(
+	battlefield: Battlefield,
+	simulation: RtsSimulation,
+	category: StringName,
+	team: int = -999,
+) -> int:
+	for raw_entity in simulation.entities.values():
+		var entity_state := raw_entity as Dictionary
+		if entity_state.get("category") != category:
+			continue
+		if team != -999 and int(entity_state.get("team", RtsSimulation.TEAM_NEUTRAL)) != team:
+			continue
+		var screen_position := battlefield.entity_screen_position(entity_state)
+		if battlefield.entity_at_screen(screen_position, true) == int(entity_state["id"]):
+			return int(entity_state["id"])
+	return -1
 
 
 func _verify_smooth_camera_pan(battlefield: Battlefield, failures: Array[String]) -> void:
@@ -311,6 +359,31 @@ func _verify_command_visualizations(
 	if records.size() != 1 or (records[0] as Dictionary).get("kind") != &"flag":
 		failures.append("selected move order did not project one destination flag")
 
+	var stronghold_id := simulation.primary_structure_id(RtsSimulation.TEAM_PLAYER, &"stronghold")
+	var stronghold := simulation.entity(stronghold_id)
+	var rally_cell := stronghold.get("rally_cell", Vector2i(-1, -1)) as Vector2i
+	battlefield.select_entities([stronghold_id])
+	records = battlefield.call("_command_visualization_records") as Array
+	if records.size() != 1:
+		failures.append("selected structure did not project its rally visualization")
+	else:
+		var rally_record := records[0] as Dictionary
+		var rally_points := rally_record.get("points", []) as Array
+		if (
+			rally_record.get("kind") != &"flag"
+			or rally_record.get("endpoint") != Vector2(rally_cell)
+		):
+			failures.append("selected structure did not reuse the movement destination flag at its rally point")
+		if (
+			rally_points.size() != 2
+			or not (rally_points[0] as Vector2).is_equal_approx(
+				battlefield.call("_entity_world_center", stronghold) as Vector2,
+			)
+			or not (rally_points[1] as Vector2).is_equal_approx(Vector2(rally_cell))
+		):
+			failures.append("selected structure rally dotted path did not connect its center to the rally point")
+	battlefield.select_entities([worker_id])
+
 	var resource_id := -1
 	for raw_entity in simulation.entities.values():
 		var entity_state := raw_entity as Dictionary
@@ -332,7 +405,6 @@ func _verify_command_visualizations(
 		):
 			failures.append("selected gather order did not project its resource interaction ring")
 
-	var stronghold_id := simulation.primary_structure_id(RtsSimulation.TEAM_PLAYER, &"stronghold")
 	worker["cargo_kind"] = &"jade"
 	worker["cargo_amount"] = 5.0
 	simulation.command_deposit(RtsSimulation.TEAM_PLAYER, [worker_id], stronghold_id)

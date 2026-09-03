@@ -156,6 +156,8 @@ func _test_friendly_passthrough_and_idle_spacing(failures: Array[String]) -> voi
 			moving_kind,
 			Vector2i(8, lane_y),
 		)
+		if moving_kind == &"hunter":
+			traversal_simulation.entity(moving_id)["wander_timer"] = 999.0
 		var blocker_positions: Dictionary = {}
 		for blocker_index in range(friendly_kinds.size()):
 			var blocker_id := traversal_simulation._spawn_unit(
@@ -163,6 +165,8 @@ func _test_friendly_passthrough_and_idle_spacing(failures: Array[String]) -> voi
 				friendly_kinds[blocker_index],
 				Vector2i(9 + blocker_index * 2, lane_y),
 			)
+			if friendly_kinds[blocker_index] == &"hunter":
+				traversal_simulation.entity(blocker_id)["wander_timer"] = 999.0
 			blocker_positions[blocker_id] = traversal_simulation.entity(blocker_id)["position"]
 		_expect(
 			traversal_simulation.command_move(RtsSimulation.TEAM_PLAYER, [moving_id], destination),

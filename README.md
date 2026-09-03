@@ -34,7 +34,7 @@ The current release is a focused one-versus-one vertical slice played on **The J
 
 | Input | Action |
 | --- | --- |
-| Left click | Select a friendly entity or inspect any visible rival, neutral, wildlife, or resource entity; hold `Shift` to toggle friendly selections |
+| Left click | Select a friendly entity or inspect any visible rival, neutral, wildlife, or resource entity in the HUD; hold `Shift` to toggle friendly selections |
 | Left drag | Box-select friendly units; hold `Shift` to add them |
 | Right click ground | Move selected units; hold `Shift` to queue the order |
 | Right click resource | Assign selected workers to gather; hold `Shift` to queue the source |
@@ -56,7 +56,7 @@ The current release is a focused one-versus-one vertical slice played on **The J
 | `Command` + mouse wheel, or trackpad pinch/spread | Zoom |
 | Minimap click or drag | Recenter the battlefield camera |
 | Fog of War button | Toggle battlefield and minimap visibility masking |
-| `P` or `Escape` | Pause; `Escape` cancels an armed command first |
+| `P` or `Escape` | Pause; `Escape` cancels an armed command first, then clears the current selection before pausing |
 | `M` or Audio button | Toggle music, interaction cues, and gameplay SFX |
 
 ## Factions

@@ -142,6 +142,8 @@ func _unhandled_key_input(event: InputEvent) -> void:
 				audio_director.play_ui(&"ui_cancel")
 				_update_armed_command_styles()
 				_show_feedback("Command cancelled.", false)
+			elif not battlefield.selected_ids.is_empty():
+				battlefield.select_entities([])
 			else:
 				_toggle_pause()
 		KEY_P:
@@ -318,7 +320,7 @@ func _show_faction_select() -> void:
 	_connect_button(back, _show_title, &"ui_cancel")
 	root.add_child(back)
 
-	var controls := ThemeFactory.label("Controls: left select · drag box-select · right contextual order · F attack-move · X stop · Q workers · E army · Space stronghold · WASD / arrows camera · Cmd+wheel / pinch zoom", 14, ThemeFactory.MUTED)
+	var controls := ThemeFactory.label("Controls: left select / inspect · drag box-select · right contextual order · Esc clear · F attack-move · X stop · Q workers · E army · Space stronghold · WASD / arrows camera · Cmd+wheel / pinch zoom", 14, ThemeFactory.MUTED)
 	controls.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 	controls.offset_left = 120
 	controls.offset_right = -120
@@ -620,13 +622,13 @@ func _build_selection_bay() -> Control:
 	_selection_health_label.custom_minimum_size.x = 92.0
 	_selection_health_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	health_row.add_child(_selection_health_label)
-	_selection_order = ThemeFactory.label("SELECT A UNIT OR STRUCTURE", 13, ThemeFactory.IVORY)
+	_selection_order = ThemeFactory.label("SELECT OR INSPECT AN ENTITY", 13, ThemeFactory.IVORY)
 	_selection_order.clip_text = true
 	info.add_child(_selection_order)
 	_selection_meta = ThemeFactory.label("Q WORKERS · E ARMY · SPACE STRONGHOLD", 11, ThemeFactory.JADE)
 	_selection_meta.clip_text = true
 	info.add_child(_selection_meta)
-	_selection_detail = ThemeFactory.label("Left-click or drag to select. Right-click issues a contextual order.", 11, ThemeFactory.MUTED_SAGE)
+	_selection_detail = ThemeFactory.label("Left-click an entity to select or inspect it. Drag to box-select friendly units.", 11, ThemeFactory.MUTED_SAGE)
 	_selection_detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_selection_detail.max_lines_visible = 2
 	_selection_detail.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -938,9 +940,9 @@ func _update_selection_panel() -> void:
 		_selection_status.add_theme_color_override(&"font_color", ThemeFactory.JADE)
 		_selection_health.visible = false
 		_selection_health_label.visible = false
-		_selection_order.text = "SELECT A UNIT OR STRUCTURE"
+		_selection_order.text = "SELECT OR INSPECT AN ENTITY"
 		_selection_meta.text = "Q WORKERS · E ARMY · SPACE STRONGHOLD"
-		_selection_detail.text = "Left-click or drag to select. Right-click issues a contextual order."
+		_selection_detail.text = "Left-click an entity to select or inspect it. Drag to box-select friendly units."
 		return
 	if ids.size() > 1:
 		_update_group_selection(ids)
@@ -1109,13 +1111,23 @@ func _update_owned_selection(entity_state: Dictionary) -> void:
 	var faction := entity_state.get("faction", selected_faction) as StringName
 	var stats := FactionCatalog.stats(kind, faction)
 	var completion := float(entity_state.get("complete", 1.0))
+	var team := int(entity_state.get("team", RtsSimulation.TEAM_NEUTRAL))
+	var category_label := "STRUCTURE" if entity_state.get("category") == &"structure" else "UNIT"
+	var affiliation := "NEUTRAL"
+	var status_color := ThemeFactory.GOLD
+	if team == RtsSimulation.TEAM_PLAYER:
+		affiliation = "YOUR"
+		status_color = ThemeFactory.JADE
+	elif team == RtsSimulation.TEAM_ENEMY:
+		affiliation = "ENEMY"
+		status_color = ThemeFactory.DANGER
 	_selection_title.text = String(stats["name"]).to_upper()
-	_selection_status.text = "STRUCTURE" if entity_state.get("category") == &"structure" else "UNIT"
-	_selection_status.add_theme_color_override(&"font_color", ThemeFactory.JADE)
+	_selection_status.text = "%s %s" % [affiliation, category_label] if team != RtsSimulation.TEAM_PLAYER else category_label
+	_selection_status.add_theme_color_override(&"font_color", status_color)
 	if completion < 1.0:
 		_set_selection_progress(completion, 1.0, "CONSTRUCTION %d%%" % int(completion * 100.0), ThemeFactory.GOLD)
 	else:
-		_set_selection_progress(float(entity_state["hp"]), float(entity_state["max_hp"]), "%d / %d HP" % [int(entity_state["hp"]), int(entity_state["max_hp"])], ThemeFactory.JADE)
+		_set_selection_progress(float(entity_state["hp"]), float(entity_state["max_hp"]), "%d / %d HP" % [int(entity_state["hp"]), int(entity_state["max_hp"])], status_color)
 	_selection_order.text = _order_label(entity_state).to_upper()
 	if entity_state.get("category") == &"structure":
 		var queue := entity_state.get("queue", []) as Array
@@ -1299,10 +1311,19 @@ func _show_cost_command(button_id: StringName, kind: StringName, verb: String, c
 	var button := _command_buttons[button_id] as HudCommandButton
 	var faction := simulation.players[RtsSimulation.TEAM_PLAYER]["faction"] as StringName
 	var stats := FactionCatalog.stats(kind, faction)
+	var free_recovery_worker := (
+		kind == &"worker"
+		and simulation.can_train_free_worker(RtsSimulation.TEAM_PLAYER)
+	)
+	if free_recovery_worker:
+		for cost_key in ["jade_cost", "lumber_cost", "essence_cost", "food_cost"]:
+			stats[cost_key] = 0
 	button.set_meta(COMMAND_VISIBLE_META, true)
 	button.disabled = not simulation.can_afford_kind(RtsSimulation.TEAM_PLAYER, kind) or (check_population and not simulation.has_population_for(RtsSimulation.TEAM_PLAYER, kind))
 	button.set_cost_markup(_cost_markup(stats))
 	var tooltip := "%s %s · %s" % [verb, stats["name"], _long_cost(stats)]
+	if free_recovery_worker:
+		tooltip += "\nRecovery worker: free because you have no Workers left"
 	var unavailable := _unavailable_reason(stats, check_population)
 	if not unavailable.is_empty():
 		tooltip += "\nUnavailable: %s" % unavailable

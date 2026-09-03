@@ -111,6 +111,71 @@ func _test_repair(failures: Array[String]) -> void:
 		failures.append("worker was allowed to repair an enemy structure")
 
 
+func _test_existing_construction_assignment(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human")
+	var site := simulation._find_build_site(
+		RtsSimulation.TEAM_PLAYER,
+		&"war_camp",
+		Vector2i(28, 48),
+	)
+	if site.x < 0:
+		failures.append("no site was available for the existing-construction command test")
+		return
+	var foundation_id := simulation._spawn_structure(
+		RtsSimulation.TEAM_PLAYER,
+		&"war_camp",
+		site,
+		false,
+	)
+	simulation._rebuild_pathfinding()
+	var workers := simulation.team_entity_ids(RtsSimulation.TEAM_PLAYER, [&"worker"])
+	var battlefield := Battlefield.new()
+	battlefield.size = Vector2(1280.0, 720.0)
+	battlefield.set_simulation(simulation)
+	root.add_child(battlefield)
+	battlefield.set_fog_enabled(false)
+	battlefield.select_entities([workers[0]])
+	var foundation_screen := battlefield.entity_screen_position(simulation.entity(foundation_id))
+	if battlefield.entity_at_screen(foundation_screen, false) != foundation_id:
+		failures.append("incomplete structure was not available as a contextual command target")
+	else:
+		var cursor_context := battlefield.cursor_context_at(foundation_screen)
+		if cursor_context.get("state") != CursorSystem.BUILD:
+			failures.append("incomplete structure did not expose the construction cursor")
+		battlefield.call("_handle_right_click", foundation_screen)
+		var commanded_worker := simulation.entity(workers[0])
+		if (
+			commanded_worker.get("order") != &"build"
+			or int(commanded_worker.get("target_id", -1)) != foundation_id
+		):
+			failures.append("right-clicking an incomplete structure did not assign its selected Worker")
+
+	var move_destination := simulation._nearest_walkable(
+		(simulation.entity(workers[0])["cell"] as Vector2i) + Vector2i(1, 0),
+	)
+	simulation.command_move(RtsSimulation.TEAM_PLAYER, [workers[0]], move_destination)
+	simulation.advance(RtsSimulation.TICK_SECONDS)
+	for worker_id in workers.slice(1):
+		var idle_worker := simulation.entity(worker_id)
+		if idle_worker.get("order") != &"build" or int(idle_worker.get("target_id", -1)) != foundation_id:
+			failures.append("an idle Worker did not auto-acquire the incomplete structure")
+
+	var complete_structure_id := simulation.primary_structure_id(
+		RtsSimulation.TEAM_PLAYER,
+		&"stronghold",
+	)
+	if simulation.command_construct(RtsSimulation.TEAM_PLAYER, [workers[0]], complete_structure_id):
+		failures.append("a Worker was assigned to construct an already complete structure")
+	var enemy_structure_id := simulation.primary_structure_id(
+		RtsSimulation.TEAM_ENEMY,
+		&"stronghold",
+	)
+	if simulation.command_construct(RtsSimulation.TEAM_PLAYER, [workers[0]], enemy_structure_id):
+		failures.append("a Worker was assigned to construct an enemy structure")
+	battlefield.queue_free()
+
+
 func _test_training_cancellation(failures: Array[String]) -> void:
 	var simulation := RtsSimulation.new()
 	simulation.setup(&"human")
@@ -230,11 +295,12 @@ func _run() -> void:
 	_test_shift_order_queue(failures)
 	_test_patrol(failures)
 	_test_repair(failures)
+	_test_existing_construction_assignment(failures)
 	_test_training_cancellation(failures)
 	_test_control_groups(failures)
 	_test_modifier_input_forwarding(failures)
 	if failures.is_empty():
-		print("PASS command_system_test: control groups, Shift queues, repair, patrol, cancellation")
+		print("PASS command_system_test: control groups, Shift queues, construction, repair, patrol, cancellation")
 		quit(0)
 	else:
 		for failure in failures:

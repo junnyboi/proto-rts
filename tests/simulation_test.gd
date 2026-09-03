@@ -177,6 +177,85 @@ func _test_large_formations_and_separation(failures: Array[String]) -> void:
 		failures.append("overlapping military units did not separate locally")
 
 
+func _test_hostile_worker_separation(failures: Array[String]) -> void:
+	var hostile_simulation := RtsSimulation.new()
+	hostile_simulation.setup(&"human")
+	var hostile_overlap_cell := hostile_simulation._nearest_walkable(MapCatalog.SIZE / 2)
+	var hostile_worker_id := hostile_simulation._spawn_unit(
+		RtsSimulation.TEAM_PLAYER,
+		&"worker",
+		hostile_overlap_cell,
+	)
+	var hostile_unit_id := hostile_simulation._spawn_unit(
+		RtsSimulation.TEAM_ENEMY,
+		&"vanguard",
+		hostile_overlap_cell,
+	)
+	for _step in range(int(2.0 / RtsSimulation.TICK_SECONDS)):
+		hostile_simulation._resolve_unit_separation(RtsSimulation.TICK_SECONDS)
+	var hostile_separation := (
+		hostile_simulation.entity(hostile_worker_id)["position"] as Vector2
+	).distance_to(hostile_simulation.entity(hostile_unit_id)["position"] as Vector2)
+	if hostile_separation < RtsSimulation.UNIT_SEPARATION_DISTANCE - 0.01:
+		failures.append("an enemy unit passed through a worker")
+
+
+func _test_units_pass_through_harmless_wildlife(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human")
+	var overlap_cell := simulation._nearest_walkable(MapCatalog.SIZE / 2)
+	var harmless_kinds: Array[StringName] = [&"chicken", &"deer", &"bison"]
+	var unit_kinds: Array[StringName] = [&"worker", &"hunter", &"vanguard", &"mystic", &"jadeclaw"]
+	for unit_kind in unit_kinds:
+		for wildlife_kind in harmless_kinds:
+			var unit_id := simulation._spawn_unit(
+				RtsSimulation.TEAM_PLAYER,
+				unit_kind,
+				overlap_cell,
+			)
+			var wildlife_id := simulation._spawn_wildlife(
+				wildlife_kind,
+				overlap_cell,
+				-1,
+				overlap_cell,
+				3.0,
+			)
+			simulation._resolve_unit_separation()
+			var separation := (
+				simulation.entity(unit_id)["position"] as Vector2
+			).distance_to(simulation.entity(wildlife_id)["position"] as Vector2)
+			if separation > 0.01:
+				failures.append(
+					"%s could not pass through harmless %s wildlife"
+					% [String(unit_kind).capitalize(), String(wildlife_kind).capitalize()]
+				)
+			simulation.entities.erase(unit_id)
+			simulation.entities.erase(wildlife_id)
+
+	for aggressive_kind in [&"boar", &"bear"]:
+		var unit_id := simulation._spawn_unit(
+			RtsSimulation.TEAM_PLAYER,
+			&"vanguard",
+			overlap_cell,
+		)
+		var wildlife_id := simulation._spawn_wildlife(
+			aggressive_kind,
+			overlap_cell,
+			-1,
+			overlap_cell,
+			3.0,
+		)
+		for _step in range(int(2.0 / RtsSimulation.TICK_SECONDS)):
+			simulation._resolve_unit_separation(RtsSimulation.TICK_SECONDS)
+		var separation := (
+			simulation.entity(unit_id)["position"] as Vector2
+		).distance_to(simulation.entity(wildlife_id)["position"] as Vector2)
+		if separation < RtsSimulation.UNIT_SEPARATION_DISTANCE - 0.01:
+			failures.append("a unit passed through aggressive %s wildlife" % aggressive_kind)
+		simulation.entities.erase(unit_id)
+		simulation.entities.erase(wildlife_id)
+
+
 func _test_units_pass_through_friendly_structures(failures: Array[String]) -> void:
 	var unit_kinds: Array[StringName] = [&"worker", &"hunter", &"vanguard", &"mystic", &"jadeclaw"]
 	for unit_kind in unit_kinds:
@@ -203,6 +282,8 @@ func _test_units_pass_through_friendly_structures(failures: Array[String]) -> vo
 		var destination := structure_cell + Vector2i(3, 0)
 		var unit_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, unit_kind, start)
 		var unit := simulation.entity(unit_id)
+		if unit_kind == &"hunter":
+			unit["wander_timer"] = 999.0
 		simulation._rebuild_pathfinding()
 		simulation._set_path(unit, destination)
 		var friendly_path := unit.get("path", []) as Array
@@ -278,6 +359,47 @@ func _test_unit_food_costs(failures: Array[String]) -> void:
 	for kind in [&"worker", &"hunter", &"vanguard", &"mystic", &"jadeclaw"]:
 		if int(FactionCatalog.stats(kind, &"human").get("food_cost", 0)) <= 0:
 			failures.append("%s does not require Food" % String(kind).capitalize())
+
+
+func _test_free_worker_recovery(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human")
+	var team := RtsSimulation.TEAM_PLAYER
+	var stronghold_id := simulation.primary_structure_id(team, &"stronghold")
+	for worker_id in simulation.team_entity_ids(team, [&"worker"]):
+		simulation._kill(simulation.entity(worker_id), {})
+	for resource_kind in [&"jade", &"lumber", &"essence", &"food"]:
+		simulation.players[team][String(resource_kind)] = 0
+	if not simulation.can_train_free_worker(team):
+		failures.append("a player with no Workers was not offered a free recovery Worker")
+	if not simulation.can_afford_kind(team, &"worker"):
+		failures.append("the free recovery Worker failed the affordability query")
+	if not simulation.command_train(team, stronghold_id, &"worker"):
+		failures.append("the Stronghold rejected a free recovery Worker")
+		return
+	for resource_kind in [&"jade", &"lumber", &"essence", &"food"]:
+		if int(simulation.players[team][String(resource_kind)]) != 0:
+			failures.append("the free recovery Worker charged %s" % String(resource_kind).capitalize())
+	var queue := simulation.entity(stronghold_id).get("queue", []) as Array
+	if queue.is_empty():
+		failures.append("the free recovery Worker was not added to the production queue")
+	else:
+		var costs := (queue[0] as Dictionary).get("costs", {}) as Dictionary
+		for resource_kind in [&"jade", &"lumber", &"essence", &"food"]:
+			if int(costs.get(String(resource_kind), -1)) != 0:
+				failures.append("the free recovery Worker recorded a %s refund" % String(resource_kind).capitalize())
+	if simulation.can_train_free_worker(team):
+		failures.append("another free Worker was offered while a recovery Worker was queued")
+	if simulation.can_afford_kind(team, &"worker"):
+		failures.append("a second Worker appeared affordable with no resources")
+	if simulation.command_train(team, stronghold_id, &"worker"):
+		failures.append("the Stronghold queued a second free Worker")
+	var cancelled := simulation.command_cancel_training(team, stronghold_id)
+	if cancelled.is_empty() or not simulation.can_train_free_worker(team):
+		failures.append("cancelling the recovery Worker did not restore free Worker eligibility")
+	for resource_kind in [&"jade", &"lumber", &"essence", &"food"]:
+		if int(simulation.players[team][String(resource_kind)]) != 0:
+			failures.append("cancelling the free recovery Worker granted %s" % String(resource_kind).capitalize())
 
 
 func _test_food_building(
@@ -369,6 +491,45 @@ func _test_ai_food_economy(failures: Array[String]) -> void:
 	hunting_simulation._issue_ai_hunt_orders()
 	if hunting_simulation.entity(ai_hunter_id).get("order") not in [&"attack", &"attack_move"]:
 		failures.append("computer Hunter did not pursue living wildlife")
+
+
+func _test_ai_base_assault_waves(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human")
+	var caves := simulation.cave_ids()
+	if caves.is_empty():
+		failures.append("no cave was available to satisfy the computer assault prerequisite")
+		return
+	simulation.entity(caves[0])["team"] = RtsSimulation.TEAM_ENEMY
+	var assault_ids: Array[int] = []
+	for offset in range(7):
+		assault_ids.append(simulation._spawn_unit(
+			RtsSimulation.TEAM_ENEMY,
+			&"vanguard",
+			MapCatalog.ENEMY_STRONGHOLD + Vector2i(-2 - offset, 2),
+		))
+	simulation._ai_attack_timer = 0.0
+	simulation._ai_strategy_timer = 0.0
+	simulation._advance_ai(RtsSimulation.TICK_SECONDS)
+	var first_wave_size := 0
+	for unit_id in assault_ids:
+		if simulation.entity(unit_id).get("order") in [&"attack", &"attack_move"]:
+			first_wave_size += 1
+	if first_wave_size != RtsSimulation.AI_ASSAULT_WAVE_SIZE:
+		failures.append(
+			"computer base assault sent %d units instead of a %d-unit wave"
+			% [first_wave_size, RtsSimulation.AI_ASSAULT_WAVE_SIZE]
+		)
+	if not is_equal_approx(simulation._ai_attack_timer, RtsSimulation.AI_ASSAULT_INTERVAL):
+		failures.append("computer base assault did not reset the reduced-aggression interval")
+	simulation._ai_strategy_timer = 0.0
+	simulation._advance_ai(RtsSimulation.TICK_SECONDS)
+	var units_committed_during_cooldown := 0
+	for unit_id in assault_ids:
+		if simulation.entity(unit_id).get("order") in [&"attack", &"attack_move"]:
+			units_committed_during_cooldown += 1
+	if units_committed_during_cooldown != RtsSimulation.AI_ASSAULT_WAVE_SIZE:
+		failures.append("a large computer army bypassed the base-assault cooldown")
 
 
 func _test_faction_food_traditions(failures: Array[String]) -> void:
@@ -499,6 +660,36 @@ func _test_wildlife_hunting(failures: Array[String]) -> void:
 		failures.append("Celestial Court could hunt through a directly spawned Hunter")
 
 
+func _test_idle_hunter_wandering(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human")
+	var hunter_id := simulation._spawn_unit(
+		RtsSimulation.TEAM_PLAYER,
+		&"hunter",
+		MapCatalog.PLAYER_WORKERS[0],
+	)
+	var hunter := simulation.entity(hunter_id)
+	var commanded_destination := MapCatalog.PLAYER_WORKERS[0] + Vector2i(1, 0)
+	simulation.command_move(RtsSimulation.TEAM_PLAYER, [hunter_id], commanded_destination)
+	hunter["wander_timer"] = 0.0
+	simulation._advance_hunter_wander(hunter, RtsSimulation.TICK_SECONDS)
+	if hunter.get("order") != &"move":
+		failures.append("Hunter wandering overrode an explicit move order")
+		return
+	simulation.command_stop(RtsSimulation.TEAM_PLAYER, [hunter_id])
+	hunter["wander_timer"] = 0.0
+	simulation.advance(RtsSimulation.TICK_SECONDS)
+	if hunter.get("order") != &"wander" or (hunter.get("path", []) as Array).is_empty():
+		failures.append("idle Hunter did not begin wandering toward wildlife territory")
+		return
+	var food_before := int(simulation.players[RtsSimulation.TEAM_PLAYER]["food"])
+	for _step in range(int(20.0 / RtsSimulation.TICK_SECONDS)):
+		simulation.advance(RtsSimulation.TICK_SECONDS)
+		if int(simulation.players[RtsSimulation.TEAM_PLAYER]["food"]) > food_before:
+			return
+	failures.append("wandering Hunter did not find and hunt prey")
+
+
 func _run() -> void:
 	var failures: Array[String] = []
 	_test_stronghold_dropoff(failures)
@@ -506,13 +697,18 @@ func _run() -> void:
 	_test_cargo_reassignment_preserves_kind(failures)
 	_test_attack_move_resumes_destination(failures)
 	_test_large_formations_and_separation(failures)
+	_test_hostile_worker_separation(failures)
+	_test_units_pass_through_harmless_wildlife(failures)
 	_test_units_pass_through_friendly_structures(failures)
 	_test_unit_food_costs(failures)
+	_test_free_worker_recovery(failures)
 	_test_food_building(&"rice_farm", failures)
 	_test_food_building(&"hunters_lodge", failures)
 	_test_ai_food_economy(failures)
+	_test_ai_base_assault_waves(failures)
 	_test_faction_food_traditions(failures)
 	_test_wildlife_hunting(failures)
+	_test_idle_hunter_wandering(failures)
 	var simulation := RtsSimulation.new()
 	simulation.setup(&"human")
 	if int(simulation.players[RtsSimulation.TEAM_PLAYER]["lumber"]) != 30:
@@ -766,7 +962,7 @@ func _run() -> void:
 			failures.append("destroying the enemy Stronghold did not produce victory")
 
 	if failures.is_empty():
-		print("PASS simulation_test: deposits, cargo integrity, attack-move, formations, separation, Food costs and producers, AI food economy, guardian wandering, tree retargeting, monster bounties, cave capture and recapture, Jadeclaw production, economy, construction, combat, victory")
+		print("PASS simulation_test: deposits, cargo integrity, attack-move, formations, harmless-wildlife pass-through, hostile separation, Food costs and producers, AI food economy and assault waves, guardian wandering, tree retargeting, monster bounties, cave capture and recapture, Jadeclaw production, economy, construction, combat, victory")
 		quit(0)
 	else:
 		for failure in failures:

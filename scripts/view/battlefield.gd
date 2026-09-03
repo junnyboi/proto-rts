@@ -472,10 +472,13 @@ func _handle_left_release(screen_position: Vector2) -> void:
 func _handle_right_click(screen_position: Vector2, append: bool = false) -> void:
 	if selected_ids.is_empty():
 		return
+	var commandable_units := selected_commandable_units()
+	var selected_structure := primary_selected_structure()
+	if commandable_units.is_empty() and selected_structure < 0:
+		return
 	var target_id := entity_at_screen(screen_position, false)
 	if target_id >= 0:
 		var target := simulation.entity(target_id)
-		var commandable_units := selected_commandable_units()
 		if target.get("category") == &"wildlife":
 			var hunters := _selected_of_kind(&"hunter")
 			if hunters.is_empty():
@@ -494,6 +497,21 @@ func _handle_right_click(screen_position: Vector2, append: bool = false) -> void
 			simulation.command_attack(RtsSimulation.TEAM_PLAYER, commandable_units, target_id, append)
 			feedback.emit("Focus-fire queued." if append else "Focus-fire order issued.", false)
 			audio_cue.emit(&"order_attack")
+			return
+		var construction_workers := _selected_of_kind(&"worker")
+		if (
+			not construction_workers.is_empty()
+			and target.get("category") == &"structure"
+			and int(target.get("team", RtsSimulation.TEAM_NEUTRAL)) == RtsSimulation.TEAM_PLAYER
+			and float(target.get("complete", 1.0)) < 1.0
+			and simulation.command_construct(
+				RtsSimulation.TEAM_PLAYER,
+				construction_workers,
+				target_id,
+				append,
+			)
+		):
+			feedback.emit("Construction queued." if append else "Workers assigned to construction.", false)
 			return
 		if target.get("kind") == &"stronghold":
 			var workers := _selected_of_kind(&"worker")
@@ -536,7 +554,6 @@ func _handle_right_click(screen_position: Vector2, append: bool = false) -> void
 					false,
 				)
 				return
-	var selected_structure := primary_selected_structure()
 	var cell := screen_to_cell(screen_position)
 	if not MapCatalog.in_bounds(cell):
 		feedback.emit("That destination is beyond the map boundary.", true)
@@ -866,7 +883,12 @@ func entity_at_screen(screen_position: Vector2, selectable_only: bool) -> int:
 			continue
 		if not should_render_entity(entity_state):
 			continue
-		if selectable_only and not should_render_entity(entity_state):
+		if selectable_only and entity_state.get("category") not in [
+			&"unit",
+			&"structure",
+			&"resource",
+			&"wildlife",
+		]:
 			continue
 		var radius := 28.0 * camera_scale
 		var priority := 3
@@ -950,6 +972,8 @@ func cursor_context_at(screen_position: Vector2) -> Dictionary:
 		var workers := _selected_of_kind(&"worker")
 		if target.get("kind") == &"stronghold" and _any_worker_carrying(workers):
 			return _cursor_context(CursorSystem.DEPOSIT, target_id)
+		if not workers.is_empty() and _cursor_can_construct_target(target_id):
+			return _cursor_context(CursorSystem.BUILD, target_id)
 		if not workers.is_empty() and _cursor_can_repair_target(target_id):
 			return _cursor_context(CursorSystem.REPAIR, target_id)
 		if target.get("category") == &"resource" and not workers.is_empty():
@@ -996,6 +1020,19 @@ func _cursor_can_repair_target(target_id: int) -> bool:
 	):
 		return false
 	return not _selected_of_kind(&"worker").is_empty()
+
+
+func _cursor_can_construct_target(target_id: int) -> bool:
+	if target_id < 0:
+		return false
+	var target := simulation.entity(target_id)
+	return (
+		not target.is_empty()
+		and bool(target.get("alive", false))
+		and target.get("category") == &"structure"
+		and int(target.get("team", RtsSimulation.TEAM_NEUTRAL)) == RtsSimulation.TEAM_PLAYER
+		and float(target.get("complete", 1.0)) < 1.0
+	)
 
 
 func _any_worker_carrying(workers: Array[int]) -> bool:
@@ -1078,20 +1115,26 @@ func _command_visualization_records() -> Array[Dictionary]:
 	if simulation == null or selected_ids.is_empty():
 		return records
 	var seen: Dictionary = {}
-	var considered_units := 0
-	for unit_id in selected_ids:
-		var unit := simulation.entity(unit_id)
+	var considered_entities := 0
+	for entity_id in selected_ids:
+		var entity_state := simulation.entity(entity_id)
 		if (
-			unit.is_empty()
-			or not bool(unit.get("alive", false))
-			or unit.get("category") != &"unit"
-			or int(unit.get("team", RtsSimulation.TEAM_NEUTRAL)) != RtsSimulation.TEAM_PLAYER
+			entity_state.is_empty()
+			or not bool(entity_state.get("alive", false))
+			or int(entity_state.get("team", RtsSimulation.TEAM_NEUTRAL)) != RtsSimulation.TEAM_PLAYER
 		):
 			continue
-		if considered_units >= MAX_VISIBLE_COMMAND_PATHS:
+		if considered_entities >= MAX_VISIBLE_COMMAND_PATHS:
 			break
-		considered_units += 1
-		var record := _command_visualization_record(unit)
+		var record: Dictionary = {}
+		match entity_state.get("category") as StringName:
+			&"unit":
+				record = _command_visualization_record(entity_state)
+			&"structure":
+				record = _rally_visualization_record(entity_state)
+			_:
+				continue
+		considered_entities += 1
 		if record.is_empty():
 			continue
 		var dedupe_key := _command_visualization_dedupe_key(record)
@@ -1100,6 +1143,26 @@ func _command_visualization_records() -> Array[Dictionary]:
 		seen[dedupe_key] = true
 		records.append(record)
 	return records
+
+
+func _rally_visualization_record(structure: Dictionary) -> Dictionary:
+	if not structure.has("rally_cell"):
+		return {}
+	var rally_cell := structure.get("rally_cell", Vector2i(-1, -1)) as Vector2i
+	if not MapCatalog.in_bounds(rally_cell):
+		return {}
+	var origin := _entity_world_center(structure)
+	var endpoint := Vector2(rally_cell)
+	var points: Array[Vector2] = []
+	_append_command_route_point(points, origin)
+	_append_command_route_point(points, endpoint)
+	return {
+		"entity_id": int(structure.get("id", -1)),
+		"kind": &"flag",
+		"target_id": -1,
+		"endpoint": endpoint,
+		"points": points,
+	}
 
 
 func _command_visualization_record(unit: Dictionary) -> Dictionary:

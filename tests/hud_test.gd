@@ -21,6 +21,7 @@ func _run() -> void:
 	_verify_commands_and_queue(game, battlefield, simulation, failures)
 	_verify_move_and_rally(game, battlefield, simulation, failures)
 	_verify_toast(game, failures)
+	_verify_free_worker_command(game, battlefield, simulation, failures)
 
 	var director := game.audio_director as AudioDirector
 	director._music_player.stop()
@@ -129,6 +130,33 @@ func _verify_selection_states(
 	if game._selection_title.text != "YAOGUAI DEN" or not game._selection_meta.text.contains("CAPTURE"):
 		failures.append("Den selection did not show capture state")
 
+	var enemy_units := simulation.team_entity_ids(RtsSimulation.TEAM_ENEMY, [&"worker", &"vanguard", &"mystic"])
+	if enemy_units.is_empty():
+		failures.append("no enemy unit was available for HUD inspection")
+	else:
+		battlefield.select_entities([enemy_units[0]])
+		game.call("_update_hud")
+		if game._selection_status.text != "ENEMY UNIT":
+			failures.append("enemy unit inspection did not identify its hostile ownership")
+		if game._command_buttons[&"move"].visible or game._command_buttons[&"build"].visible:
+			failures.append("enemy unit inspection exposed player commands")
+
+	var enemy_stronghold_id := simulation.primary_structure_id(RtsSimulation.TEAM_ENEMY, &"stronghold")
+	battlefield.select_entities([enemy_stronghold_id])
+	game.call("_update_hud")
+	if game._selection_status.text != "ENEMY STRUCTURE":
+		failures.append("enemy structure inspection did not identify its hostile ownership")
+	if game._command_buttons[&"worker"].visible or game._command_buttons[&"rally"].visible:
+		failures.append("enemy structure inspection exposed player commands")
+	var escape := InputEventKey.new()
+	escape.pressed = true
+	escape.keycode = KEY_ESCAPE
+	game.call("_unhandled_key_input", escape)
+	if not battlefield.selected_ids.is_empty():
+		failures.append("Esc did not dismiss enemy information viewing")
+	if game.paused:
+		failures.append("Esc paused the match instead of dismissing enemy information viewing")
+
 
 func _verify_commands_and_queue(
 	game: Node,
@@ -197,6 +225,11 @@ func _verify_move_and_rally(
 		game.call("_unhandled_key_input", escape)
 		if battlefield.move_armed or move_button.button_pressed:
 			failures.append("Esc did not immediately clear the selected Move command")
+		game.call("_unhandled_key_input", escape)
+		if not battlefield.selected_ids.is_empty():
+			failures.append("Esc did not dismiss the current selection")
+		if game.paused:
+			failures.append("Esc paused the match instead of dismissing the current selection")
 
 	var stronghold_id := simulation.primary_structure_id(RtsSimulation.TEAM_PLAYER, &"stronghold")
 	var stronghold := simulation.entity(stronghold_id)
@@ -229,3 +262,28 @@ func _verify_toast(game: Node, failures: Array[String]) -> void:
 	if not game.paused or not game._pause_banner.visible:
 		failures.append("pause did not display the centered pause state")
 	game.call("_toggle_pause")
+
+
+func _verify_free_worker_command(
+	game: Node,
+	battlefield: Battlefield,
+	simulation: RtsSimulation,
+	failures: Array[String],
+) -> void:
+	var team := RtsSimulation.TEAM_PLAYER
+	var stronghold_id := simulation.primary_structure_id(team, &"stronghold")
+	while not (simulation.entity(stronghold_id).get("queue", []) as Array).is_empty():
+		simulation.command_cancel_training(team, stronghold_id)
+	for worker_id in simulation.team_entity_ids(team, [&"worker"]):
+		simulation._kill(simulation.entity(worker_id), {})
+	for resource_kind in [&"jade", &"lumber", &"essence", &"food"]:
+		simulation.players[team][String(resource_kind)] = 0
+	battlefield.select_entities([stronghold_id])
+	game.call("_update_hud")
+	var worker_button := game._command_buttons[&"worker"] as HudCommandButton
+	if worker_button.disabled:
+		failures.append("the free recovery Worker command was disabled with no resources")
+	if worker_button.cost_markup != "FREE":
+		failures.append("the free recovery Worker command did not display a FREE cost")
+	if not worker_button.tooltip_text.contains("no Workers left"):
+		failures.append("the free recovery Worker command did not explain its free cost")

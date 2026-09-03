@@ -10,7 +10,7 @@ func _initialize() -> void:
 func _settle(frames: int = 8) -> void:
 	for _frame in range(frames):
 		await process_frame
-	await RenderingServer.frame_post_draw
+	RenderingServer.force_draw()
 
 
 func _capture(name: String) -> void:
@@ -61,6 +61,17 @@ func _run() -> void:
 	live_battlefield.set_process(false)
 	game._minimap.set_process(false)
 	game.call("_toggle_fog_of_war")
+	var enemy_stronghold_id: int = game.simulation.primary_structure_id(
+		RtsSimulation.TEAM_ENEMY,
+		&"stronghold",
+	)
+	var enemy_stronghold: Dictionary = game.simulation.entity(enemy_stronghold_id)
+	live_battlefield.select_entities([enemy_stronghold_id])
+	game.battlefield.camera_scale = 0.72
+	game.battlefield.center_on_cell(enemy_stronghold["cell"] as Vector2i)
+	game.call("_update_hud")
+	await _settle(2)
+	_capture("enemy-inspection")
 	game.battlefield.camera_scale = 0.72
 	game.battlefield.center_on_cell(MapCatalog.CAVES[0]["cell"] as Vector2i)
 	await _settle(2)
@@ -228,5 +239,5 @@ func _run() -> void:
 	root.remove_child(game)
 	game.free()
 	await process_frame
-	print("PASS visual_capture: title, faction-select, skirmish, worker cargo icons, pause, caves, production queue, armed command, multi-selection, food economy, wildlife hunt, command visualization, map overview")
+	print("PASS visual_capture: title, faction-select, skirmish, worker cargo icons, pause, enemy inspection, caves, production queue, armed command, multi-selection, food economy, wildlife hunt, command visualization, map overview")
 	quit(0)
