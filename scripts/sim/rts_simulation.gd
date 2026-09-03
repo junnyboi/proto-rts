@@ -24,6 +24,12 @@ const UNIT_SEPARATION_STIFFNESS := 85.0
 const UNIT_SEPARATION_DAMPING := 12.0
 const UNIT_SEPARATION_MAX_SPEED := 2.0
 const UNIT_SEPARATION_STOP_SPEED := 0.01
+const WORKER_SEPARATION_STIFFNESS := 58.0
+const WORKER_SEPARATION_DAMPING := 16.0
+const WORKER_SEPARATION_MAX_SPEED := 0.95
+const COMBAT_SEPARATION_STIFFNESS := 108.0
+const COMBAT_SEPARATION_DAMPING := 9.5
+const COMBAT_SEPARATION_MAX_SPEED := 2.35
 const STRUCTURE_VISION_RADIUS := 6
 const MYSTIC_VISION_RADIUS := 5
 const DEFAULT_VISION_RADIUS := 4
@@ -2263,10 +2269,11 @@ func _resolve_unit_separation(tick_delta: float = TICK_SECONDS) -> void:
 			if _has_active_path(unit) and displacement.is_zero_approx():
 				unit["separation_velocity"] = Vector2.ZERO
 				continue
-			velocity += displacement * UNIT_SEPARATION_STIFFNESS * step_delta
-			velocity *= exp(-UNIT_SEPARATION_DAMPING * step_delta)
-			if velocity.length() > UNIT_SEPARATION_MAX_SPEED:
-				velocity = velocity.normalized() * UNIT_SEPARATION_MAX_SPEED
+			var profile := _separation_profile(unit)
+			velocity += displacement * profile.x * step_delta
+			velocity *= exp(-profile.y * step_delta)
+			if velocity.length() > profile.z:
+				velocity = velocity.normalized() * profile.z
 			if displacement.is_zero_approx() and velocity.length() <= UNIT_SEPARATION_STOP_SPEED:
 				unit["separation_velocity"] = Vector2.ZERO
 				continue
@@ -2277,6 +2284,26 @@ func _resolve_unit_separation(tick_delta: float = TICK_SECONDS) -> void:
 				unit["separation_velocity"] = velocity
 			else:
 				unit["separation_velocity"] = Vector2.ZERO
+
+
+func _separation_profile(entity_state: Dictionary) -> Vector3:
+	if entity_state.get("kind") == &"worker":
+		return Vector3(
+			WORKER_SEPARATION_STIFFNESS,
+			WORKER_SEPARATION_DAMPING,
+			WORKER_SEPARATION_MAX_SPEED,
+		)
+	if entity_state.get("category") == &"unit":
+		return Vector3(
+			COMBAT_SEPARATION_STIFFNESS,
+			COMBAT_SEPARATION_DAMPING,
+			COMBAT_SEPARATION_MAX_SPEED,
+		)
+	return Vector3(
+		UNIT_SEPARATION_STIFFNESS,
+		UNIT_SEPARATION_DAMPING,
+		UNIT_SEPARATION_MAX_SPEED,
+	)
 
 
 func _moving_friendly_units_can_overlap(first: Dictionary, second: Dictionary) -> bool:

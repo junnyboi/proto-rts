@@ -78,6 +78,8 @@ Every commandable unit in a group receives a unique walkable destination when en
 - Apply the policy uniformly to Workers, Hunters, Vanguards, Mystics, and aligned Jadeclaws while retaining separation against enemies and neutral wildlife.
 - Convert penetration corrections into bounded per-entity separation velocity. Integrate that velocity over the fixed tick, apply exponential damping, and clear sub-threshold residual velocity so post-arrival spreading eases out instead of snapping or drifting indefinitely.
 - Clear stale separation velocity on an active path when no hostile or neutral correction is required, preserving authoritative path motion and allied passthrough.
+- Tune base travel speeds by role: Workers move at 1.30 cells per second and remain slower than Hunters, Vanguards, Mystics, and aligned Jadeclaws for every faction, including after the Beast movement bonus.
+- Give Workers a heavier idle-settling profile with lower separation stiffness, stronger damping, and a lower speed cap. Give combat units higher stiffness, lighter damping, and a higher cap so formations resolve more responsively without reintroducing snapping.
 
 ### Regression coverage
 
@@ -87,6 +89,7 @@ Every commandable unit in a group receives a unique walkable destination when en
 - Every playable unit class routes through an allied structure, while an enemy structure remains path-blocking.
 - A Worker and enemy unit spawned together still separate.
 - The first idle-separation tick produces visible but partial progress, all friendly class pairs converge within a bounded interval, and residual separation velocity decays to zero.
+- Every faction's Worker is slower than every controllable combat role, a Vanguard visibly outpaces a Worker over an equal one-second route, and combat separation advances faster than Worker separation on the first idle tick.
 
 ## 5. Simulation-authoritative fog and knowledge
 

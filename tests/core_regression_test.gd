@@ -90,6 +90,61 @@ func _test_live_placement_occupancy(failures: Array[String]) -> void:
 	_expect(not simulation.can_place_structure(RtsSimulation.TEAM_PLAYER, &"rice_farm", farm_origin), "multi-cell structure footprint accepted a live-unit overlap", failures)
 
 
+func _test_role_movement_profiles(failures: Array[String]) -> void:
+	var combat_kinds: Array[StringName] = [&"hunter", &"vanguard", &"mystic", &"jadeclaw"]
+	for faction in FactionCatalog.ORDER:
+		var worker_speed := float(FactionCatalog.stats(&"worker", faction)["speed"])
+		for combat_kind in combat_kinds:
+			var combat_speed := float(FactionCatalog.stats(combat_kind, faction)["speed"])
+			_expect(
+				worker_speed < combat_speed,
+				"%s Worker was not slower than its %s" % [faction, combat_kind],
+				failures,
+			)
+
+	var simulation := _blank_simulation()
+	var worker_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", Vector2i(8, 54))
+	var vanguard_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", Vector2i(8, 52))
+	var worker := simulation.entity(worker_id)
+	var vanguard := simulation.entity(vanguard_id)
+	var worker_profile := simulation._separation_profile(worker)
+	var combat_profile := simulation._separation_profile(vanguard)
+	_expect(worker_profile.x < combat_profile.x, "Worker separation stiffness was not lower than combat stiffness", failures)
+	_expect(worker_profile.y > combat_profile.y, "Worker separation damping was not stronger than combat damping", failures)
+	_expect(worker_profile.z < combat_profile.z, "Worker separation speed cap was not lower than the combat cap", failures)
+	_expect(
+		simulation.command_move(RtsSimulation.TEAM_PLAYER, [worker_id], Vector2i(18, 54)),
+		"Worker speed probe command was rejected",
+		failures,
+	)
+	_expect(
+		simulation.command_move(RtsSimulation.TEAM_PLAYER, [vanguard_id], Vector2i(18, 52)),
+		"Vanguard speed probe command was rejected",
+		failures,
+	)
+	_advance(simulation, 1.0)
+	var worker_distance := (worker["position"] as Vector2).distance_to(Vector2(8, 54))
+	var vanguard_distance := (vanguard["position"] as Vector2).distance_to(Vector2(8, 52))
+	_expect(vanguard_distance > worker_distance + 0.4, "Vanguard did not visibly outpace the Worker", failures)
+
+	var worker_spread := _blank_simulation()
+	var first_worker_id := worker_spread._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", Vector2i(24, 54))
+	var second_worker_id := worker_spread._spawn_unit(RtsSimulation.TEAM_PLAYER, &"worker", Vector2i(24, 54))
+	worker_spread._resolve_unit_separation(RtsSimulation.TICK_SECONDS)
+	var worker_first_tick := (
+		worker_spread.entity(first_worker_id)["position"] as Vector2
+	).distance_to(worker_spread.entity(second_worker_id)["position"] as Vector2)
+
+	var combat_spread := _blank_simulation()
+	var first_combat_id := combat_spread._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", Vector2i(24, 54))
+	var second_combat_id := combat_spread._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", Vector2i(24, 54))
+	combat_spread._resolve_unit_separation(RtsSimulation.TICK_SECONDS)
+	var combat_first_tick := (
+		combat_spread.entity(first_combat_id)["position"] as Vector2
+	).distance_to(combat_spread.entity(second_combat_id)["position"] as Vector2)
+	_expect(combat_first_tick > worker_first_tick * 1.5, "Combat units did not settle more responsively than Workers", failures)
+
+
 func _test_friendly_passthrough_and_idle_spacing(failures: Array[String]) -> void:
 	var friendly_kinds: Array[StringName] = [&"worker", &"hunter", &"vanguard", &"mystic", &"jadeclaw"]
 	var lane_y := 54
@@ -322,12 +377,13 @@ func _run() -> void:
 	_test_attack_move_external_kill(failures)
 	_test_scalable_and_partial_formations(failures)
 	_test_live_placement_occupancy(failures)
+	_test_role_movement_profiles(failures)
 	_test_friendly_passthrough_and_idle_spacing(failures)
 	_test_ai_natural_construction_and_fallback(failures)
 	_test_line_of_sight_and_invalid_commands(failures)
 	_test_command_authority(failures)
 	if failures.is_empty():
-		print("PASS core_regression_test: attack-move race, scalable/partial formations, occupancy, friendly passthrough, idle spacing, hostile separation, fair AI economy, sight, bounds, authority")
+		print("PASS core_regression_test: attack-move race, scalable/partial formations, occupancy, role movement profiles, friendly passthrough, idle spacing, hostile separation, fair AI economy, sight, bounds, authority")
 		quit(0)
 		return
 	for failure in failures:
