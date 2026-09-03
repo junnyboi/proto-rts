@@ -93,6 +93,13 @@ func _run() -> void:
 			break
 	if attack_event.get("attacker_kind") != &"mystic" or attack_event.get("team") != RtsSimulation.TEAM_PLAYER:
 		failures.append("authoritative attack event omitted semantic audio metadata")
+	if (
+		int(attack_event.get("attacker_id", -1)) != attacker_id
+		or int(attack_event.get("target_id", -1)) != target_id
+		or float(attack_event.get("amount", 0.0)) <= 0.0
+		or attack_event.get("attacker_faction") != &"human"
+	):
+		failures.append("authoritative attack event omitted semantic presentation snapshot data")
 	director.clear_diagnostics()
 	director.handle_simulation_event(attack_event)
 	if director.playback_log != [&"attack_magic", &"impact_damage"]:

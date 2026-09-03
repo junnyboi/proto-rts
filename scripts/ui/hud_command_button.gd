@@ -12,6 +12,13 @@ var _title_label: Label
 var _cost_label: RichTextLabel
 var _badge: Label
 var _art_host: Control
+var _art_visual: Control
+var _animation_time := 0.0
+var _hover_strength := 0.0
+var _press_depth := 0.0
+var _release_glint := 0.0
+var _disabled_nudge := 0.0
+var _reduced_motion := false
 
 
 func _init() -> void:
@@ -25,6 +32,63 @@ func _init() -> void:
 
 func _ready() -> void:
 	_build_content()
+	set_process(true)
+	pressed.connect(_on_visual_activated)
+	button_down.connect(func() -> void: queue_redraw())
+	button_up.connect(_on_visual_release)
+	mouse_entered.connect(func() -> void: queue_redraw())
+	mouse_exited.connect(func() -> void: queue_redraw())
+	gui_input.connect(_on_visual_gui_input)
+
+
+func _process(delta: float) -> void:
+	_animation_time = fmod(_animation_time + delta, TAU * 1000.0)
+	var hover_target := 1.0 if is_hovered() and not disabled else 0.0
+	var press_target := 2.0 if is_hovered() and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and not disabled else 0.0
+	if _reduced_motion:
+		_hover_strength = hover_target
+		_press_depth = press_target
+	else:
+		_hover_strength = lerpf(_hover_strength, hover_target, clampf(delta * 14.0, 0.0, 1.0))
+		_press_depth = lerpf(_press_depth, press_target, clampf(delta * 24.0, 0.0, 1.0))
+	_release_glint = maxf(0.0, _release_glint - delta * (7.0 if _reduced_motion else 4.5))
+	_disabled_nudge = maxf(0.0, _disabled_nudge - delta * 5.0)
+	if _art_visual != null:
+		var nudge := sin(_disabled_nudge * PI * 4.0) * 2.0 if _disabled_nudge > 0.0 and not _reduced_motion else 0.0
+		_art_visual.offset_left = nudge
+		_art_visual.offset_right = nudge
+		_art_visual.offset_top = _press_depth
+		_art_visual.offset_bottom = _press_depth
+	queue_redraw()
+
+
+func _draw() -> void:
+	var inset := 2.0
+	var rect := Rect2(Vector2.ONE * inset, size - Vector2.ONE * inset * 2.0)
+	if _hover_strength > 0.01:
+		var hover_color := Color(glyph_color, (0.18 + sin(_animation_time * 3.0) * 0.05) * _hover_strength)
+		draw_rect(rect, hover_color, false, 1.0 + _hover_strength, true)
+	if button_pressed:
+		var armed_color := Color(glyph_color, 0.34 + sin(_animation_time * 3.4) * 0.16)
+		draw_arc(size * 0.5, minf(size.x, size.y) * 0.43, _animation_time * 0.7, _animation_time * 0.7 + PI * 1.45, 28, armed_color, 1.6, true)
+	if _release_glint > 0.0:
+		var progress := 1.0 - _release_glint
+		var x := lerpf(4.0, size.x - 4.0, progress)
+		draw_line(Vector2(x - 9.0, 3.0), Vector2(x + 9.0, 3.0), Color(1.0, 0.93, 0.62, _release_glint * 0.85), 2.0, true)
+
+
+func set_reduced_motion(value: bool) -> void:
+	_reduced_motion = value
+	queue_redraw()
+
+
+func animation_diagnostics() -> Dictionary:
+	return {
+		"hover": _hover_strength,
+		"press_depth": _press_depth,
+		"release_glint": _release_glint,
+		"reduced_motion": _reduced_motion,
+	}
 
 
 func configure(
@@ -62,8 +126,9 @@ func set_command_title(value: String) -> void:
 func set_hotkey(value: String) -> void:
 	hotkey_text = value
 	if _badge != null:
-		_badge.text = value
+		_badge.text = _badge_label()
 		_badge.visible = not value.is_empty()
+		_layout_badge()
 
 
 func _build_content() -> void:
@@ -121,15 +186,31 @@ func _build_content() -> void:
 	_badge.add_theme_stylebox_override(&"normal", ThemeFactory.badge_style())
 	_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_badge)
+	_layout_badge()
 	_refresh_content()
+
+
+func _layout_badge() -> void:
+	if _badge == null:
+		return
+	var badge_width := maxf(18.0, 8.0 + float(_badge_label().length()) * 6.0)
+	_badge.offset_left = -badge_width - 4.0
+	_badge.offset_top = 3.0
+	_badge.offset_right = -4.0
+	_badge.offset_bottom = 21.0
+
+
+func _badge_label() -> String:
+	return "SPC" if hotkey_text == "Space" else hotkey_text
 
 
 func _refresh_content() -> void:
 	_title_label.text = command_title
 	_cost_label.text = cost_markup
 	_cost_label.visible = not cost_markup.is_empty()
-	_badge.text = hotkey_text
+	_badge.text = _badge_label()
 	_badge.visible = not hotkey_text.is_empty()
+	_layout_badge()
 	for child in _art_host.get_children():
 		child.queue_free()
 	var art: Control
@@ -145,3 +226,21 @@ func _refresh_content() -> void:
 	art.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_art_host.add_child(art)
+	_art_visual = art
+
+
+func _on_visual_activated() -> void:
+	_release_glint = 1.0
+	queue_redraw()
+
+
+func _on_visual_release() -> void:
+	if not disabled:
+		_release_glint = 1.0
+	queue_redraw()
+
+
+func _on_visual_gui_input(event: InputEvent) -> void:
+	if disabled and event is InputEventMouseButton and event.pressed:
+		_disabled_nudge = 1.0
+		queue_redraw()

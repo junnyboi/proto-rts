@@ -21,6 +21,10 @@ func _run() -> void:
 
 	_verify_economy_and_objectives(game, simulation, failures)
 	_verify_selection_states(game, battlefield, simulation, failures)
+	_verify_stronghold_upgrade_hud(game, battlefield, simulation, failures)
+	_verify_fortification_hud(game, battlefield, simulation, failures)
+	_verify_build_rotation_hotkey(game, battlefield, simulation, failures)
+	_verify_production_hotkey(game, battlefield, simulation, failures)
 	_verify_commands_and_queue(game, battlefield, simulation, failures)
 	_verify_move_and_rally(game, battlefield, simulation, failures)
 	_verify_toast_and_pause_menus(game, battlefield, failures)
@@ -41,7 +45,7 @@ func _run() -> void:
 	if not CursorSystem.is_suspended():
 		failures.append("game shutdown did not release the custom cursor registry")
 	if failures.is_empty():
-		print("PASS hud_test: title/result leaderboards, economy ribbon, objectives, selection states, command card, production queue, armed modes, toasts, pause/settings menus, and resign")
+		print("PASS hud_test: title/result leaderboards, economy ribbon, objectives, selection states, Stronghold upgrades, command card, production queue, armed modes, toasts, pause/settings menus, and resign")
 		quit(0)
 	else:
 		for failure in failures:
@@ -142,6 +146,8 @@ func _verify_selection_states(
 		failures.append("Empty selection did not fill the portrait frame with centered faction art")
 	if not game._selection_meta.text.contains("I IDLE"):
 		failures.append("selection help did not advertise the idle Worker hotkey")
+	if not game._selection_meta.text.contains("H STRONGHOLD") or game._selection_meta.text.contains("SPACE STRONGHOLD"):
+		failures.append("selection help did not advertise H as the exclusive Stronghold hotkey")
 
 	var workers := simulation.team_entity_ids(RtsSimulation.TEAM_PLAYER, [&"worker"])
 	var busy_worker := simulation.entity(workers[1])
@@ -170,10 +176,33 @@ func _verify_selection_states(
 		failures.append("multi-unit selection did not create a stacked type selector")
 
 	var stronghold_id := simulation.primary_structure_id(RtsSimulation.TEAM_PLAYER, &"stronghold")
-	battlefield.select_entities([stronghold_id])
+	battlefield.select_entities([workers[0]])
+	battlefield.camera_offset = Vector2(123.0, 456.0)
+	var stronghold_hotkey := InputEventKey.new()
+	stronghold_hotkey.pressed = true
+	stronghold_hotkey.keycode = KEY_H
+	game.call("_unhandled_key_input", stronghold_hotkey)
+	if battlefield.selected_ids != [stronghold_id]:
+		failures.append("H did not select the player Stronghold")
+	var hotkey_camera_offset := battlefield.camera_offset
+	battlefield.camera_offset = Vector2(321.0, 654.0)
+	battlefield.center_on_player_stronghold()
+	if not battlefield.camera_offset.is_equal_approx(hotkey_camera_offset):
+		failures.append("H did not center the camera on the player Stronghold")
 	game.call("_update_hud")
 	if game._selection_status.text != "STRUCTURE" or not game._command_buttons[&"worker"].visible:
 		failures.append("Stronghold selection did not show structure state and Worker production")
+
+	battlefield.select_entities([workers[0]])
+	battlefield.camera_offset = Vector2(234.0, 567.0)
+	var space_key := InputEventKey.new()
+	space_key.pressed = true
+	space_key.keycode = KEY_SPACE
+	game.call("_input", space_key)
+	if battlefield.selected_ids != [workers[0]]:
+		failures.append("Space changed selection without a producer selected")
+	if battlefield.camera_offset != Vector2(234.0, 567.0):
+		failures.append("Space changed the camera without a producer selected")
 
 	var resource_id := -1
 	for raw_entity in simulation.entities.values():
@@ -225,6 +254,233 @@ func _verify_selection_states(
 		failures.append("Esc did not dismiss enemy information viewing")
 	if game.paused:
 		failures.append("Esc paused the match instead of dismissing enemy information viewing")
+
+
+func _verify_stronghold_upgrade_hud(
+	game: Node,
+	battlefield: Battlefield,
+	simulation: RtsSimulation,
+	failures: Array[String],
+) -> void:
+	var team := RtsSimulation.TEAM_PLAYER
+	var player := simulation.players[team] as Dictionary
+	var stronghold_id := simulation.primary_structure_id(team, &"stronghold")
+	var stronghold := simulation.entity(stronghold_id)
+	for resource_kind in [&"jade", &"lumber", &"essence", &"food"]:
+		player[String(resource_kind)] = 199
+	battlefield.select_entities([stronghold_id])
+	game.call("_update_hud")
+	var upgrade_button := game._command_buttons.get(&"stronghold_upgrade") as HudCommandButton
+	if game._selection_title.text != "STRONGHOLD LVL 1":
+		failures.append("selected Stronghold name did not append its initial level")
+	if upgrade_button == null or not upgrade_button.visible:
+		failures.append("selected Stronghold did not expose its HUD upgrade command")
+		return
+	if upgrade_button.command_title != "UPGRADE LVL 2" or not upgrade_button.disabled:
+		failures.append("first Stronghold upgrade command did not show its unavailable Lvl 2 state")
+	if not upgrade_button.cost_markup.contains("200J") or not upgrade_button.cost_markup.contains("200F"):
+		failures.append("first Stronghold upgrade command did not show its 200-each cost")
+
+	for resource_kind in [&"jade", &"lumber", &"essence", &"food"]:
+		player[String(resource_kind)] = 200
+	game.call("_update_hud")
+	if upgrade_button.disabled:
+		failures.append("first Stronghold upgrade command remained disabled at its exact cost")
+	else:
+		upgrade_button.pressed.emit()
+	game.call("_update_hud")
+	if int(stronghold.get("stronghold_level", 0)) != 2:
+		failures.append("Stronghold HUD command did not complete the first upgrade")
+	if int(player["population_cap"]) != RtsSimulation.POPULATION_CAP + 6:
+		failures.append("Stronghold HUD command did not raise the population cap to 30")
+	if game._selection_title.text != "STRONGHOLD LVL 2":
+		failures.append("Stronghold name did not refresh to Lvl 2 after upgrading")
+	if upgrade_button.command_title != "UPGRADE LVL 3" or not upgrade_button.cost_markup.contains("300J"):
+		failures.append("second Stronghold upgrade command did not show its Lvl 3 cost")
+
+	for resource_kind in [&"jade", &"lumber", &"essence", &"food"]:
+		player[String(resource_kind)] = 300
+	game.call("_update_hud")
+	if upgrade_button.disabled:
+		failures.append("second Stronghold upgrade command remained disabled at its exact cost")
+	else:
+		upgrade_button.pressed.emit()
+	game.call("_update_hud")
+	if int(stronghold.get("stronghold_level", 0)) != RtsSimulation.STRONGHOLD_MAX_LEVEL:
+		failures.append("Stronghold HUD command did not complete the second upgrade")
+	if int(player["population_cap"]) != RtsSimulation.POPULATION_CAP + 12:
+		failures.append("Stronghold HUD command did not raise the population cap to 36")
+	if game._selection_title.text != "STRONGHOLD LVL 3":
+		failures.append("Stronghold name did not refresh to Lvl 3 after upgrading")
+	if upgrade_button.command_title != "MAX LEVEL" or not upgrade_button.disabled:
+		failures.append("maximum-level Stronghold did not show a disabled terminal upgrade state")
+	if not upgrade_button.cost_markup.is_empty():
+		failures.append("maximum-level Stronghold continued to display an upgrade cost")
+	if not (game._resource_values[&"population"] as Label).text.ends_with("/36"):
+		failures.append("population ribbon did not refresh to the fully upgraded cap")
+
+
+func _verify_fortification_hud(
+	game: Node,
+	battlefield: Battlefield,
+	simulation: RtsSimulation,
+	failures: Array[String],
+) -> void:
+	var workers := simulation.team_entity_ids(RtsSimulation.TEAM_PLAYER, [&"worker"])
+	battlefield.select_entities([workers[0]])
+	game.call("_update_hud")
+	for button_id in [&"build_wall", &"build_gate", &"build_tower"]:
+		if not game._command_buttons.has(button_id) or not (game._command_buttons[button_id] as Button).visible:
+			failures.append("Worker command card omitted %s" % String(button_id))
+	if game._command_grid.columns != 4 or game._command_slots.size() != 12:
+		failures.append("fortification commands did not expand the command card to a fixed 4x3 grid")
+
+	var tower_cell := simulation._find_build_site(
+		RtsSimulation.TEAM_PLAYER,
+		&"sentry_tower",
+		MapCatalog.PLAYER_STRONGHOLD + Vector2i(6, 0),
+	)
+	if tower_cell.x < 0:
+		failures.append("no clear Sentry Tower HUD test site was available")
+		return
+	var tower_id := simulation._spawn_structure(RtsSimulation.TEAM_PLAYER, &"sentry_tower", tower_cell, true)
+	simulation._rebuild_pathfinding()
+	var hunter_cell := simulation._nearest_walkable_around(tower_cell, 4)
+	var hunter_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"hunter", hunter_cell)
+	simulation._enter_garrison(simulation.entity(tower_id), simulation.entity(hunter_id))
+	battlefield.select_entities([tower_id])
+	game.call("_update_hud")
+	if not game._selection_stacks.visible or game._selection_stacks.get_child_count() != 1:
+		failures.append("selected Sentry Tower did not show its garrisoned unit in the HUD")
+		return
+	var occupant_button := game._selection_stacks.get_child(0) as Button
+	if occupant_button.name != "GarrisonUnitButton" or not occupant_button.text.contains("UNGARRISON"):
+		failures.append("tower occupant HUD tile did not expose its ungarrison action")
+	game.call("_update_hud")
+	if occupant_button != game._selection_stacks.get_child(0):
+		failures.append("HUD refresh replaced the tower occupant button during a possible mouse click")
+	occupant_button.pressed.emit()
+	if int(simulation.entity(hunter_id).get("garrisoned_in", -1)) >= 0:
+		failures.append("clicking the tower occupant HUD tile did not ungarrison the unit")
+	if simulation._astar.is_point_solid(simulation.entity(hunter_id)["cell"] as Vector2i):
+		failures.append("HUD-ungarrisoned unit did not appear on walkable ground at the tower base")
+
+
+func _verify_build_rotation_hotkey(
+	game: Node,
+	battlefield: Battlefield,
+	simulation: RtsSimulation,
+	failures: Array[String],
+) -> void:
+	var worker_id := simulation.team_entity_ids(RtsSimulation.TEAM_PLAYER, [&"worker"])[0]
+	battlefield.select_entities([worker_id])
+	battlefield.begin_structure_placement(&"rice_farm")
+	var rotate_key := InputEventKey.new()
+	rotate_key.pressed = true
+	rotate_key.keycode = KEY_R
+	game.call("_unhandled_key_input", rotate_key)
+	if battlefield.placement_orientation != &"x":
+		failures.append("R did not rotate an armed building placement by 90 degrees")
+	if battlefield.repair_armed:
+		failures.append("R armed Repair while a building placement was active")
+	game.call("_unhandled_key_input", rotate_key)
+	if battlefield.placement_orientation != &"y":
+		failures.append("a second R press did not rotate building placement back by 90 degrees")
+	battlefield.cancel_modes()
+	game.call("_unhandled_key_input", rotate_key)
+	if not battlefield.repair_armed:
+		failures.append("R no longer armed Repair outside building placement")
+	battlefield.cancel_modes()
+
+
+func _verify_production_hotkey(
+	game: Node,
+	battlefield: Battlefield,
+	simulation: RtsSimulation,
+	failures: Array[String],
+) -> void:
+	var team := RtsSimulation.TEAM_PLAYER
+	var player := simulation.players[team] as Dictionary
+	var audio_was_muted := game.audio_director.muted as bool
+	game.audio_director.muted = true
+	for resource in [&"jade", &"lumber", &"essence", &"food"]:
+		player[String(resource)] = 1000
+
+	var stronghold_id := simulation.primary_structure_id(team, &"stronghold")
+	var camp_id := simulation._spawn_structure(
+		team,
+		&"war_camp",
+		MapCatalog.PLAYER_STRONGHOLD + Vector2i(8, 5),
+		true,
+	)
+	var lodge_id := simulation._spawn_structure(
+		team,
+		&"hunters_lodge",
+		MapCatalog.PLAYER_STRONGHOLD + Vector2i(5, 8),
+		true,
+	)
+	var cave_id := int(simulation.cave_ids()[0])
+	var cave := simulation.entity(cave_id)
+	var cave_team := int(cave.get("team", RtsSimulation.TEAM_NEUTRAL))
+	var cave_faction := cave.get("faction", &"neutral") as StringName
+	var cave_order := cave.get("order", &"guarded") as StringName
+	cave["team"] = team
+	cave["faction"] = player["faction"] as StringName
+	cave["order"] = &"idle"
+
+	var producer_cases: Array[Dictionary] = [
+		{"id": stronghold_id, "kind": &"worker"},
+		{"id": camp_id, "kind": &"vanguard"},
+		{"id": lodge_id, "kind": &"hunter"},
+		{"id": cave_id, "kind": &"jadeclaw"},
+	]
+	var space_key := InputEventKey.new()
+	space_key.pressed = true
+	space_key.keycode = KEY_SPACE
+	for producer_case in producer_cases:
+		var structure_id := int(producer_case["id"])
+		var expected_kind := producer_case["kind"] as StringName
+		battlefield.select_entities([structure_id])
+		game.call("_update_hud")
+		var button := game._command_buttons[expected_kind] as HudCommandButton
+		if not button.visible or button.hotkey_text != "Space":
+			failures.append("%s did not advertise Space on its first production option" % String(expected_kind).capitalize())
+		elif (
+			button._badge.text != "SPC"
+			or button._badge.position.x < 0.0
+			or button._badge.position.x + button._badge.size.x > button.size.x
+		):
+			failures.append("Space production badge did not render inside its command tile")
+		if not button.tooltip_text.contains("Hotkey: Space"):
+			failures.append("%s production tooltip omitted the Space hotkey" % String(expected_kind).capitalize())
+		game.call("_input", space_key)
+		var queue := simulation.entity(structure_id).get("queue", []) as Array
+		if queue.size() != 1 or (queue[0] as Dictionary).get("kind") != expected_kind:
+			failures.append("Space did not queue the first %s production option" % String(expected_kind).capitalize())
+		else:
+			simulation.command_cancel_training(team, structure_id)
+
+	battlefield.select_entities([camp_id])
+	game.call("_update_hud")
+	if (game._command_buttons[&"mystic"] as HudCommandButton).hotkey_text == "Space":
+		failures.append("Space was assigned to the War Camp's second production option")
+	for resource in [&"jade", &"lumber", &"essence", &"food"]:
+		player[String(resource)] = 0
+	var population_before := int(player["population"])
+	game.call("_input", space_key)
+	if not (simulation.entity(camp_id).get("queue", []) as Array).is_empty():
+		failures.append("Space queued a Vanguard without sufficient resources")
+	if int(player["population"]) != population_before:
+		failures.append("failed Space production reserved population")
+	if not game._feedback_label.text.contains("Insufficient resources"):
+		failures.append("failed Space production did not explain its affordability failure")
+
+	for resource in [&"jade", &"lumber", &"essence", &"food"]:
+		player[String(resource)] = 1000
+	cave["team"] = cave_team
+	cave["faction"] = cave_faction
+	cave["order"] = cave_order
+	game.audio_director.muted = audio_was_muted
 
 
 func _verify_commands_and_queue(
@@ -384,6 +640,37 @@ func _verify_toast_and_pause_menus(
 	game._settings_button.pressed.emit()
 	if game._pause_menu.visible or not game._settings_menu.visible:
 		failures.append("Settings did not replace the pause menu with the settings panel")
+	if (
+		game._settings_effect_intensity_button == null
+		or game._settings_reduced_motion_button == null
+		or game._settings_camera_impulse_button == null
+		or game._settings_damage_numbers_button == null
+	):
+		failures.append("settings menu is missing game-juice accessibility controls")
+	else:
+		game._settings_effect_intensity_button.pressed.emit()
+		game._settings_reduced_motion_button.pressed.emit()
+		game._settings_camera_impulse_button.pressed.emit()
+		game._settings_damage_numbers_button.pressed.emit()
+		if game.effect_intensity != &"low" or not game.reduced_motion:
+			failures.append("effect density or reduced motion did not apply immediately")
+		if game.camera_impulse != &"full" or game.damage_numbers != &"all":
+			failures.append("camera impulse or damage-value settings did not cycle")
+		if battlefield._effect_director.intensity != &"low" or not battlefield._presentation.reduced_motion:
+			failures.append("settings did not reach the active Battlefield presentation")
+		var sample_button := game._command_buttons[&"move"] as HudCommandButton
+		if not bool(sample_button.animation_diagnostics()["reduced_motion"]):
+			failures.append("reduced motion did not reach HUD command animations")
+		sample_button.call("_on_visual_activated")
+		if float(sample_button.animation_diagnostics()["release_glint"]) <= 0.0:
+			failures.append("keyboard/pointer activation path did not trigger command glint")
+		# Restore defaults so later assertions keep their expected presentation state.
+		game._settings_effect_intensity_button.pressed.emit()
+		game._settings_reduced_motion_button.pressed.emit()
+		game._settings_camera_impulse_button.pressed.emit()
+		game._settings_camera_impulse_button.pressed.emit()
+		game._settings_damage_numbers_button.pressed.emit()
+		game._settings_damage_numbers_button.pressed.emit()
 	var muted_before: bool = game.audio_director.muted
 	game._settings_audio_button.pressed.emit()
 	if game.audio_director.muted == muted_before:

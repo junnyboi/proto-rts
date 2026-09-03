@@ -296,7 +296,7 @@ const BASE_STATS := {
 	},
 	&"sentry_tower": {
 		"name": "Sentry Tower",
-		"role": "Garrisons one Hunter or Mystic. The occupant attacks automatically with double range.",
+		"role": "Garrisons up to two Hunters or Mystics. Occupants attack automatically with double range.",
 		"max_hp": 900.0,
 		"population": 0,
 		"train_time": 0.0,
@@ -304,7 +304,7 @@ const BASE_STATS := {
 		"lumber_cost": 60,
 		"essence_cost": 0,
 		"footprint": Vector2i(2, 2),
-		"garrison_capacity": 1,
+		"garrison_capacity": 2,
 	},
 	&"yaoguai_den": {
 		"name": "Yaoguai Den",

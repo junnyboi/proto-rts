@@ -83,10 +83,18 @@
           "sha256": "4b16ad994680ac86a38411a983a381c601abc4b42ba74e5f493fd96db372726a"
         }
       },
-      "runtime_duration_seconds": 2.661917,
+      "postprocessing": {
+        "fade_out_seconds": 0.035,
+        "input_duration_seconds": 2.661917,
+        "input_sha256": "4cc0b5e77e17482713dca8541e7f164afeb362e0f8a7de9d6bfa4ff7ff931b6d",
+        "operation": "keep_first_half",
+        "previous_runtime_sha256": "4cc0b5e77e17482713dca8541e7f164afeb362e0f8a7de9d6bfa4ff7ff931b6d",
+        "target_duration_seconds": 1.3309585
+      },
+      "runtime_duration_seconds": 1.330958,
       "runtime_path": "/home/ubuntu/proto-rts-source/assets/runtime/audio/sfx/attack_magic.ogg",
-      "runtime_sha256": "4cc0b5e77e17482713dca8541e7f164afeb362e0f8a7de9d6bfa4ff7ff931b6d",
-      "runtime_size_bytes": 61171,
+      "runtime_sha256": "accb99e4e8452fede3a6cf81875f628e7260138647a6afb2367d1b0c81658cd0",
+      "runtime_size_bytes": 29949,
       "selected_candidate": "A",
       "selected_source": "/home/ubuntu/proto-rts-audio-candidates/sfx/attack_magic_A.mp3",
       "selected_source_sha256": "d6a1abefebe8acae94e8fef0e43030091063a80d746f70a669b8d46a7e55dddf",

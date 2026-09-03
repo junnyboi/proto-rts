@@ -74,6 +74,60 @@ func _test_patrol(failures: Array[String]) -> void:
 		failures.append("patrol did not resume its route after losing a combat target")
 
 
+func _test_path_recovery(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human", false)
+	simulation.entities.clear()
+	simulation._rebuild_pathfinding()
+	var origin := Vector2i(-1, -1)
+	for y in range(1, MapCatalog.SIZE.y - 1):
+		for x in range(1, MapCatalog.SIZE.x - 5):
+			var area_is_open := true
+			for offset_y in range(-1, 2):
+				for offset_x in range(6):
+					if simulation._astar.is_point_solid(Vector2i(x + offset_x, y + offset_y)):
+						area_is_open = false
+						break
+				if not area_is_open:
+					break
+			if area_is_open:
+				origin = Vector2i(x, y)
+				break
+		if origin.x >= 0:
+			break
+	if origin.x < 0:
+		failures.append("no open route fixture was available for path recovery")
+		return
+	var destination := origin + Vector2i(5, 0)
+	var unit_id := simulation._spawn_unit(RtsSimulation.TEAM_PLAYER, &"vanguard", origin)
+	var unit := simulation.entity(unit_id)
+	if not simulation.command_move(RtsSimulation.TEAM_PLAYER, [unit_id], destination):
+		failures.append("path recovery fixture rejected its move command")
+		return
+	unit["path"] = []
+	unit["path_index"] = 0
+	simulation._advance_path(unit, RtsSimulation.TICK_SECONDS)
+	var recovered_path := unit.get("path", []) as Array
+	if recovered_path.is_empty() or unit.get("order") != &"move":
+		failures.append("a unit did not regenerate a cleared route to its saved destination")
+		return
+	var blocked_cell := Vector2i((recovered_path[int(unit.get("path_index", 0))] as Vector2).round())
+	simulation._astar.set_point_solid(blocked_cell, true)
+	simulation._advance_path(unit, RtsSimulation.TICK_SECONDS)
+	var detour := unit.get("path", []) as Array
+	if detour.is_empty() or Vector2(blocked_cell) in detour:
+		failures.append("a unit did not replace a newly blocked route with a detour")
+		return
+	var timeout := 10.0
+	while unit.get("order") != &"idle" and timeout > 0.0:
+		simulation.advance(RtsSimulation.TICK_SECONDS)
+		timeout -= RtsSimulation.TICK_SECONDS
+	if (unit["position"] as Vector2).distance_to(Vector2(destination)) > 0.15:
+		failures.append("a unit did not reach its destination after regenerating pathfinding")
+	if unit.get("order") != &"idle":
+		failures.append("a recovered move order did not complete")
+
+
 func _test_repair(failures: Array[String]) -> void:
 	var simulation := RtsSimulation.new()
 	simulation.setup(&"human")
@@ -294,13 +348,14 @@ func _run() -> void:
 	var failures: Array[String] = []
 	_test_shift_order_queue(failures)
 	_test_patrol(failures)
+	_test_path_recovery(failures)
 	_test_repair(failures)
 	_test_existing_construction_assignment(failures)
 	_test_training_cancellation(failures)
 	_test_control_groups(failures)
 	_test_modifier_input_forwarding(failures)
 	if failures.is_empty():
-		print("PASS command_system_test: control groups, Shift queues, construction, repair, patrol, cancellation")
+		print("PASS command_system_test: path recovery, control groups, Shift queues, construction, repair, patrol, cancellation")
 		quit(0)
 	else:
 		for failure in failures:

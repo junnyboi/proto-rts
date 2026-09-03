@@ -54,11 +54,13 @@ for test_script in \
 	  tests/projection_test.gd \
 	  tests/assets_test.gd \
 	  tests/audio_test.gd \
+	  tests/effect_director_test.gd \
 	  tests/cursor_test.gd \
 	  tests/leaderboard_test.gd \
 	  tests/hud_test.gd \
 	  tests/interaction_test.gd \
   tests/command_system_test.gd \
+  tests/fortification_test.gd \
   tests/visibility_test.gd \
 	  tests/view_overlay_test.gd \
   tests/simulation_test.gd \

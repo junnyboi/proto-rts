@@ -32,6 +32,9 @@ Standing trees block movement and construction; logging them opens routes and bu
 | **War Camp** | Produces Vanguards and Mystics; costs Jade, Lumber, and Essence |
 | **Rice Farm** | Cheap 2 × 2 producer; yields 8 Food every 40 seconds, or five times that output while staffed by a Worker |
 | **Hunter's Lodge** | Compact producer; yields 18 Food every 50 seconds and trains bounty-earning Hunters |
+| **Wood Wall** | 1 × 1 defensive segment; drag to place an atomic, axis-snapped line for 8 Lumber per cell |
+| **Wood Gate** | Rotatable 2 × 4 passage; friendly units cross while enemies remain blocked |
+| **Sentry Tower** | Roofless 2 × 2 defense; garrison one Hunter or Mystic for unchanged damage and double range |
 | **Yaoguai Den** | Guarded neutral objective; capture it to unlock Jadeclaw production |
 
 ## Controls
@@ -44,19 +47,25 @@ Standing trees block movement and construction; logging them opens routes and bu
 | Right click resource | Assign selected workers to gather; hold `Shift` to queue the source |
 | Right click enemy | Focus-fire selected units; hold `Shift` to queue the target |
 | Right click damaged allied structure | Repair it with selected workers |
+| Right click Sentry Tower | Send one selected Hunter or Mystic into a completed friendly tower |
+| Click tower occupant in HUD | Ungarrison that unit onto walkable ground at the tower base |
 | Right click Yaoguai Den | Hunt its guardians, move into its capture ring, or set its rally point when owned and selected |
 | Right click Dragon Egg | Claim an unlocked egg with selected empty-handed Workers; right click the home Stronghold to reinforce its return order |
 | Right click with structure selected | Set rally point |
 | `F`, then left click | Attack-move; hold `Shift` while arming or confirming to queue it |
 | `T`, then left click | Patrol repeatedly between the unit's position and the destination |
-| `R`, then left click | Repair a damaged allied structure with selected workers |
+| `R`, then left click | Repair a damaged allied structure with selected workers when no build tool is armed |
+| `R` while placing a building | Rotate its footprint and isometric sprite direction by 90 degrees |
+| Wall build command, then left drag | Preview and commit a straight wall line snapped to the dominant map axis; every segment automatically faces along that axis |
+| Gate build command, then left drag | Automatically orient and place a 2 × 4 or 4 × 2 gate |
 | `Ctrl/Cmd` + `0–9` | Assign the current selection to a control group; add `Shift` to extend it |
 | `0–9` | Recall a control group; add `Shift` to merge it with the selection; double-tap to center |
 | `X` | Stop selected units and clear queued orders |
 | `Q` | Select all workers |
 | `I` | Select all idle workers |
 | `E` | Select the army |
-| `Space` | Select and center the player Stronghold |
+| `H` | Select and center the player Stronghold |
+| `Space` with a player producer selected | Queue its first listed unit when resources and population allow |
 | `WASD` or arrow keys | Pan the battlefield |
 | Middle mouse drag | Pan the battlefield |
 | `Command` + mouse wheel, or trackpad pinch/spread | Zoom |
@@ -74,15 +83,21 @@ Standing trees block movement and construction; logging them opens routes and bu
 | **Beast Clans** | Units move 18% faster; Vanguards cost 15 less Jade |
 | **Human Dynasty** | +10% Jade income; War Camps cost 15% less |
 
+## Presentation and game juice
+
+The battlefield uses a bounded, deterministic presentation layer for immediate hover/click acknowledgement, animated selection rings, unit anticipation and recoil, movement lean and foot-plant squash, surface-colored dust, distinct melee/projectile/mystic/beast/Shenlong attacks, hit flashes, eased health chips, aggregated damage and economy values, non-pickable death residues, construction/repair motes, faction-shaped impacts, water sheen, and sparse grove leaves. Critical destruction can add a short planar camera impulse without delaying or changing authoritative simulation outcomes.
+
+Pause → Settings exposes `Effects: Low/Full`, `Reduced Motion: Off/On`, `Camera Impulse: Off/Major/Full`, and `Damage Values: Off/Contextual/All`. Reduced motion retains semantic rings, flashes, paths, and state changes while removing positional, rotational, scale, and camera motion.
+
 ## Architecture
 
-The simulation stores positions in continuous grid coordinates. `IsoProjection` converts those coordinates to a 2:1 diamond view and performs inverse picking. `RtsSimulation` owns all four team states, resources, food harvest timers, entities, active and queued orders, egg ownership, elimination, repair costs, patrol routes, production refunds, navigation, gathering, line-of-sight combat, AI, outcome state, and semantic effect metadata. Every mutable command requires an explicit issuer team and rejects foreign unit, worker, structure, queue, cargo, or rally IDs before mutation. `Battlefield` reads that state, owns local control-group selection shortcuts, renders the match, translates input into player-authorized simulation commands, and forwards only player-visible events. Its renderer batches authored terrain and fog, culls entities before sorting, uses strategic tree/grid level-of-detail, and caps ambient redraws at 30 Hz; the minimap composites cached image layers. `AudioDirector` persists beneath the root application node, loops the score across screen transitions, maps semantic events to generated cues, and enforces cooldown, priority, pitch variation, visibility, mute, and a bounded 16-voice pool. `main.gd` owns the application screens, heads-up display, and high-level music state.
+The simulation stores positions in continuous grid coordinates. `IsoProjection` converts those coordinates to a 2:1 diamond view and performs inverse picking. `RtsSimulation` owns all four team states, resources, food harvest timers, entities, active and queued orders, fortification footprints, wall-line transactions, gate passage, tower garrisons, egg ownership, elimination, repair costs, patrol routes, production refunds, navigation, gathering, line-of-sight combat, AI, outcome state, and semantic effect metadata. Every mutable command requires an explicit issuer team and rejects foreign unit, worker, structure, queue, cargo, or rally IDs before mutation. `Battlefield` reads that state, owns local control-group selection shortcuts, renders the match, translates input into player-authorized simulation commands, and forwards only player-visible events. Its renderer batches authored terrain and fog, culls entities before sorting, uses strategic tree/grid level-of-detail, and caps ambient redraws at 30 Hz; `EffectDirector` owns bounded transient pools while `PresentationState` owns local sprite transforms and display-health easing. Neither may mutate gameplay truth. The minimap composites cached image layers. `AudioDirector` persists beneath the root application node, loops the score across screen transitions, maps semantic events to generated cues, and enforces cooldown, priority, pitch variation, visibility, mute, and a bounded 16-voice pool. `main.gd` owns the application screens, heads-up display, and high-level music state.
 
 The design borrows the clean model/view boundary from [`junnyboi/proto-td`](https://github.com/junnyboi/proto-td), but the terrain renderer, map, factions, economy, simulation, controls, assets, interface, and gameplay are original to this repository.
 
 ## Generated asset pipelines
 
-All representational game art was generated specifically for this project with **GPT Image 2**. The active runtime manifest contains 82 optimized derivatives generated from immutable masters under `assets/source/`; retired concepts and seasonal tree masters remain outside the runtime build. The repeatable processing tool removes the isolation background, preserves transparent silhouettes, resizes by asset category, and writes SHA-256 hashes.
+All representational game art was generated specifically for this project with **GPT Image 2**. The active runtime manifest contains 94 optimized derivatives generated from immutable masters under `assets/source/`; retired concepts and seasonal tree masters remain outside the runtime build. The repeatable processing tool removes the isolation background, preserves transparent silhouettes, resizes by asset category, and writes SHA-256 hashes.
 
 ```bash
 python3 -m venv .venv
@@ -112,7 +127,7 @@ Run the focused suite:
 tools/run_tests.sh
 ```
 
-The 15-suite runner verifies the four-island topology, four independent bridges, symmetric starts and economy, central connectivity, 255-tree grove density, 68 wildlife spawns, four caves, four-team fog and command authority, last-Stronghold victory, the guarded egg lifecycle, carrier drops, allied Shenlong hatching, projection round trips, all 106 runtime image and audio asset paths, cursor and HUD state, control groups, queued orders, repair, patrol, cancellation, formations, line-of-sight combat, fair multi-AI economy, hunting, harvesting, capture, combat, and instrumented Battlefield/minimap draw budgets. A native visual harness captures the map overview, Shenlong objective, egg carrier, food economy, command visualization, redesigned HUD, and wildlife hunt:
+The 18-suite runner verifies the four-island topology, four independent bridges, symmetric starts and economy, central connectivity, 255-tree grove density, 68 wildlife spawns, four caves, four-team fog and command authority, last-Stronghold victory, the guarded egg lifecycle, carrier drops, allied Shenlong hatching, projection round trips, all 118 runtime image and audio asset paths, fortification footprints, atomic wall snapping, gate passage, tower garrison combat and ejection, cursor and HUD state, control groups, queued orders, repair, patrol, cancellation, formations, line-of-sight combat, fair multi-AI economy, hunting, harvesting, capture, combat, bounded effect pools, aggregation, expiry, reduced motion, and instrumented Battlefield/minimap draw budgets. A native visual harness captures four dedicated game-juice states alongside the map overview, Shenlong objective, egg carrier, food economy, fortifications, command visualization, redesigned HUD, and wildlife hunt:
 
 ```bash
 /Applications/Godot.app/Contents/MacOS/Godot --path . --script tests/visual_capture.gd
@@ -136,4 +151,4 @@ python3 -m http.server 8060 --directory build/web
 
 ## Design documents
 
-The implemented archipelago proposal, affected-file plan, acceptance contract, and GPT Image 2 concept designs are in [`docs/FOUR_PLAYER_MAP_PROPOSAL.md`](docs/FOUR_PLAYER_MAP_PROPOSAL.md). The original scope and implementation contract are in [`docs/GAME_PROPOSAL.md`](docs/GAME_PROPOSAL.md) and [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md). The wide RTS benchmark and roadmap are in [`docs/RTS_GAMEPLAY_RESEARCH_AND_FEATURE_PROPOSAL.md`](docs/RTS_GAMEPLAY_RESEARCH_AND_FEATURE_PROPOSAL.md). Other implemented feature proposals and generated-art provenance remain under [`docs/`](docs/) and [`assets/source/`](assets/source/).
+The implemented game-juice audit, modern-RTS research, GPT Image 2 paintovers, and affected-file delivery record are in [`docs/GAME_JUICE_PROPOSAL.md`](docs/GAME_JUICE_PROPOSAL.md) and [`docs/GAME_JUICE_IMPLEMENTATION_PLAN.md`](docs/GAME_JUICE_IMPLEMENTATION_PLAN.md). The implemented fortification proposal and plan are in [`docs/FORTIFICATION_PROPOSAL.md`](docs/FORTIFICATION_PROPOSAL.md) and [`docs/FORTIFICATION_IMPLEMENTATION_PLAN.md`](docs/FORTIFICATION_IMPLEMENTATION_PLAN.md). The original scope and implementation contract are in [`docs/GAME_PROPOSAL.md`](docs/GAME_PROPOSAL.md) and [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md). Other implemented feature proposals and generated-art provenance remain under [`docs/`](docs/) and [`assets/source/`](assets/source/).

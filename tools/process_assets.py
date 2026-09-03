@@ -3,9 +3,12 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 from pathlib import Path
+import subprocess
+import tempfile
 
 from PIL import Image
 
@@ -15,6 +18,13 @@ RUNTIME = ROOT / "assets" / "runtime"
 
 RESAMPLING = Image.Resampling.LANCZOS
 
+# Original GPT Image 2 masters remain immutable. These aligned replacements
+# correct source-facing outliers while preserving stable runtime asset paths.
+FORTIFICATION_SOURCE_OVERRIDES = {
+    ("celestial", "wall"): "celestial_wall_aligned.png",
+    ("demon", "gate"): "demon_gate_aligned.png",
+}
+
 
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -22,6 +32,117 @@ def sha256(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def probe_audio_duration(path: Path) -> float:
+    result = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(path),
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    return float(result.stdout.strip())
+
+
+def refresh_audio_checksums(audio_root: Path) -> None:
+    runtime_audio_paths = sorted(
+        [
+            audio_root / "bgm" / "the_jade_meridian_endures.ogg",
+            *(audio_root / "sfx").glob("*.ogg"),
+        ]
+    )
+    checksum_lines = [
+        f"{sha256(path)}  {path.relative_to(audio_root)}"
+        for path in runtime_audio_paths
+    ]
+    (audio_root / "SHA256SUMS").write_text(
+        "\n".join(checksum_lines) + "\n",
+        encoding="utf-8",
+    )
+
+
+def truncate_audio_to_first_half(source: Path, cue_name: str) -> None:
+    if Path(cue_name).name != cue_name or not cue_name:
+        raise ValueError("Audio cue must be a filename stem without path separators")
+    if not source.is_file():
+        raise FileNotFoundError(f"Audio source does not exist: {source}")
+
+    audio_root = RUNTIME / "audio"
+    destination = audio_root / "sfx" / f"{cue_name}.ogg"
+    if not destination.is_file():
+        raise FileNotFoundError(f"Runtime audio cue does not exist: {destination}")
+    if source.resolve() == destination.resolve():
+        raise ValueError("Use a separate source file so truncation is repeatable")
+
+    source_duration = probe_audio_duration(source)
+    target_duration = source_duration / 2.0
+    fade_duration = min(0.035, target_duration)
+    fade_start = max(0.0, target_duration - fade_duration)
+    original_runtime_sha256 = sha256(destination)
+
+    with tempfile.TemporaryDirectory(prefix="proto-rts-audio-") as temp_dir:
+        processed = Path(temp_dir) / destination.name
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-v",
+                "error",
+                "-i",
+                str(source),
+                "-af",
+                (
+                    f"atrim=end={target_duration:.9f},asetpts=PTS-STARTPTS,"
+                    f"afade=t=out:st={fade_start:.9f}:d={fade_duration:.9f}"
+                ),
+                "-ar",
+                "48000",
+                "-ac",
+                "2",
+                "-codec:a",
+                "libvorbis",
+                "-q:a",
+                "5",
+                str(processed),
+            ],
+            check=True,
+        )
+        processed.replace(destination)
+
+    runtime_duration = probe_audio_duration(destination)
+    report_path = audio_root / "audio-report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    cue_report = report["sfx"][cue_name]
+    cue_report["runtime_sha256"] = sha256(destination)
+    cue_report["runtime_duration_seconds"] = runtime_duration
+    cue_report["runtime_size_bytes"] = destination.stat().st_size
+    cue_report["postprocessing"] = {
+        "operation": "keep_first_half",
+        "input_sha256": sha256(source),
+        "previous_runtime_sha256": original_runtime_sha256,
+        "input_duration_seconds": source_duration,
+        "target_duration_seconds": target_duration,
+        "fade_out_seconds": fade_duration,
+    }
+    report_path.write_text(
+        json.dumps(report, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    refresh_audio_checksums(audio_root)
+    print(
+        f"{cue_name}: {source_duration:.6f}s -> {runtime_duration:.6f}s "
+        "(kept first half)"
+    )
 
 
 def save_webp(source: Path, destination: Path, size: tuple[int, int], quality: int = 84) -> dict:
@@ -170,6 +291,29 @@ def describe(path: Path, source: Path) -> dict:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--truncate-audio-first-half",
+        metavar="CUE",
+        help="Keep the first half of one existing runtime SFX cue.",
+    )
+    parser.add_argument(
+        "--audio-source",
+        type=Path,
+        help="Separate input file for --truncate-audio-first-half.",
+    )
+    args = parser.parse_args()
+    if args.truncate_audio_first_half:
+        if args.audio_source is None:
+            parser.error("--audio-source is required when truncating audio")
+        truncate_audio_to_first_half(
+            args.audio_source.resolve(),
+            args.truncate_audio_first_half,
+        )
+        return
+    if args.audio_source is not None:
+        parser.error("--audio-source requires --truncate-audio-first-half")
+
     records: list[dict] = []
 
     records.append(
@@ -313,9 +457,13 @@ def main() -> None:
             ("gate", (400, 272), (384, 256)),
             ("sentry_tower", (304, 288), (288, 272)),
         ):
+            source_name = FORTIFICATION_SOURCE_OVERRIDES.get(
+                (faction, kind),
+                f"{faction}_{kind}.png",
+            )
             records.append(
                 save_isolated(
-                    SOURCE / "buildings" / f"{faction}_{kind}.png",
+                    SOURCE / "buildings" / source_name,
                     RUNTIME / "buildings" / f"{faction}_{kind}.png",
                     canvas_size,
                     content_size,

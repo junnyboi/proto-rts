@@ -54,6 +54,8 @@ func _run() -> void:
 		paths.append(FactionCatalog.portrait_path(faction))
 		for kind in [&"worker", &"vanguard", &"mystic", &"stronghold", &"war_camp"]:
 			paths.append(FactionCatalog.entity_art_path(faction, kind))
+		for kind in [&"wall", &"gate", &"sentry_tower"]:
+			paths.append(FactionCatalog.entity_art_path(faction, kind))
 		if FactionCatalog.can_hunt(faction):
 			paths.append(FactionCatalog.entity_art_path(faction, &"hunter"))
 	for path in paths:
@@ -62,10 +64,24 @@ func _run() -> void:
 	var retired_gather_sfx := "res://assets/runtime/audio/sfx/gather_resource.ogg"
 	if ResourceLoader.exists(retired_gather_sfx):
 		failures.append("retired worker gather SFX still exists: %s" % retired_gather_sfx)
-	if paths.size() != 106:
-		failures.append("expected 106 runtime assets, enumerated %d" % paths.size())
+	if paths.size() != 118:
+		failures.append("expected 118 runtime assets, enumerated %d" % paths.size())
+	var report := JSON.parse_string(FileAccess.get_file_as_string("res://assets/runtime/asset-report.json")) as Dictionary
+	var expected_aligned_sources := {
+		"assets/runtime/buildings/celestial_wall.png": "assets/source/buildings/celestial_wall_aligned.png",
+		"assets/runtime/buildings/demon_gate.png": "assets/source/buildings/demon_gate_aligned.png",
+	}
+	for record_value in report.get("assets", []) as Array:
+		var record := record_value as Dictionary
+		var runtime_path := String(record.get("path", ""))
+		if expected_aligned_sources.has(runtime_path):
+			if String(record.get("source", "")) != expected_aligned_sources[runtime_path]:
+				failures.append("%s did not derive from its aligned GPT Image 2 master" % runtime_path)
+			expected_aligned_sources.erase(runtime_path)
+	for missing_runtime_path in expected_aligned_sources:
+		failures.append("asset report omitted aligned runtime derivative: %s" % missing_runtime_path)
 	if failures.is_empty():
-		print("PASS assets_test: 106 generated runtime assets resolve")
+		print("PASS assets_test: 118 generated runtime assets resolve")
 		quit(0)
 	else:
 		for failure in failures:

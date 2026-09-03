@@ -422,6 +422,75 @@ func _test_unit_food_costs(failures: Array[String]) -> void:
 			failures.append("%s does not require Food" % String(kind).capitalize())
 
 
+func _test_stronghold_population_upgrades(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human", false)
+	var team := RtsSimulation.TEAM_PLAYER
+	var stronghold_id := simulation.primary_structure_id(team, &"stronghold")
+	var stronghold := simulation.entity(stronghold_id)
+	var player := simulation.players[team] as Dictionary
+	if int(stronghold.get("stronghold_level", 0)) != RtsSimulation.STRONGHOLD_INITIAL_LEVEL:
+		failures.append("Stronghold did not begin at Lvl 1")
+	if int(player["population_cap"]) != RtsSimulation.POPULATION_CAP:
+		failures.append("Stronghold did not begin with the base population cap")
+
+	var first_cost := simulation.stronghold_upgrade_cost(stronghold_id)
+	for resource_kind in [&"jade", &"lumber", &"essence", &"food"]:
+		if int(first_cost.get("%s_cost" % String(resource_kind), -1)) != 200:
+			failures.append("first Stronghold upgrade did not cost 200 %s" % String(resource_kind).capitalize())
+		player[String(resource_kind)] = 199
+	if simulation.can_upgrade_stronghold(team, stronghold_id):
+		failures.append("Stronghold upgrade appeared available below its resource cost")
+	if simulation.command_upgrade_stronghold(team, stronghold_id):
+		failures.append("Stronghold upgraded without enough of every resource")
+	if (
+		int(stronghold.get("stronghold_level", 0)) != RtsSimulation.STRONGHOLD_INITIAL_LEVEL
+		or int(player["population_cap"]) != RtsSimulation.POPULATION_CAP
+	):
+		failures.append("failed Stronghold upgrade changed its level or population cap")
+
+	for resource_kind in [&"jade", &"lumber", &"essence", &"food"]:
+		player[String(resource_kind)] = 200
+	if not simulation.can_upgrade_stronghold(team, stronghold_id):
+		failures.append("first Stronghold upgrade was unavailable at its exact resource cost")
+	elif not simulation.command_upgrade_stronghold(team, stronghold_id):
+		failures.append("first Stronghold upgrade was rejected")
+	if int(stronghold.get("stronghold_level", 0)) != 2:
+		failures.append("first Stronghold upgrade did not advance it to Lvl 2")
+	if int(player["population_cap"]) != RtsSimulation.POPULATION_CAP + 6:
+		failures.append("first Stronghold upgrade did not add six population capacity")
+	for resource_kind in [&"jade", &"lumber", &"essence", &"food"]:
+		if int(player[String(resource_kind)]) != 0:
+			failures.append("first Stronghold upgrade did not deduct exactly 200 %s" % String(resource_kind).capitalize())
+
+	var second_cost := simulation.stronghold_upgrade_cost(stronghold_id)
+	for resource_kind in [&"jade", &"lumber", &"essence", &"food"]:
+		if int(second_cost.get("%s_cost" % String(resource_kind), -1)) != 300:
+			failures.append("second Stronghold upgrade did not cost 300 %s" % String(resource_kind).capitalize())
+		player[String(resource_kind)] = 300
+	if simulation.command_upgrade_stronghold(RtsSimulation.TEAM_ENEMY, stronghold_id):
+		failures.append("a rival upgraded the player's Stronghold")
+	if not simulation.command_upgrade_stronghold(team, stronghold_id):
+		failures.append("second Stronghold upgrade was rejected")
+	if int(stronghold.get("stronghold_level", 0)) != RtsSimulation.STRONGHOLD_MAX_LEVEL:
+		failures.append("second Stronghold upgrade did not advance it to the maximum level")
+	if int(player["population_cap"]) != RtsSimulation.POPULATION_CAP + 12:
+		failures.append("second Stronghold upgrade did not raise the total capacity by twelve")
+	for resource_kind in [&"jade", &"lumber", &"essence", &"food"]:
+		if int(player[String(resource_kind)]) != 0:
+			failures.append("second Stronghold upgrade did not deduct exactly 300 %s" % String(resource_kind).capitalize())
+		player[String(resource_kind)] = 1000
+	if not simulation.stronghold_upgrade_cost(stronghold_id).is_empty():
+		failures.append("maximum-level Stronghold still exposed another upgrade cost")
+	if simulation.command_upgrade_stronghold(team, stronghold_id):
+		failures.append("Stronghold accepted a third upgrade")
+	if int(player["population_cap"]) != RtsSimulation.POPULATION_CAP + 12:
+		failures.append("rejected third Stronghold upgrade changed the population cap")
+	for resource_kind in [&"jade", &"lumber", &"essence", &"food"]:
+		if int(player[String(resource_kind)]) != 1000:
+			failures.append("rejected third Stronghold upgrade charged %s" % String(resource_kind).capitalize())
+
+
 func _test_targeted_production_cancellation(failures: Array[String]) -> void:
 	var simulation := RtsSimulation.new()
 	simulation.setup(&"human")
@@ -764,7 +833,7 @@ func _test_ai_food_economy(failures: Array[String]) -> void:
 		MapCatalog.ENEMY_STRONGHOLD + Vector2i(-1, 2),
 	)
 	hunting_simulation._issue_ai_hunt_orders()
-	if hunting_simulation.entity(ai_hunter_id).get("order") not in [&"attack", &"attack_move"]:
+	if hunting_simulation.entity(ai_hunter_id).get("order") not in [&"attack", &"seek_hunting_pasture"]:
 		failures.append("computer Hunter did not pursue living wildlife")
 
 
@@ -1054,18 +1123,181 @@ func _test_idle_hunter_wandering(failures: Array[String]) -> void:
 	simulation.command_stop(RtsSimulation.TEAM_PLAYER, [hunter_id])
 	hunter["wander_timer"] = 0.0
 	simulation.advance(RtsSimulation.TICK_SECONDS)
-	if hunter.get("order") not in [&"wander", &"attack", &"attack_move"]:
+	if hunter.get("order") not in [&"seek_hunting_pasture", &"attack"]:
 		failures.append("idle Hunter did not begin scouting or hunting toward wildlife territory")
 		return
-	if hunter.get("order") == &"wander" and (hunter.get("path", []) as Array).is_empty():
-		failures.append("idle Hunter began wandering without a wildlife destination")
+	if hunter.get("order") == &"seek_hunting_pasture" and (hunter.get("path", []) as Array).is_empty():
+		failures.append("idle Hunter began searching without a wildlife pasture destination")
 		return
 	var food_before := int(simulation.players[RtsSimulation.TEAM_PLAYER]["food"])
 	for _step in range(int(20.0 / RtsSimulation.TICK_SECONDS)):
 		simulation.advance(RtsSimulation.TICK_SECONDS)
 		if int(simulation.players[RtsSimulation.TEAM_PLAYER]["food"]) > food_before:
 			return
-	failures.append("wandering Hunter did not find and hunt prey")
+	failures.append("searching Hunter did not find and hunt prey")
+
+
+func _test_hunter_hunting_pasture_priority(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human", false)
+	var team := RtsSimulation.TEAM_PLAYER
+	var stronghold := simulation.entity(simulation.primary_structure_id(team, &"stronghold"))
+	var home := simulation._entity_center(stronghold)
+	var local_herd_ids: Dictionary = {}
+	for wildlife_id in simulation.wildlife_ids():
+		var wildlife := simulation.entity(wildlife_id)
+		if (wildlife["herd_origin"] as Vector2).distance_to(home) <= RtsSimulation.HUNTER_HOME_GAME_RADIUS:
+			local_herd_ids[int(wildlife["herd_id"])] = true
+	if local_herd_ids.is_empty():
+		failures.append("the player Stronghold has no wildlife pasture inside the Hunter home radius")
+		return
+
+	var hunter_id := simulation._spawn_unit(team, &"hunter", MapCatalog.PLAYER_WORKERS[0])
+	var hunter := simulation.entity(hunter_id)
+	hunter["wander_timer"] = 0.0
+	simulation._advance_hunter_wander(hunter, RtsSimulation.TICK_SECONDS)
+	var first_pasture_id := int(hunter.get("hunting_pasture_id", -1))
+	if not local_herd_ids.has(first_pasture_id):
+		failures.append("Hunter left the Stronghold vicinity before choosing its living local game")
+		return
+	if hunter.get("order") != &"seek_hunting_pasture":
+		failures.append("Hunter did not receive a purposeful local hunting-pasture search order")
+	var first_pasture_center := Vector2i(-1, -1)
+	for wildlife_id in simulation.wildlife_ids():
+		var wildlife := simulation.entity(wildlife_id)
+		if int(wildlife.get("herd_id", -1)) == first_pasture_id:
+			first_pasture_center = Vector2i((wildlife["herd_origin"] as Vector2).round())
+			break
+	simulation._explored_cells_by_team[team][first_pasture_center] = true
+	hunter["position"] = Vector2(MapCatalog.SHENLONG_CELL)
+	hunter["cell"] = MapCatalog.SHENLONG_CELL
+	hunter["order"] = &"idle"
+	hunter["path"] = []
+	hunter["wander_timer"] = 0.0
+	simulation._advance_hunter_wander(hunter, RtsSimulation.TICK_SECONDS)
+	if int(hunter.get("hunting_pasture_id", -1)) != first_pasture_id:
+		failures.append("Hunter abandoned living local game after its pasture was explored")
+
+	for wildlife_id in simulation.wildlife_ids():
+		var wildlife := simulation.entity(wildlife_id)
+		if local_herd_ids.has(int(wildlife.get("herd_id", -1))):
+			wildlife["alive"] = false
+	hunter["order"] = &"idle"
+	hunter["path"] = []
+	hunter["wander_timer"] = 0.0
+	simulation._advance_hunter_wander(hunter, RtsSimulation.TICK_SECONDS)
+	var new_pasture_id := int(hunter.get("hunting_pasture_id", -1))
+	if new_pasture_id < 0 or local_herd_ids.has(new_pasture_id):
+		failures.append("Hunter did not seek a new pasture after exhausting local game")
+		return
+	var new_pasture_has_game := false
+	for wildlife_id in simulation.wildlife_ids():
+		if int(simulation.entity(wildlife_id).get("herd_id", -1)) == new_pasture_id:
+			new_pasture_has_game = true
+			break
+	if not new_pasture_has_game:
+		failures.append("Hunter selected a depleted location instead of a living hunting pasture")
+	hunter["order"] = &"idle"
+	hunter["path"] = []
+	hunter["wander_timer"] = 0.0
+	simulation._advance_hunter_wander(hunter, RtsSimulation.TICK_SECONDS)
+	if int(hunter.get("hunting_pasture_id", -1)) != new_pasture_id:
+		failures.append("Hunter abandoned its current living pasture to roam elsewhere")
+
+	for wildlife_id in simulation.wildlife_ids():
+		simulation.entity(wildlife_id)["alive"] = false
+	hunter["order"] = &"idle"
+	hunter["path"] = []
+	hunter["wander_timer"] = 0.0
+	simulation._advance_hunter_wander(hunter, RtsSimulation.TICK_SECONDS)
+	if hunter.get("order") != &"idle" or int(hunter.get("hunting_pasture_id", -1)) >= 0:
+		failures.append("Hunter wandered after every living hunting pasture was depleted")
+
+
+func _test_hunter_avoids_unordered_combat(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human", false)
+	simulation.entities.clear()
+	for player in simulation.players:
+		player["population"] = 0
+	simulation._next_entity_id = 1
+	simulation._rebuild_pathfinding()
+
+	var hunter_id := simulation._spawn_unit(
+		RtsSimulation.TEAM_PLAYER,
+		&"hunter",
+		Vector2i(24, 40),
+	)
+	var enemy_id := simulation._spawn_unit(
+		RtsSimulation.TEAM_ENEMY,
+		&"vanguard",
+		Vector2i(28, 40),
+	)
+	var hunter := simulation.entity(hunter_id)
+	var enemy := simulation.entity(enemy_id)
+	hunter["wander_timer"] = 999.0
+	simulation._refresh_visibility()
+	var hunter_start := hunter["position"] as Vector2
+	var away_from_threat := hunter_start.direction_to(enemy["position"] as Vector2) * -1.0
+	var enemy_hp_before := float(enemy["hp"])
+	_advance(simulation, 0.5)
+	if hunter.get("order") == &"attack" or int(hunter.get("target_id", -1)) == enemy_id:
+		failures.append("idle Hunter automatically attacked an enemy unit")
+	if float(enemy["hp"]) < enemy_hp_before:
+		failures.append("idle Hunter damaged an enemy unit without a combat order")
+	if ((hunter["position"] as Vector2) - hunter_start).dot(away_from_threat) <= 0.0:
+		failures.append("idle Hunter did not move away from a nearby enemy unit")
+
+	hunter["position"] = Vector2(24, 40)
+	hunter["cell"] = Vector2i(24, 40)
+	hunter["attack_cooldown"] = 0.0
+	simulation.command_stop(RtsSimulation.TEAM_PLAYER, [hunter_id])
+	simulation._refresh_visibility()
+	enemy_hp_before = float(enemy["hp"])
+	if not simulation.command_attack(RtsSimulation.TEAM_PLAYER, [hunter_id], enemy_id):
+		failures.append("Hunter rejected an explicit attack order against an enemy unit")
+	else:
+		simulation.advance(RtsSimulation.TICK_SECONDS)
+		if float(enemy["hp"]) >= enemy_hp_before:
+			failures.append("Hunter did not follow an explicit attack order against an enemy unit")
+
+	enemy["alive"] = false
+	hunter["position"] = Vector2(24, 40)
+	hunter["cell"] = Vector2i(24, 40)
+	hunter["attack_cooldown"] = 0.0
+	simulation.command_stop(RtsSimulation.TEAM_PLAYER, [hunter_id])
+	var guardian_id := simulation._spawn_unit(
+		RtsSimulation.TEAM_NEUTRAL,
+		&"jadeclaw",
+		Vector2i(28, 40),
+		99,
+	)
+	var guardian := simulation.entity(guardian_id)
+	guardian["wander_timer"] = 999.0
+	simulation._refresh_visibility()
+	hunter_start = hunter["position"] as Vector2
+	away_from_threat = hunter_start.direction_to(guardian["position"] as Vector2) * -1.0
+	var guardian_hp_before := float(guardian["hp"])
+	_advance(simulation, 0.5)
+	if hunter.get("order") == &"attack" or int(hunter.get("target_id", -1)) == guardian_id:
+		failures.append("idle Hunter automatically attacked a Yaoguai guardian")
+	if float(guardian["hp"]) < guardian_hp_before:
+		failures.append("idle Hunter damaged a Yaoguai guardian without a combat order")
+	if ((hunter["position"] as Vector2) - hunter_start).dot(away_from_threat) <= 0.0:
+		failures.append("idle Hunter did not move away from a nearby Yaoguai guardian")
+
+	hunter["position"] = Vector2(24, 40)
+	hunter["cell"] = Vector2i(24, 40)
+	hunter["attack_cooldown"] = 0.0
+	simulation.command_stop(RtsSimulation.TEAM_PLAYER, [hunter_id])
+	simulation._refresh_visibility()
+	guardian_hp_before = float(guardian["hp"])
+	if not simulation.command_attack(RtsSimulation.TEAM_PLAYER, [hunter_id], guardian_id):
+		failures.append("Hunter rejected an explicit attack order against a Yaoguai guardian")
+	else:
+		simulation.advance(RtsSimulation.TICK_SECONDS)
+		if float(guardian["hp"]) >= guardian_hp_before:
+			failures.append("Hunter did not follow an explicit attack order against a Yaoguai guardian")
 
 
 func _test_lifetime_scoring(failures: Array[String]) -> void:
@@ -1438,6 +1670,7 @@ func _run() -> void:
 	_test_units_pass_through_harmless_wildlife(failures)
 	_test_units_pass_through_friendly_structures(failures)
 	_test_unit_food_costs(failures)
+	_test_stronghold_population_upgrades(failures)
 	_test_targeted_production_cancellation(failures)
 	_test_free_worker_recovery(failures)
 	_test_food_building(&"rice_farm", failures)
@@ -1451,6 +1684,8 @@ func _run() -> void:
 	_test_faction_food_traditions(failures)
 	_test_wildlife_hunting(failures)
 	_test_idle_hunter_wandering(failures)
+	_test_hunter_hunting_pasture_priority(failures)
+	_test_hunter_avoids_unordered_combat(failures)
 	_test_lifetime_scoring(failures)
 	_test_resignation_outcome(failures)
 	_test_four_faction_free_for_all(failures)
@@ -1719,7 +1954,7 @@ func _run() -> void:
 			failures.append("destroying all rival Strongholds did not produce victory")
 
 	if failures.is_empty():
-		print("PASS simulation_test: four-faction free-for-all roster and island starts, deposits, cargo integrity, attack-move, formations, harmless-wildlife pass-through, hostile separation, Food costs and producers, AI food economy, assault waves, and one-hour skill test, guardian wandering, tree retargeting, monster bounties, cave capture and recapture, Jadeclaw production, economy, construction, combat, victory, and resignation")
+		print("PASS simulation_test: four-faction free-for-all roster and island starts, deposits, cargo integrity, attack-move, formations, harmless-wildlife pass-through, hostile separation, Food costs and producers, Stronghold population upgrades, AI food economy, assault waves, and one-hour skill test, guardian wandering, tree retargeting, monster bounties, cave capture and recapture, Jadeclaw production, economy, construction, combat, victory, and resignation")
 		quit(0)
 	else:
 		for failure in failures:

@@ -90,14 +90,53 @@ func _run() -> void:
 	if minimap_fog_p95 > MAX_MINIMAP_P95_DRAW_US:
 		failures.append("fog-on minimap p95 draw exceeded budget: %d us" % minimap_fog_p95)
 
+	# Saturate each presentation pool around the live camera and measure the persistent
+	# tail of the burst. Gameplay state is untouched; this is view-only load.
+	battlefield.draw_durations.clear()
+	var effect_origin := Vector2(MapCatalog.PLAYER_STRONGHOLD)
+	for index in range(110):
+		var offset := Vector2(float(index % 11) - 5.0, float(index / 11) - 5.0) * 0.32
+		battlefield.preview_effect({
+			"type": &"attack",
+			"from": effect_origin + offset - Vector2(0.8, 0.0),
+			"to": effect_origin + offset,
+			"color": Color("79e1c1"),
+			"attacker_kind": [&"vanguard", &"hunter", &"mystic", &"jadeclaw"][index % 4],
+			"attacker_faction": [&"human", &"human", &"celestial", &"beast"][index % 4],
+			"target_category": &"unit",
+			"target_id": index % 9,
+			"amount": 12.0,
+		})
+		if index % 9 == 0:
+			battlefield.preview_effect({
+				"type": &"death",
+				"position": effect_origin + offset,
+				"category": &"unit",
+				"kind": &"vanguard",
+				"faction": &"demon",
+				"color": Color("ff685b"),
+			})
+	await _collect_frames(70)
+	var effects_p95 := _p95(battlefield.draw_durations)
+	if effects_p95 > MAX_BATTLEFIELD_P95_DRAW_US:
+		failures.append("saturated game-juice Battlefield p95 draw exceeded budget: %d us" % effects_p95)
+	var effect_counts := battlefield.effect_diagnostics()
+	if int(effect_counts["particles"]) > 96 or int(effect_counts["trails"]) > 24 or int(effect_counts["impacts"]) > 24:
+		failures.append("game-juice pools exceeded their full-density caps")
+	battlefield._effect_director.advance(10.0)
+	var expired_counts := battlefield.effect_diagnostics()
+	for pool_name in [&"particles", &"trails", &"impacts", &"values", &"traces", &"pulses", &"deaths", &"camera_kicks"]:
+		if int(expired_counts[pool_name]) != 0:
+			failures.append("%s pool retained records after forced expiry" % pool_name)
+
 	print(
-		"PERF entities=%d trees=%d battlefield_full_mean_us=%.1f battlefield_full_p95_us=%d battlefield_start_mean_us=%.1f battlefield_start_p95_us=%d minimap_clear_p95_us=%d minimap_fog_p95_us=%d"
-		% [simulation.entities.size(), MapCatalog.tree_definitions().size(), full_map_mean, full_map_p95, starting_mean, starting_p95, minimap_clear_p95, minimap_fog_p95]
+		"PERF entities=%d trees=%d battlefield_full_mean_us=%.1f battlefield_full_p95_us=%d battlefield_start_mean_us=%.1f battlefield_start_p95_us=%d battlefield_effects_p95_us=%d minimap_clear_p95_us=%d minimap_fog_p95_us=%d"
+		% [simulation.entities.size(), MapCatalog.tree_definitions().size(), full_map_mean, full_map_p95, starting_mean, starting_p95, effects_p95, minimap_clear_p95, minimap_fog_p95]
 	)
 	battlefield.queue_free()
 	minimap.queue_free()
 	if failures.is_empty():
-		print("PASS performance_test: 255-tree four-player Battlefield stays within its 33.3 ms redraw budget; minimap stays within 16.7 ms")
+		print("PASS performance_test: 255-tree four-player Battlefield and saturated game-juice pools stay within the 33.3 ms redraw budget; minimap stays within 16.7 ms")
 		quit(0)
 		return
 	for failure in failures:

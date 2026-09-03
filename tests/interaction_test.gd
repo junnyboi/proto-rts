@@ -28,6 +28,14 @@ func _run() -> void:
 	battlefield.call("_handle_left_release", worker_screen_position)
 	if battlefield.selected_ids.size() != 1 or battlefield.selected_ids[0] != worker_id:
 		failures.append("clicking a worker did not select it")
+	if int(battlefield.effect_diagnostics()["pulses"]) <= 0:
+		failures.append("selection click did not create immediate visual acknowledgement")
+	battlefield._mouse_position = worker_screen_position
+	battlefield.call("_process", 0.016)
+	if battlefield._presentation.hovered_entity_id != worker_id:
+		failures.append("visible hovered entity did not enter presentation state")
+	if battlefield._presentation.hover_strength(worker_id) <= 0.0:
+		failures.append("hover presentation did not ease in")
 	var worker_selection_rect := Rect2(
 		worker_screen_position - Vector2.ONE * 2.0,
 		Vector2.ONE * 4.0,
@@ -156,6 +164,7 @@ func _run() -> void:
 		)
 		var farm_screen_position := battlefield.camera_offset + IsoProjection.cell_center(farm_site) * battlefield.camera_scale
 		battlefield.call("_handle_left_press", farm_screen_position)
+		battlefield.call("_handle_left_release", farm_screen_position)
 		if simulation.primary_structure_id(RtsSimulation.TEAM_PLAYER, &"rice_farm") < 0:
 			failures.append("Rice Farm placement input did not create a foundation")
 		if battlefield.placement_worker_id != worker_id or battlefield.placement_kind != &"rice_farm":
@@ -216,12 +225,13 @@ func _run() -> void:
 
 	_verify_procedural_movement_visuals(battlefield, hunting_simulation, hunting_unit_id, wildlife_id, failures)
 	_verify_idle_player_unit_visuals(battlefield, hunting_simulation, hunting_unit_id, wildlife_id, failures)
+	_verify_stronghold_upgrade_visuals(battlefield, hunting_simulation, failures)
 	_verify_shenlong_wave_visuals(battlefield, hunting_simulation, failures)
 	_verify_command_visualizations(battlefield, failures)
 
 	battlefield.queue_free()
 	if failures.is_empty():
-		print("PASS interaction_test: camera, selection and inspection, contextual economy, worker cargo and farm icons, building placement, movement, idle and Shenlong wave visuals, wildlife hunting, and command visualization")
+		print("PASS interaction_test: camera, selection and inspection, contextual economy, worker cargo and farm icons, building placement, movement, idle, Stronghold upgrade, and Shenlong wave visuals, wildlife hunting, and command visualization")
 		quit(0)
 	else:
 		for failure in failures:
@@ -377,6 +387,54 @@ func _verify_shenlong_wave_visuals(
 	) as Vector2
 	if not grounded_offset.is_zero_approx():
 		failures.append("Shenlong wave deformation displaced its ground anchor")
+
+
+func _verify_stronghold_upgrade_visuals(
+	battlefield: Battlefield,
+	simulation: RtsSimulation,
+	failures: Array[String],
+) -> void:
+	var stronghold_id := simulation.primary_structure_id(
+		RtsSimulation.TEAM_PLAYER,
+		&"stronghold",
+	)
+	var stronghold := simulation.entity(stronghold_id)
+	if stronghold.is_empty():
+		failures.append("Stronghold was unavailable for upgrade-effect verification")
+		return
+	stronghold["stronghold_level"] = RtsSimulation.STRONGHOLD_INITIAL_LEVEL
+	var level_one := battlefield.call("_stronghold_effect_profile", stronghold) as Dictionary
+	if (
+		float(level_one.get("aura_alpha", -1.0)) != 0.0
+		or int(level_one.get("aura_layers", -1)) != 0
+		or float(level_one.get("particle_alpha", -1.0)) != 0.0
+		or int(level_one.get("particle_count", -1)) != 0
+	):
+		failures.append("Lvl 1 Stronghold exposed an aura or particle effect")
+
+	stronghold["stronghold_level"] = 2
+	var level_two := battlefield.call("_stronghold_effect_profile", stronghold) as Dictionary
+	if (
+		float(level_two.get("aura_alpha", 0.0)) <= 0.0
+		or int(level_two.get("aura_layers", 0)) <= 0
+		or float(level_two.get("particle_alpha", 0.0)) <= 0.0
+		or int(level_two.get("particle_count", 0)) <= 0
+	):
+		failures.append("Lvl 2 Stronghold did not enable both aura and particle effects")
+
+	stronghold["stronghold_level"] = RtsSimulation.STRONGHOLD_MAX_LEVEL
+	var level_three := battlefield.call("_stronghold_effect_profile", stronghold) as Dictionary
+	for property_name in [
+		"aura_alpha",
+		"aura_layers",
+		"aura_radius_scale",
+		"particle_alpha",
+		"particle_count",
+		"particle_size",
+	]:
+		if float(level_three.get(property_name, 0.0)) <= float(level_two.get(property_name, 0.0)):
+			failures.append("Lvl 3 Stronghold did not intensify %s" % property_name.replace("_", " "))
+	stronghold["stronghold_level"] = RtsSimulation.STRONGHOLD_INITIAL_LEVEL
 
 
 func _verify_idle_player_unit_visuals(
@@ -791,3 +849,59 @@ func _verify_deterministic_entity_depth_sort(battlefield: Battlefield, failures:
 	var second_ids := second_order.map(func(entity_state: Dictionary) -> int: return int(entity_state["id"]))
 	if first_ids != second_ids or first_ids != [20, 10, 30]:
 		failures.append("equal-depth tree sprites did not retain a deterministic overlap order")
+
+	var wall := {
+		"id": 1,
+		"category": &"structure",
+		"position": Vector2(20.0, 20.0),
+		"footprint": Vector2i.ONE,
+	}
+	var unit_behind_wall := {
+		"id": 99,
+		"category": &"unit",
+		"position": Vector2(20.5, 20.0),
+		"footprint": Vector2i.ONE,
+	}
+	if (
+		not battlefield._entity_draws_before(unit_behind_wall, wall)
+		or battlefield._entity_draws_before(wall, unit_behind_wall)
+	):
+		failures.append("a unit behind a wall did not draw below the wall's ground edge")
+
+	var gate := {
+		"id": 2,
+		"category": &"structure",
+		"position": Vector2(10.0, 10.0),
+		"footprint": Vector2i(2, 4),
+	}
+	var unit_behind_gate := {
+		"id": 98,
+		"category": &"unit",
+		"position": Vector2(12.0, 11.0),
+		"footprint": Vector2i.ONE,
+	}
+	var unit_southeast_of_gate := {
+		"id": 97,
+		"category": &"unit",
+		"position": Vector2(14.0, 12.0),
+		"footprint": Vector2i.ONE,
+	}
+	if not battlefield._entity_draws_before(unit_behind_gate, gate):
+		failures.append("a unit behind a gate did not draw below the gate's southeast edge")
+	if not battlefield._entity_draws_before(gate, unit_southeast_of_gate):
+		failures.append("a unit southeast of a gate did not draw above the gate")
+
+	var northwest_entity := {
+		"id": 96,
+		"category": &"unit",
+		"position": Vector2(5.0, 5.0),
+		"footprint": Vector2i.ONE,
+	}
+	var southeast_entity := {
+		"id": 95,
+		"category": &"unit",
+		"position": Vector2(6.0, 6.0),
+		"footprint": Vector2i.ONE,
+	}
+	if not battlefield._entity_draws_before(northwest_entity, southeast_entity):
+		failures.append("a southeast entity did not receive a higher draw order")

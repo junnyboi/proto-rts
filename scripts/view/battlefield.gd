@@ -38,6 +38,9 @@ const FARM_WORKER_ICON_TEXTURE := preload("res://assets/runtime/ui/resource_icon
 const IDLE_WORKER_ALERT_TEXTURE := preload("res://assets/runtime/ui/idle_worker_alert.png")
 const FOG_MASK_BUILDER_SCRIPT := preload("res://scripts/view/fog_mask_builder.gd")
 const MAP_EDGE_CONTOUR_SCRIPT := preload("res://scripts/view/map_edge_contour.gd")
+const EFFECT_CATALOG_SCRIPT := preload("res://scripts/view/effects/effect_catalog.gd")
+const EFFECT_DIRECTOR_SCRIPT := preload("res://scripts/view/effects/effect_director.gd")
+const PRESENTATION_STATE_SCRIPT := preload("res://scripts/view/effects/presentation_state.gd")
 const BATTLEFIELD_BACKGROUND_COLOR := Color("071416")
 const PLAYER_COLOR := Color("78dfb7")
 const ENEMY_COLOR := Color("f06656")
@@ -73,12 +76,45 @@ const SHENLONG_WAVE_MIN_SCALE := 0.28
 const SHENLONG_MESH_COLUMNS := 12
 const SHENLONG_MESH_ROWS := 9
 const SHENLONG_AURA_WISP_COUNT := 5
+const STRONGHOLD_AURA_BASE_RADIUS := Vector2(72.0, 29.0)
+const STRONGHOLD_LEVEL_2_PARTICLE_COUNT := 9
+const STRONGHOLD_LEVEL_3_PARTICLE_COUNT := 18
 const MAX_VISIBLE_COMMAND_PATHS := 10
 const COMMAND_PATH_DOT_SPACING := 16.0
 const COMMAND_PATH_DOT_RADIUS := 2.4
 const COMMAND_PATH_POINT_EPSILON_SQUARED := 0.0001
 const COMMAND_INTERACTION_ROTATION_SPEED := 1.75
 const AMBIENT_REDRAW_SECONDS := 1.0 / 30.0
+const AMBIENT_EFFECT_SECONDS := 0.24
+const WALL_SPRITE_SCALE := 1.10
+const GATE_SPRITE_SCALE := 1.10
+const GATE_SPRITE_SCALE_OVERRIDES := {
+	"beast_gate.png": 1.30,
+	"celestial_gate.png": 1.20,
+	"demon_gate.png": 1.30,
+	"human_gate.png": 1.00,
+}
+const GATE_SPRITE_ANCHOR_RATIO := 0.25
+const GATE_SPRITE_ANCHOR_RATIO_OVERRIDES := {
+	"beast_gate.png": 0.20,
+	"demon_gate.png": 0.20,
+}
+const WALL_CORNER_DIRECTION_ORDER: Array[StringName] = [
+	&"top_left",
+	&"top_right",
+	&"bottom_left",
+	&"bottom_right",
+]
+const WALL_CORNER_NEIGHBOR_OFFSETS := {
+	&"top_left": Vector2i(-1, 0),
+	&"top_right": Vector2i(0, -1),
+	&"bottom_left": Vector2i(0, 1),
+	&"bottom_right": Vector2i(1, 0),
+}
+const TOWER_OCCUPANT_DISPLAY_SIZE := Vector2(58.0, 68.0)
+const TOWER_ROOFTOP_SOURCE_Y := 106.0
+const TOWER_ROOFTOP_SOURCE_CENTER_X := 152.0
+const TOWER_ROOFTOP_SOURCE_SPAN_X := 64.0
 # Static source art is not uniformly oriented, so flipping has to account for
 # each sprite's authored direction instead of assuming every image faces right.
 const NATIVE_RIGHT_FACING_ART := {
@@ -141,7 +177,12 @@ var _mouse_position := Vector2.ZERO
 var _cursor_state: StringName = &""
 var _texture_cache: Dictionary = {}
 var _texture_bottom_margin_cache: Dictionary = {}
-var _effects: Array[Dictionary] = []
+var _texture_content_rect_cache: Dictionary = {}
+var _texture_ground_profile_cache: Dictionary = {}
+var _texture_ground_slope_cache: Dictionary = {}
+var _wall_render_lookup: Dictionary = {}
+var _effect_director = EFFECT_DIRECTOR_SCRIPT.new()
+var _presentation = PRESENTATION_STATE_SCRIPT.new()
 var _visible_cells: Dictionary = {}
 var _explored_cells: Dictionary = {}
 var _visibility_timer := 0.0
@@ -154,6 +195,8 @@ var _wind_animation_time := 0.0
 var _walk_animation_time := 0.0
 var _command_indicator_time := 0.0
 var _ambient_redraw_timer := 0.0
+var _ambient_effect_timer := 0.0
+var _ambient_effect_cursor := 0
 var _movement_visuals: Dictionary = {}
 
 
@@ -179,6 +222,8 @@ func set_simulation(value: RtsSimulation) -> void:
 	_last_control_group_recall_ms = -1000
 	_texture_cache.clear()
 	_movement_visuals.clear()
+	_effect_director.clear()
+	_presentation.clear()
 	_visible_cells.clear()
 	_explored_cells.clear()
 	_fog_mask_dirty = true
@@ -238,6 +283,33 @@ func set_fog_enabled(value: bool) -> void:
 	queue_redraw()
 
 
+func configure_effects(
+	intensity: StringName = &"full",
+	reduced_motion: bool = false,
+	damage_numbers: StringName = &"contextual",
+	camera_impulse: StringName = &"major",
+) -> void:
+	_effect_director.configure(intensity, reduced_motion, damage_numbers, camera_impulse)
+	_presentation.configure(reduced_motion)
+	queue_redraw()
+
+
+func effect_diagnostics() -> Dictionary:
+	return _effect_director.diagnostics()
+
+
+func preview_effect(event: Dictionary) -> void:
+	var snapshot := event.duplicate(true)
+	if snapshot.get("type") == &"attack":
+		snapshot["attack_family"] = EFFECT_CATALOG_SCRIPT.attack_family(
+			snapshot.get("attacker_kind", &"") as StringName,
+			snapshot.get("attacker_faction", &"neutral") as StringName,
+		)
+	_effect_director.consume_event(snapshot)
+	_presentation.consume_event(snapshot)
+	queue_redraw()
+
+
 func is_cell_visible(cell: Vector2i) -> bool:
 	return not fog_enabled or _visible_cells.has(cell)
 
@@ -264,6 +336,10 @@ func should_render_entity(entity_state: Dictionary) -> bool:
 
 func _process(delta: float) -> void:
 	_prune_selected_ids()
+	_presentation.synchronize(simulation.entities if simulation != null else {})
+	var hover_id := entity_at_screen(_mouse_position, false) if simulation != null else -1
+	_presentation.set_hover(hover_id)
+	_presentation.advance(delta)
 	_water_animation_time += delta
 	_wind_animation_time = fmod(_wind_animation_time + delta, TAU * 1000.0)
 	_walk_animation_time = fmod(_walk_animation_time + delta, TAU * 1000.0)
@@ -276,15 +352,21 @@ func _process(delta: float) -> void:
 	_update_camera_pan(delta)
 	for event in simulation.drain_events() if simulation != null else []:
 		var effect := (event as Dictionary).duplicate(true)
-		effect["remaining"] = 0.45 if effect.get("type") == &"attack" else 0.7
-		effect["duration"] = effect["remaining"]
-		_effects.append(effect)
+		if effect.get("type") == &"attack":
+			effect["attack_family"] = EFFECT_CATALOG_SCRIPT.attack_family(
+				effect.get("attacker_kind", &"") as StringName,
+				effect.get("attacker_faction", &"neutral") as StringName,
+			)
+		if _event_is_presentable(effect):
+			_effect_director.consume_event(effect)
+			_presentation.consume_event(effect)
 		if _event_is_audible(effect):
 			simulation_event.emit(effect.duplicate(true))
-	for index in range(_effects.size() - 1, -1, -1):
-		_effects[index]["remaining"] = float(_effects[index]["remaining"]) - delta
-		if float(_effects[index]["remaining"]) <= 0.0:
-			_effects.remove_at(index)
+	_effect_director.advance(delta)
+	_ambient_effect_timer -= delta
+	if _ambient_effect_timer <= 0.0:
+		_ambient_effect_timer = AMBIENT_EFFECT_SECONDS
+		_emit_ambient_juice()
 	_refresh_cursor()
 	_ambient_redraw_timer -= delta
 	if _ambient_redraw_timer <= 0.0:
@@ -344,6 +426,15 @@ func _event_is_audible(event: Dictionary) -> bool:
 	return is_cell_visible(Vector2i(position.floor()))
 
 
+func _event_is_presentable(event: Dictionary) -> bool:
+	if int(event.get("team", RtsSimulation.TEAM_NEUTRAL)) == RtsSimulation.TEAM_PLAYER:
+		return true
+	if not fog_enabled:
+		return true
+	var position := event.get("position", event.get("to", event.get("from", Vector2(-9999.0, -9999.0)))) as Vector2
+	return is_cell_visible(Vector2i(position.floor()))
+
+
 func _gui_input(event: InputEvent) -> void:
 	if simulation == null or not simulation.outcome.is_empty():
 		return
@@ -363,8 +454,8 @@ func _gui_input(event: InputEvent) -> void:
 			accept_event()
 		elif _placement_pressed:
 			_placement_current_cell = screen_to_cell(motion.position)
-			if placement_kind == &"gate":
-				placement_orientation = simulation.gate_orientation(
+			if placement_kind in [&"wall", &"gate"] and _placement_current_cell != _placement_start_cell:
+				placement_orientation = _automatic_drag_orientation(
 					_placement_start_cell,
 					_placement_current_cell,
 				)
@@ -415,16 +506,17 @@ func _handle_left_press(screen_position: Vector2, append: bool = false) -> void:
 		_placement_pressed = true
 		_placement_start_cell = screen_to_cell(screen_position)
 		_placement_current_cell = _placement_start_cell
-		placement_orientation = &"y"
 		return
 	if move_armed:
 		var move_cell := screen_to_cell(screen_position)
 		var move_units := selected_commandable_units()
 		if not move_units.is_empty() and MapCatalog.in_bounds(move_cell):
 			simulation.command_move(RtsSimulation.TEAM_PLAYER, move_units, move_cell, false, append or _armed_append)
+			_effect_director.emit_click(Vector2(move_cell), &"queued" if append or _armed_append else &"move", PLAYER_COLOR, append or _armed_append)
 			feedback.emit("Move queued." if append or _armed_append else "Move order issued.", false)
 			audio_cue.emit(&"order_move")
 		else:
+			_effect_director.emit_invalid(screen_to_map_position(screen_position))
 			feedback.emit("Choose a valid move destination.", true)
 		return
 	if rally_armed:
@@ -432,9 +524,11 @@ func _handle_left_press(screen_position: Vector2, append: bool = false) -> void:
 		var rally_structure := primary_selected_structure()
 		if rally_structure >= 0 and MapCatalog.in_bounds(rally_cell):
 			simulation.set_rally(RtsSimulation.TEAM_PLAYER, rally_structure, rally_cell)
+			_effect_director.emit_click(Vector2(rally_cell), &"rally", Color("f0d278"))
 			feedback.emit("Rally point updated.", false)
 			audio_cue.emit(&"order_move")
 		else:
+			_effect_director.emit_invalid(screen_to_map_position(screen_position))
 			feedback.emit("Choose a valid rally destination.", true)
 		return
 	if repair_armed:
@@ -446,9 +540,11 @@ func _handle_left_press(screen_position: Vector2, append: bool = false) -> void:
 			repair_target_id,
 			append or _armed_append,
 		):
+			_effect_director.emit_click(screen_to_map_position(screen_position), &"queued" if append or _armed_append else &"repair", Color("e4c66d"), append or _armed_append)
 			feedback.emit("Repair order queued." if append or _armed_append else "Repair order issued.", false)
 			audio_cue.emit(&"order_work")
 		else:
+			_effect_director.emit_invalid(screen_to_map_position(screen_position))
 			feedback.emit("Choose a damaged allied structure to repair.", true)
 		return
 	if attack_move_armed:
@@ -456,6 +552,7 @@ func _handle_left_press(screen_position: Vector2, append: bool = false) -> void:
 		var units := selected_commandable_units()
 		if not units.is_empty() and MapCatalog.in_bounds(cell):
 			simulation.command_move(RtsSimulation.TEAM_PLAYER, units, cell, true, append or _armed_append)
+			_effect_director.emit_click(Vector2(cell), &"queued" if append or _armed_append else &"attack", ENEMY_COLOR, append or _armed_append)
 			feedback.emit("Attack-move queued." if append or _armed_append else "Attack-move order issued.", false)
 			audio_cue.emit(&"order_attack")
 		return
@@ -467,9 +564,11 @@ func _handle_left_press(screen_position: Vector2, append: bool = false) -> void:
 			patrol_cell,
 			append or _armed_append,
 		):
+			_effect_director.emit_click(Vector2(patrol_cell), &"queued" if append or _armed_append else &"patrol", Color("79c9ee"), append or _armed_append)
 			feedback.emit("Patrol queued." if append or _armed_append else "Patrol route established.", false)
 			audio_cue.emit(&"order_move")
 		else:
+			_effect_director.emit_invalid(screen_to_map_position(screen_position))
 			feedback.emit("Choose a valid patrol destination.", true)
 		return
 	_selection_pressed = true
@@ -483,6 +582,11 @@ func _handle_left_release(screen_position: Vector2) -> void:
 	if _placement_pressed:
 		_placement_pressed = false
 		_placement_current_cell = screen_to_cell(screen_position)
+		if placement_kind in [&"wall", &"gate"] and _placement_current_cell != _placement_start_cell:
+			placement_orientation = _automatic_drag_orientation(
+				_placement_start_cell,
+				_placement_current_cell,
+			)
 		_commit_structure_placement()
 		return
 	if not _selection_pressed:
@@ -503,6 +607,10 @@ func _handle_left_release(screen_position: Vector2) -> void:
 			hit_ids.erase(hit)
 		elif hit >= 0:
 			hit_ids.append(hit)
+		if hit >= 0:
+			_effect_director.emit_click(_entity_world_center(simulation.entity(hit)), &"select", _team_color(int(simulation.entity(hit).get("team", RtsSimulation.TEAM_NEUTRAL))))
+		else:
+			_effect_director.emit_click(screen_to_map_position(screen_position), &"select", Color(PLAYER_COLOR, 0.72))
 		select_entities(hit_ids)
 	_selection_dragging = false
 	_selection_additive = false
@@ -518,17 +626,16 @@ func _commit_structure_placement() -> void:
 			placement_worker_id,
 			_placement_start_cell,
 			_placement_current_cell,
+			placement_orientation,
 		)
 		if wall_ids.is_empty():
+			_effect_director.emit_invalid(Vector2(_placement_start_cell))
 			feedback.emit("That snapped wall line is blocked or unaffordable.", true)
 		else:
+			_effect_director.emit_click(Vector2(_placement_start_cell), &"build", PLAYER_COLOR)
 			feedback.emit("%d Wood Wall foundations placed." % wall_ids.size(), false)
 			audio_cue.emit(&"order_work")
 		return
-	placement_orientation = simulation.gate_orientation(
-		_placement_start_cell,
-		_placement_current_cell,
-	) if placement_kind == &"gate" else &"y"
 	if simulation.command_build(
 		RtsSimulation.TEAM_PLAYER,
 		placement_worker_id,
@@ -536,9 +643,11 @@ func _commit_structure_placement() -> void:
 		_placement_start_cell,
 		placement_orientation,
 	):
+		_effect_director.emit_click(Vector2(_placement_start_cell), &"build", PLAYER_COLOR)
 		feedback.emit("%s foundation placed." % structure_name, false)
 		audio_cue.emit(&"order_work")
 	else:
+		_effect_director.emit_invalid(Vector2(_placement_start_cell))
 		feedback.emit("That site cannot host a %s." % structure_name, true)
 
 
@@ -549,6 +658,12 @@ func _handle_right_click(screen_position: Vector2, append: bool = false) -> void
 	var selected_structure := primary_selected_structure()
 	if commandable_units.is_empty() and selected_structure < 0:
 		return
+	var click_cell := screen_to_cell(screen_position)
+	if MapCatalog.in_bounds(click_cell):
+		var context := cursor_context_at(screen_position)
+		var cue_kind := &"attack" if context.get("state") == CursorSystem.ATTACK else &"queued" if append else &"order"
+		var cue_color := ENEMY_COLOR if cue_kind == &"attack" else PLAYER_COLOR
+		_effect_director.emit_click(screen_to_map_position(screen_position), cue_kind, cue_color, append)
 	var target_id := entity_at_screen(screen_position, false)
 	if target_id >= 0:
 		var target := simulation.entity(target_id)
@@ -687,6 +802,7 @@ func _handle_right_click(screen_position: Vector2, append: bool = false) -> void
 				return
 	var cell := screen_to_cell(screen_position)
 	if not MapCatalog.in_bounds(cell):
+		_effect_director.emit_invalid(screen_to_map_position(screen_position))
 		feedback.emit("That destination is beyond the map boundary.", true)
 		return
 	if selected_structure >= 0 and selected_commandable_units().is_empty():
@@ -732,6 +848,7 @@ func select_entities(ids: Array[int]) -> void:
 			selected_ids.append(id)
 	if not selected_ids.is_empty() and selected_ids != previous:
 		audio_cue.emit(&"unit_select")
+		_presentation.note_selection(selected_ids)
 	selection_changed.emit(selected_ids.duplicate())
 	_refresh_cursor()
 	queue_redraw()
@@ -953,14 +1070,42 @@ func begin_structure_placement(structure_kind: StringName) -> void:
 	audio_cue.emit(&"ui_confirm")
 	var faction := simulation.players[RtsSimulation.TEAM_PLAYER]["faction"] as StringName
 	var structure_name := String(FactionCatalog.stats(structure_kind, faction)["name"])
-	feedback.emit(
+	var placement_instruction := (
 		"Drag a straight snapped line for the %s." % structure_name
 		if structure_kind == &"wall"
 		else "Drag to orient and place the %s." % structure_name
 		if structure_kind == &"gate"
-		else "Choose a clear meadow footprint for the %s." % structure_name,
-		false,
+		else "Choose a clear walkable-land footprint for the %s." % structure_name
+		if structure_kind in RtsSimulation.FORTIFICATION_STRUCTURE_KINDS
+		else "Choose a clear meadow footprint for the %s." % structure_name
 	)
+	feedback.emit("%s Press R to rotate 90 degrees." % placement_instruction, false)
+
+
+func rotate_structure_placement() -> bool:
+	if placement_worker_id < 0 or placement_kind.is_empty():
+		return false
+	placement_orientation = &"x" if placement_orientation == &"y" else &"y"
+	_refresh_cursor()
+	queue_redraw()
+	var faction := simulation.players[RtsSimulation.TEAM_PLAYER]["faction"] as StringName
+	var structure_name := String(FactionCatalog.stats(placement_kind, faction)["name"])
+	feedback.emit("%s rotated 90 degrees." % structure_name, false)
+	audio_cue.emit(&"ui_confirm")
+	return true
+
+
+func _automatic_drag_orientation(start: Vector2i, finish: Vector2i) -> StringName:
+	# Wall art needs the opposite facing assignment from its original import.
+	# Read the actual snapped line so diagonal ties cannot disagree with its axis.
+	if placement_kind == &"wall":
+		var snapped_cells := simulation.wall_line_cells(start, finish)
+		var follows_map_x := (
+			snapped_cells.size() < 2
+			or snapped_cells[1].x != snapped_cells[0].x
+		)
+		return &"x" if follows_map_x else &"y"
+	return simulation.gate_orientation(start, finish)
 
 
 func cancel_modes() -> void:
@@ -1108,10 +1253,14 @@ func cursor_context_at(screen_position: Vector2) -> Dictionary:
 		if placement_kind == &"wall":
 			can_build = simulation.can_place_wall_line(RtsSimulation.TEAM_PLAYER, start_cell, cell)
 		else:
-			var orientation := simulation.gate_orientation(start_cell, cell) if placement_kind == &"gate" else &"y"
 			can_build = (
 				MapCatalog.in_bounds(cell)
-				and simulation.can_place_structure(RtsSimulation.TEAM_PLAYER, placement_kind, start_cell, orientation)
+				and simulation.can_place_structure(
+					RtsSimulation.TEAM_PLAYER,
+					placement_kind,
+					start_cell,
+					placement_orientation,
+				)
 				and simulation.can_afford_kind(RtsSimulation.TEAM_PLAYER, placement_kind)
 			)
 		return _cursor_context(
@@ -1547,11 +1696,17 @@ func _command_visualization_color(indicator_kind: StringName) -> Color:
 func _draw() -> void:
 	if simulation == null:
 		return
+	var logical_camera_offset := camera_offset
+	camera_offset += _effect_director.current_camera_offset()
 	draw_rect(Rect2(Vector2.ZERO, size), BATTLEFIELD_BACKGROUND_COLOR)
 	_draw_terrain()
+	_draw_environment_sheen()
 	_draw_map_edge_fade()
+	_draw_effect_underlay()
 	_draw_hover_feedback()
 	_draw_entities()
+	_draw_death_snapshots()
+	_draw_hover_overlay()
 	_draw_effects()
 	_draw_fog_of_war()
 	_draw_command_visualizations(_command_visualization_records())
@@ -1559,6 +1714,7 @@ func _draw() -> void:
 		var rect := Rect2(_selection_start, _selection_current - _selection_start).abs()
 		draw_rect(rect, Color(0.32, 0.93, 0.72, 0.12), true)
 		draw_rect(rect, PLAYER_COLOR, false, 1.5)
+	camera_offset = logical_camera_offset
 
 
 func _draw_terrain() -> void:
@@ -1693,6 +1849,21 @@ func _draw_hover_feedback() -> void:
 	var points := IsoProjection.transformed_polygon(cell, camera_scale, camera_offset)
 	var closed := points.duplicate()
 	closed.append(points[0])
+	var hovered_id := int(_presentation.hovered_entity_id)
+	if hovered_id >= 0:
+		var hovered := simulation.entity(hovered_id)
+		if not hovered.is_empty() and should_render_entity(hovered):
+			var hover_center := _selection_ring_screen_position(hovered)
+			var hover_strength := _presentation.hover_strength(hovered_id)
+			var hover_color := _team_color(int(hovered.get("team", RtsSimulation.TEAM_NEUTRAL)))
+			var hover_radius := _entity_ring_radius(hovered)
+			_draw_ellipse(
+				hover_center,
+				hover_radius.x * camera_scale * (1.04 + hover_strength * 0.04),
+				hover_radius.y * camera_scale * (1.04 + hover_strength * 0.04),
+				Color(hover_color, 0.32 + hover_strength * 0.22),
+				maxf(1.2, 1.8 * camera_scale),
+			)
 	if placement_worker_id >= 0:
 		var faction := simulation.players[RtsSimulation.TEAM_PLAYER]["faction"] as StringName
 		var texture := _entity_texture(faction, placement_kind)
@@ -1700,7 +1871,7 @@ func _draw_hover_feedback() -> void:
 		var preview_cells: Array[Vector2i] = [start_cell]
 		if placement_kind == &"wall":
 			preview_cells = simulation.wall_line_cells(start_cell, cell)
-		var orientation := simulation.gate_orientation(start_cell, cell) if placement_kind == &"gate" else &"y"
+		var orientation := placement_orientation
 		var valid := (
 			simulation.can_place_wall_line(RtsSimulation.TEAM_PLAYER, start_cell, cell)
 			if placement_kind == &"wall"
@@ -1726,12 +1897,41 @@ func _draw_hover_feedback() -> void:
 				draw_polyline(footprint_closed, color, 2.5, true)
 			var center_position := Vector2(preview_cell) + (Vector2(footprint) - Vector2.ONE) * 0.5
 			var ghost_center := camera_offset + IsoProjection.position_center(center_position) * camera_scale
+			var fits_footprint := placement_kind in RtsSimulation.FORTIFICATION_STRUCTURE_KINDS
+			var ghost_size := _structure_display_size(placement_kind, footprint, texture) * camera_scale
+			if not fits_footprint:
+				ghost_size *= 0.78
+			var sprite_flip := _structure_sprite_flipped(
+				placement_kind,
+				orientation,
+				footprint,
+				texture,
+			)
+			var axis_skew := _structure_sprite_axis_skew(
+				placement_kind,
+				orientation,
+				footprint,
+				texture,
+				ghost_size,
+				sprite_flip,
+			)
+			var structure_axis_offset := (
+				_gate_sprite_axis_anchor_offset(orientation, texture, ghost_size)
+				if placement_kind == &"gate"
+				else _wall_sprite_axis_anchor_offset(orientation, camera_scale)
+				if placement_kind == &"wall"
+				else Vector2.ZERO
+			)
 			_draw_world_texture(
 				texture,
-				ghost_center + _footprint_ground_offset(footprint),
-				_structure_display_size(placement_kind) * 0.78 * camera_scale,
+				ghost_center + _footprint_ground_offset(footprint) + structure_axis_offset,
+				ghost_size,
 				Color(1, 1, 1, 0.58 if valid else 0.35),
-				orientation == &"x" and placement_kind == &"gate",
+				sprite_flip,
+				0.0,
+				_character_art_bottom_margin(texture) if fits_footprint else -1.0,
+				_texture_content_center_x(texture) if fits_footprint else -1.0,
+				axis_skew,
 			)
 	elif move_armed:
 		draw_colored_polygon(points, Color(PLAYER_COLOR, 0.12))
@@ -1753,6 +1953,7 @@ func _draw_hover_feedback() -> void:
 
 
 func _draw_entities() -> void:
+	_rebuild_wall_render_lookup()
 	var renderables: Array[Dictionary] = []
 	for raw_entity in simulation.entities.values():
 		var entity_state := raw_entity as Dictionary
@@ -1789,8 +1990,8 @@ func _is_entity_on_screen(entity_state: Dictionary) -> bool:
 func _entity_draws_before(first: Dictionary, second: Dictionary) -> bool:
 	var first_position := first["position"] as Vector2
 	var second_position := second["position"] as Vector2
-	var first_depth := IsoProjection.depth(first_position)
-	var second_depth := IsoProjection.depth(second_position)
+	var first_depth := _entity_draw_depth(first)
+	var second_depth := _entity_draw_depth(second)
 	if first_depth != second_depth:
 		return first_depth < second_depth
 	if first_position.x != second_position.x:
@@ -1800,18 +2001,38 @@ func _entity_draws_before(first: Dictionary, second: Dictionary) -> bool:
 	return int(first.get("id", -1)) < int(second.get("id", -1))
 
 
+func _entity_draw_depth(entity_state: Dictionary) -> float:
+	var position := entity_state["position"] as Vector2
+	var footprint := entity_state.get("footprint", Vector2i.ONE) as Vector2i
+	var footprint_depth := float(footprint.x + footprint.y)
+	if entity_state.get("category") in [&"unit", &"wildlife"]:
+		# Moving sprites touch the ground at their projected tile center.
+		footprint_depth *= 0.5
+	# Static art is bottom-anchored at the southeast edge of its footprint. Sorting
+	# on that same edge keeps units behind walls, gates, and buildings underneath
+	# them while entities farther south/east are still painted later.
+	return IsoProjection.depth(position) + footprint_depth
+
+
 func _draw_entity(entity_state: Dictionary) -> void:
 	var center := entity_screen_position(entity_state)
+	var entity_id := int(entity_state.get("id", -1))
 	var category := entity_state.get("category") as StringName
 	var kind := entity_state.get("kind") as StringName
 	var selected := selected_ids.has(int(entity_state["id"]))
 	var tint := Color.WHITE
 	if int(entity_state.get("team", RtsSimulation.TEAM_NEUTRAL)) > RtsSimulation.TEAM_PLAYER:
 		tint = Color(1.0, 0.9, 0.88, 1.0)
-	if float(entity_state.get("flash_timer", 0.0)) > 0.0:
-		tint = Color(1.0, 0.42, 0.32, 1.0)
+	var hit_strength := _presentation.hit_flash(entity_id)
+	if hit_strength > 0.0:
+		tint = tint.lerp(Color(1.0, 0.52, 0.38, 1.0), hit_strength * 0.9)
+	var hover_strength := _presentation.hover_strength(entity_id)
+	if hover_strength > 0.0:
+		tint = tint.lerp(Color(1.1, 1.1, 0.96, tint.a), hover_strength * 0.18)
 	if float(entity_state.get("complete", 1.0)) < 1.0:
 		tint.a = 0.55 + float(entity_state["complete"]) * 0.45
+	if kind == &"stronghold":
+		_draw_stronghold_aura(entity_state, center)
 	if kind in [&"jadeclaw", &"shenlong", &"shenlong_egg", &"yaoguai_den", &"rice_farm", &"hunters_lodge"]:
 		var allegiance := _team_color(int(entity_state.get("team", RtsSimulation.TEAM_NEUTRAL)))
 		var allegiance_radius_x := 58.0 if kind == &"shenlong" else 35.0 if kind == &"jadeclaw" else 42.0 if kind == &"shenlong_egg" else (78.0 if kind in [&"yaoguai_den", &"rice_farm"] else 58.0)
@@ -1825,9 +2046,20 @@ func _draw_entity(entity_state: Dictionary) -> void:
 		)
 
 	if selected:
-		var radius_x := 34.0 if kind == &"jadeclaw" else (32.0 if category == &"wildlife" else 27.0 if category == &"unit" else 76.0 if kind == &"yaoguai_den" else 54.0)
-		var radius_y := 16.0 if kind == &"jadeclaw" else (15.0 if category == &"wildlife" else 13.0 if category == &"unit" else 34.0 if kind == &"yaoguai_den" else 25.0)
+		var selection_radius := _entity_ring_radius(entity_state)
+		var radius_x := selection_radius.x
+		var radius_y := selection_radius.y
 		_draw_ellipse(_selection_ring_screen_position(entity_state), radius_x * camera_scale, radius_y * camera_scale, Color("fff0a0"), 2.4)
+		var selection_strength := _presentation.selection_strength(entity_id)
+		_draw_ellipse_arc(
+			_selection_ring_screen_position(entity_state),
+			radius_x * camera_scale * (1.12 + selection_strength * 0.06),
+			radius_y * camera_scale * (1.12 + selection_strength * 0.06),
+			_command_indicator_time * 0.55 + float(entity_id) * 0.19,
+			PI * 1.38,
+			Color(1.0, 0.94, 0.62, 0.42),
+			maxf(1.0, 1.5 * camera_scale),
+		)
 
 	if category == &"resource":
 		var texture := RESOURCE_TEXTURES.get(kind) as Texture2D
@@ -1841,7 +2073,8 @@ func _draw_entity(entity_state: Dictionary) -> void:
 		_draw_resource_bar(entity_state, sprite_center)
 	else:
 		var texture := _entity_texture(entity_state["faction"] as StringName, kind)
-		var display_size := Vector2(94.0, 104.0) if category == &"unit" else (_wildlife_display_size(kind) if category == &"wildlife" else _structure_display_size(kind))
+		var footprint := entity_state.get("footprint", Vector2i.ONE) as Vector2i
+		var display_size := Vector2(94.0, 104.0) if category == &"unit" else (_wildlife_display_size(kind) if category == &"wildlife" else _structure_display_size(kind, footprint, texture))
 		if kind == &"jadeclaw":
 			display_size = Vector2(124.0, 112.0)
 		elif kind == &"shenlong":
@@ -1854,15 +2087,63 @@ func _draw_entity(entity_state: Dictionary) -> void:
 		var sprite_center := _grounded_sprite_screen_position(entity_state)
 		var flip_h := false
 		var rotation := 0.0
+		var axis_skew := 0.0
+		var presentation_scale := Vector2.ONE
 		if is_movable:
+			var presentation_transform := _presentation.visual_transform(entity_id)
+			sprite_center += IsoProjection.project(presentation_transform["offset"] as Vector2) * camera_scale
 			sprite_center.y += _movement_bounce_offset(entity_state)
 			flip_h = _movement_sprite_flipped(entity_state)
-			rotation = _idle_wobble_rotation(entity_state)
-		elif kind == &"gate":
-			flip_h = entity_state.get("orientation", &"y") == &"x"
-		var scaled_display_size := display_size * camera_scale
-		var bottom_margin := _character_art_bottom_margin(texture) if is_movable else -1.0
-		if kind == &"shenlong":
+			rotation = (
+				_idle_wobble_rotation(entity_state)
+				+ _movement_lean_rotation(entity_state)
+				+ float(presentation_transform["rotation"])
+			)
+			presentation_scale = (presentation_transform["scale"] as Vector2) * _movement_squash_scale(entity_state)
+		elif category == &"structure":
+			flip_h = _structure_sprite_flipped(
+				kind,
+				entity_state.get("orientation", &"y") as StringName,
+				footprint,
+				texture,
+			)
+		var scaled_display_size := display_size * camera_scale * presentation_scale
+		var texture_center := sprite_center
+		if kind == &"gate":
+			texture_center += _gate_sprite_axis_anchor_offset(
+				entity_state.get("orientation", &"y") as StringName,
+				texture,
+				scaled_display_size,
+			)
+		elif kind == &"wall":
+			texture_center += _wall_sprite_axis_anchor_offset(
+				entity_state.get("orientation", &"y") as StringName,
+				camera_scale,
+			)
+		var fits_footprint := kind in RtsSimulation.FORTIFICATION_STRUCTURE_KINDS
+		if fits_footprint:
+			axis_skew = _structure_sprite_axis_skew(
+				kind,
+				entity_state.get("orientation", &"y") as StringName,
+				footprint,
+				texture,
+				scaled_display_size,
+				flip_h,
+			)
+		var bottom_margin := _character_art_bottom_margin(texture) if is_movable or fits_footprint else -1.0
+		var content_center_x := _texture_content_center_x(texture) if fits_footprint else -1.0
+		var wall_render_orientations: Array[StringName] = []
+		if kind == &"wall":
+			wall_render_orientations = _wall_render_orientations(entity_state)
+		if kind == &"wall":
+			_draw_wall_joint_segments(
+				texture,
+				sprite_center,
+				scaled_display_size,
+				tint,
+				wall_render_orientations,
+			)
+		elif kind == &"shenlong":
 			_draw_shenlong_texture(
 				texture,
 				sprite_center,
@@ -1876,19 +2157,23 @@ func _draw_entity(entity_state: Dictionary) -> void:
 		else:
 			_draw_world_texture(
 				texture,
-				sprite_center,
+				texture_center,
 				scaled_display_size,
 				tint,
 				flip_h,
 				rotation,
 				bottom_margin,
+				content_center_x,
+				axis_skew,
 			)
+		if kind == &"stronghold":
+			_draw_stronghold_particles(entity_state, center, scaled_display_size)
 		if kind == &"yaoguai_den":
 			_draw_cave_status(entity_state, sprite_center)
 		elif kind != &"shenlong_egg":
 			_draw_health_bar(entity_state, sprite_center, category)
 		if kind == &"sentry_tower":
-			_draw_tower_occupant(entity_state, sprite_center)
+			_draw_tower_occupants(entity_state, sprite_center)
 		if kind in RtsSimulation.FOOD_PRODUCER_KINDS and float(entity_state.get("complete", 0.0)) >= 1.0:
 			_draw_food_progress(entity_state, sprite_center)
 
@@ -1899,23 +2184,112 @@ func _draw_entity(entity_state: Dictionary) -> void:
 			_draw_farm_worker_icon(center)
 
 
-func _draw_tower_occupant(tower: Dictionary, tower_sprite_center: Vector2) -> void:
+func _draw_tower_occupants(tower: Dictionary, tower_sprite_center: Vector2) -> void:
+	for draw_data in _tower_occupant_draw_data(tower, tower_sprite_center):
+		var unit := draw_data["unit"] as Dictionary
+		var texture := _entity_texture(unit["faction"] as StringName, unit["kind"] as StringName)
+		_draw_world_texture(
+			texture,
+			draw_data["center"] as Vector2,
+			TOWER_OCCUPANT_DISPLAY_SIZE * camera_scale,
+			Color.WHITE,
+			false,
+			0.0,
+			_character_art_bottom_margin(texture),
+		)
+
+
+func _tower_occupant_draw_data(
+	tower: Dictionary,
+	tower_sprite_center: Vector2,
+) -> Array[Dictionary]:
 	var occupants := tower.get("garrisoned_unit_ids", []) as Array
 	if occupants.is_empty():
-		return
-	var unit := simulation.entity(int(occupants[0]))
-	if unit.is_empty() or not bool(unit.get("alive", false)):
-		return
-	var texture := _entity_texture(unit["faction"] as StringName, unit["kind"] as StringName)
-	var occupant_center := tower_sprite_center + Vector2(0.0, -92.0) * camera_scale
-	_draw_world_texture(
-		texture,
-		occupant_center,
-		Vector2(70.0, 82.0) * camera_scale,
-		Color.WHITE,
-		false,
-		0.0,
-		_character_art_bottom_margin(texture),
+		return []
+	var live_occupants: Array[Dictionary] = []
+	for raw_id in occupants:
+		var unit := simulation.entity(int(raw_id))
+		if not unit.is_empty() and bool(unit.get("alive", false)):
+			live_occupants.append(unit)
+	if live_occupants.is_empty():
+		return []
+	var tower_texture := _entity_texture(
+		tower["faction"] as StringName,
+		tower["kind"] as StringName,
+	)
+	var result: Array[Dictionary] = []
+	for index in range(live_occupants.size()):
+		result.append({
+			"unit": live_occupants[index],
+			"center": _tower_rooftop_screen_position(
+				tower,
+				tower_sprite_center,
+				tower_texture,
+				_tower_rooftop_source_slot(index, live_occupants.size()),
+			),
+		})
+	return result
+
+
+func _tower_rooftop_source_slot(index: int, occupant_count: int) -> Vector2:
+	if occupant_count <= 1:
+		return Vector2(TOWER_ROOFTOP_SOURCE_CENTER_X, TOWER_ROOFTOP_SOURCE_Y)
+	var weight := float(index) / float(occupant_count - 1)
+	return Vector2(
+		TOWER_ROOFTOP_SOURCE_CENTER_X
+			+ lerpf(-TOWER_ROOFTOP_SOURCE_SPAN_X * 0.5, TOWER_ROOFTOP_SOURCE_SPAN_X * 0.5, weight),
+		TOWER_ROOFTOP_SOURCE_Y,
+	)
+
+
+func _tower_rooftop_screen_position(
+	tower: Dictionary,
+	tower_sprite_center: Vector2,
+	tower_texture: Texture2D,
+	source_position: Vector2,
+) -> Vector2:
+	if tower_texture == null:
+		return tower_sprite_center
+	var footprint := tower.get("footprint", Vector2i.ONE) as Vector2i
+	var display_size := _structure_display_size(&"sentry_tower", footprint, tower_texture) * camera_scale
+	var bottom_margin := _character_art_bottom_margin(tower_texture)
+	var content_center_x := _texture_content_center_x(tower_texture)
+	var texture_rect := _world_texture_rect(
+		tower_texture,
+		display_size,
+		bottom_margin,
+		content_center_x,
+	)
+	var flip_h := _structure_sprite_flipped(
+		&"sentry_tower",
+		tower.get("orientation", &"y") as StringName,
+		footprint,
+		tower_texture,
+	)
+	var axis_skew := _structure_sprite_axis_skew(
+		&"sentry_tower",
+		tower.get("orientation", &"y") as StringName,
+		footprint,
+		tower_texture,
+		display_size,
+		flip_h,
+	)
+	var transform_center := tower_sprite_center
+	if not is_zero_approx(axis_skew):
+		transform_center.y -= _skewed_texture_bottom_overhang(
+			tower_texture,
+			display_size,
+			content_center_x,
+			axis_skew,
+		)
+	var local_position := texture_rect.position + Vector2(
+		source_position.x * display_size.x / maxf(float(tower_texture.get_width()), 1.0),
+		source_position.y * display_size.y / maxf(float(tower_texture.get_height()), 1.0),
+	)
+	var horizontal_scale := -1.0 if flip_h else 1.0
+	return transform_center + Vector2(
+		local_position.x * horizontal_scale,
+		local_position.y + local_position.x * axis_skew,
 	)
 
 
@@ -1986,11 +2360,29 @@ func _draw_world_texture(
 	flip_h: bool = false,
 	rotation: float = 0.0,
 	content_bottom_margin_pixels: float = -1.0,
+	content_center_x_pixels: float = -1.0,
+	axis_skew: float = 0.0,
 ) -> void:
 	if texture == null:
 		return
-	var rect := _world_texture_rect(texture, display_size, content_bottom_margin_pixels)
-	draw_set_transform(center, rotation, Vector2(-1.0 if flip_h else 1.0, 1.0))
+	var rect := _world_texture_rect(
+		texture,
+		display_size,
+		content_bottom_margin_pixels,
+		content_center_x_pixels,
+	)
+	var transform_center := center
+	if content_bottom_margin_pixels >= 0.0 and not is_zero_approx(axis_skew):
+		transform_center.y -= _skewed_texture_bottom_overhang(
+			texture,
+			display_size,
+			content_center_x_pixels,
+			axis_skew,
+		)
+	var horizontal_scale := -1.0 if flip_h else 1.0
+	var x_axis := Vector2(horizontal_scale, axis_skew).rotated(rotation)
+	var y_axis := Vector2(0.0, 1.0).rotated(rotation)
+	draw_set_transform_matrix(Transform2D(x_axis, y_axis, transform_center))
 	draw_texture_rect(texture, rect, false, tint)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
@@ -2133,10 +2525,149 @@ func _draw_shenlong_aura(
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
+func _stronghold_effect_profile(stronghold: Dictionary) -> Dictionary:
+	var level := int(stronghold.get("stronghold_level", RtsSimulation.STRONGHOLD_INITIAL_LEVEL))
+	if level <= RtsSimulation.STRONGHOLD_INITIAL_LEVEL:
+		return {
+			"aura_alpha": 0.0,
+			"aura_layers": 0,
+			"aura_radius_scale": 0.0,
+			"particle_alpha": 0.0,
+			"particle_count": 0,
+			"particle_size": 0.0,
+		}
+	if level >= RtsSimulation.STRONGHOLD_MAX_LEVEL:
+		return {
+			"aura_alpha": 0.6,
+			"aura_layers": 3,
+			"aura_radius_scale": 1.22,
+			"particle_alpha": 1.0,
+			"particle_count": STRONGHOLD_LEVEL_3_PARTICLE_COUNT,
+			"particle_size": 2.8,
+		}
+	return {
+		"aura_alpha": 0.34,
+		"aura_layers": 2,
+		"aura_radius_scale": 1.0,
+		"particle_alpha": 0.68,
+		"particle_count": STRONGHOLD_LEVEL_2_PARTICLE_COUNT,
+		"particle_size": 2.0,
+	}
+
+
+func _draw_stronghold_aura(stronghold: Dictionary, center: Vector2) -> void:
+	var profile := _stronghold_effect_profile(stronghold)
+	var aura_alpha := float(profile["aura_alpha"])
+	if aura_alpha <= 0.0:
+		return
+	var entity_id := int(stronghold.get("id", 0))
+	var seed := deg_to_rad(float(posmod(entity_id * 67, 360)))
+	var pulse := 1.0 + sin(_wind_animation_time * 1.45 + seed) * 0.055
+	var radius := (
+		STRONGHOLD_AURA_BASE_RADIUS
+		* camera_scale
+		* float(profile["aura_radius_scale"])
+		* pulse
+	)
+	var aura_center := center + Vector2(0.0, 4.0 * camera_scale)
+	var aura_color := _team_color(
+		int(stronghold.get("team", RtsSimulation.TEAM_NEUTRAL))
+	).lerp(Color("8cfff1"), 0.34)
+	var fill_points := PackedVector2Array()
+	for point_index in range(32):
+		var angle := float(point_index) / 32.0 * TAU
+		fill_points.append(
+			aura_center + Vector2(cos(angle) * radius.x, sin(angle) * radius.y)
+		)
+	draw_colored_polygon(fill_points, Color(aura_color, aura_alpha * 0.24))
+	var inner_fill_points := PackedVector2Array()
+	for point_index in range(32):
+		var angle := float(point_index) / 32.0 * TAU
+		inner_fill_points.append(
+			aura_center
+			+ Vector2(cos(angle) * radius.x * 0.72, sin(angle) * radius.y * 0.72)
+		)
+	draw_colored_polygon(inner_fill_points, Color(aura_color, aura_alpha * 0.17))
+	var layers := int(profile["aura_layers"])
+	for layer_index in range(layers):
+		var layer_progress := float(layer_index) / float(maxi(layers - 1, 1))
+		var layer_radius := radius * (1.0 - layer_progress * 0.2)
+		var layer_color := aura_color.lerp(Color("ffe8aa"), 0.16 + layer_progress * 0.2)
+		_draw_ellipse(
+			aura_center,
+			layer_radius.x,
+			layer_radius.y,
+			Color(layer_color, aura_alpha * (0.46 + layer_progress * 0.22)),
+			maxf(1.0, (1.8 + layer_progress * 0.9) * camera_scale),
+		)
+
+
+func _draw_stronghold_particles(
+	stronghold: Dictionary,
+	ground_center: Vector2,
+	display_size: Vector2,
+) -> void:
+	var profile := _stronghold_effect_profile(stronghold)
+	var particle_count := int(profile["particle_count"])
+	if particle_count <= 0:
+		return
+	var entity_id := int(stronghold.get("id", 0))
+	var team_color := _team_color(int(stronghold.get("team", RtsSimulation.TEAM_NEUTRAL)))
+	var orbit_radius := STRONGHOLD_AURA_BASE_RADIUS * camera_scale
+	for particle_index in range(particle_count):
+		var highlight := Color("ffe5a0") if particle_index % 3 == 0 else Color("b4fff2")
+		var particle_color := team_color.lerp(highlight, 0.48)
+		var seed := (
+			float(posmod(entity_id * 83 + particle_index * 137, 997)) / 997.0
+		)
+		var speed := 0.17 + seed * 0.08
+		var progress := fposmod(
+			_wind_animation_time * speed + seed + float(particle_index) * 0.071,
+			1.0,
+		)
+		var angle := seed * TAU + sin(
+			_wind_animation_time * 0.46 + float(particle_index) * 1.31
+		) * 0.34
+		var spread := 0.48 + fposmod(seed * 7.13, 1.0) * 0.52
+		var origin := ground_center + Vector2(
+			cos(angle) * orbit_radius.x * spread,
+			sin(angle) * orbit_radius.y * spread + 3.0 * camera_scale,
+		)
+		var drift := Vector2(
+			sin(angle * 1.7 + progress * TAU) * 9.0 * camera_scale,
+			-progress * display_size.y * (0.68 + seed * 0.2),
+		)
+		var particle_position := origin + drift
+		var fade := sin(progress * PI)
+		var alpha := float(profile["particle_alpha"]) * fade
+		var radius := maxf(
+			0.65,
+			float(profile["particle_size"]) * camera_scale * (0.78 + seed * 0.42),
+		)
+		draw_line(
+			particle_position + Vector2(0.0, radius * 3.0),
+			particle_position,
+			Color(particle_color, alpha * 0.46),
+			maxf(1.0, radius * 0.65),
+			true,
+		)
+		draw_circle(
+			particle_position,
+			radius * 2.4,
+			Color(particle_color, alpha * 0.18),
+		)
+		draw_circle(
+			particle_position,
+			radius * 0.62,
+			Color(particle_color.lerp(Color.WHITE, 0.62), alpha),
+		)
+
+
 func _world_texture_rect(
 	texture: Texture2D,
 	display_size: Vector2,
 	content_bottom_margin_pixels: float = -1.0,
+	content_center_x_pixels: float = -1.0,
 ) -> Rect2:
 	var bottom_offset := 10.0 * camera_scale
 	if content_bottom_margin_pixels >= 0.0:
@@ -2145,10 +2676,14 @@ func _world_texture_rect(
 			* content_bottom_margin_pixels
 			/ maxf(float(texture.get_height()), 1.0)
 		)
-	return Rect2(
-		Vector2(-display_size.x * 0.5, -display_size.y + bottom_offset),
-		display_size,
-	)
+	var left_offset := display_size.x * 0.5
+	if content_center_x_pixels >= 0.0:
+		left_offset = (
+			display_size.x
+			* content_center_x_pixels
+			/ maxf(float(texture.get_width()), 1.0)
+		)
+	return Rect2(Vector2(-left_offset, -display_size.y + bottom_offset), display_size)
 
 
 func _selection_ring_screen_position(entity_state: Dictionary) -> Vector2:
@@ -2175,13 +2710,114 @@ func _character_art_bottom_margin(texture: Texture2D) -> float:
 		cache_key = str(texture.get_instance_id())
 	if _texture_bottom_margin_cache.has(cache_key):
 		return float(_texture_bottom_margin_cache[cache_key])
-	var image := texture.get_image()
-	var bottom_margin := 0.0
-	if image != null and not image.is_empty():
-		var used_rect := image.get_used_rect()
-		bottom_margin = maxf(float(image.get_height() - used_rect.end.y), 0.0)
+	var content_rect := _texture_content_rect(texture)
+	var bottom_margin := maxf(float(texture.get_height() - content_rect.end.y), 0.0)
 	_texture_bottom_margin_cache[cache_key] = bottom_margin
 	return bottom_margin
+
+
+func _texture_content_center_x(texture: Texture2D) -> float:
+	var content_rect := _texture_content_rect(texture)
+	return float(content_rect.position.x) + float(content_rect.size.x) * 0.5
+
+
+func _texture_content_rect(texture: Texture2D) -> Rect2i:
+	if texture == null:
+		return Rect2i()
+	var cache_key := texture.resource_path
+	if cache_key.is_empty():
+		cache_key = str(texture.get_instance_id())
+	if _texture_content_rect_cache.has(cache_key):
+		return _texture_content_rect_cache[cache_key] as Rect2i
+	var content_rect := Rect2i(
+		Vector2i.ZERO,
+		Vector2i(texture.get_width(), texture.get_height()),
+	)
+	var image := texture.get_image()
+	if image != null and not image.is_empty():
+		var used_rect := image.get_used_rect()
+		if used_rect.has_area():
+			content_rect = used_rect
+	_texture_content_rect_cache[cache_key] = content_rect
+	return content_rect
+
+
+func _texture_ground_profile(texture: Texture2D) -> PackedVector2Array:
+	if texture == null:
+		return PackedVector2Array()
+	var cache_key := texture.resource_path
+	if cache_key.is_empty():
+		cache_key = str(texture.get_instance_id())
+	if _texture_ground_profile_cache.has(cache_key):
+		return _texture_ground_profile_cache[cache_key] as PackedVector2Array
+	var profile := PackedVector2Array()
+	var image := texture.get_image()
+	var content_rect := _texture_content_rect(texture)
+	if image != null and not image.is_empty() and content_rect.has_area():
+		for x in range(content_rect.position.x, content_rect.end.x):
+			for y in range(content_rect.end.y - 1, content_rect.position.y - 1, -1):
+				if image.get_pixel(x, y).a > 0.125:
+					profile.append(Vector2(float(x) + 0.5, float(y) + 1.0))
+					break
+	_texture_ground_profile_cache[cache_key] = profile
+	return profile
+
+
+func _texture_ground_axis_slope(texture: Texture2D) -> float:
+	if texture == null:
+		return 0.0
+	var cache_key := texture.resource_path
+	if cache_key.is_empty():
+		cache_key = str(texture.get_instance_id())
+	if _texture_ground_slope_cache.has(cache_key):
+		return float(_texture_ground_slope_cache[cache_key])
+	var profile := _texture_ground_profile(texture)
+	if profile.size() < 2:
+		return 0.0
+	# Trim decorative endcaps before fitting the opaque lower contour. This yields
+	# the authored ground axis without mistaking roofs or banners for footprint edges.
+	var trim := profile.size() / 10
+	var first := trim
+	var last := profile.size() - trim
+	if last - first < 2:
+		first = 0
+		last = profile.size()
+	var mean := Vector2.ZERO
+	for index in range(first, last):
+		mean += profile[index]
+	mean /= float(last - first)
+	var covariance := 0.0
+	var variance_x := 0.0
+	for index in range(first, last):
+		var offset := profile[index] - mean
+		covariance += offset.x * offset.y
+		variance_x += offset.x * offset.x
+	var slope := covariance / maxf(variance_x, 0.0001)
+	_texture_ground_slope_cache[cache_key] = slope
+	return slope
+
+
+func _skewed_texture_bottom_overhang(
+	texture: Texture2D,
+	display_size: Vector2,
+	content_center_x_pixels: float,
+	axis_skew: float,
+) -> float:
+	var profile := _texture_ground_profile(texture)
+	if profile.is_empty():
+		return 0.0
+	var content_rect := _texture_content_rect(texture)
+	var content_center_x := content_center_x_pixels
+	if content_center_x < 0.0:
+		content_center_x = float(content_rect.position.x) + float(content_rect.size.x) * 0.5
+	var scale_x := display_size.x / maxf(float(texture.get_width()), 1.0)
+	var scale_y := display_size.y / maxf(float(texture.get_height()), 1.0)
+	var overhang := 0.0
+	for point in profile:
+		var local_x := (point.x - content_center_x) * scale_x
+		var local_y := (point.y - float(content_rect.end.y)) * scale_y
+		overhang = maxf(overhang, local_y + axis_skew * local_x)
+	return overhang
 
 
 func _footprint_ground_offset(footprint: Vector2i) -> Vector2:
@@ -2191,6 +2827,263 @@ func _footprint_ground_offset(footprint: Vector2i) -> Vector2:
 		float(footprint.x + footprint.y) * IsoProjection.TILE_HEIGHT * 0.25
 	)
 	return Vector2(0.0, half_footprint_height * camera_scale)
+
+
+func _gate_sprite_flipped_for_footprint(footprint: Vector2i) -> bool:
+	# A horizontal mirror is a 90-degree turn between the two upright isometric
+	# axes. Gate masters face map X, so their map-Y footprint is the mirrored view.
+	return footprint.y > footprint.x
+
+
+func _gate_sprite_axis_anchor_offset(
+	orientation: StringName,
+	texture: Texture2D,
+	display_size: Vector2,
+) -> Vector2:
+	if texture == null:
+		return Vector2.ZERO
+	var content_width := (
+		float(_texture_content_rect(texture).size.x)
+		* display_size.x
+		/ maxf(float(texture.get_width()), 1.0)
+	)
+	# The grounded structure anchor is horizontally halfway between the footprint
+	# center and its lowest vertex. The texture-calibrated span fraction seats the
+	# gate on the front long edge while retaining a slight screen-NW/NE overlap bias.
+	var anchor_ratio := _gate_sprite_anchor_ratio(texture)
+	return Vector2(
+		-content_width * anchor_ratio
+		if orientation == &"x"
+		else content_width * anchor_ratio,
+		0.0,
+	)
+
+
+func _gate_sprite_scale(texture: Texture2D) -> float:
+	if texture == null:
+		return GATE_SPRITE_SCALE
+	return float(GATE_SPRITE_SCALE_OVERRIDES.get(
+		texture.resource_path.get_file(),
+		GATE_SPRITE_SCALE,
+	))
+
+
+func _gate_sprite_anchor_ratio(texture: Texture2D) -> float:
+	if texture == null:
+		return GATE_SPRITE_ANCHOR_RATIO
+	return float(GATE_SPRITE_ANCHOR_RATIO_OVERRIDES.get(
+		texture.resource_path.get_file(),
+		GATE_SPRITE_ANCHOR_RATIO,
+	))
+
+
+func _wall_sprite_axis_anchor_offset(
+	orientation: StringName,
+	projection_scale: float = 1.0,
+) -> Vector2:
+	# Bottom-profile grounding already supplies the vertical component of the
+	# sloped edge. Move the wall center to the nominal edge midpoint: screen-NW
+	# for 0°/map X and screen-NE for 90°/map Y. The offset deliberately ignores
+	# the 10% art enlargement so its extra length overlaps both ends evenly.
+	return Vector2(
+		-IsoProjection.TILE_WIDTH * 0.25 if orientation == &"x" else IsoProjection.TILE_WIDTH * 0.25,
+		0.0,
+	) * projection_scale
+
+
+func _wall_lookup_key(team: int, cell: Vector2i) -> Vector3i:
+	return Vector3i(team, cell.x, cell.y)
+
+
+func _rebuild_wall_render_lookup() -> void:
+	_wall_render_lookup.clear()
+	if simulation == null:
+		return
+	for raw_entity in simulation.entities.values():
+		var wall := raw_entity as Dictionary
+		if (
+			wall.get("kind") != &"wall"
+			or not bool(wall.get("alive", false))
+			or float(wall.get("complete", 0.0)) < 1.0
+		):
+			continue
+		var cell := wall.get("cell", Vector2i(-1, -1)) as Vector2i
+		var team := int(wall.get("team", RtsSimulation.TEAM_NEUTRAL))
+		_wall_render_lookup[_wall_lookup_key(team, cell)] = wall
+
+
+func _wall_corner_direction_orientation(direction: StringName) -> StringName:
+	return &"x" if direction in [&"top_left", &"bottom_right"] else &"y"
+
+
+func _wall_render_orientations(wall: Dictionary) -> Array[StringName]:
+	var orientations: Array[StringName] = []
+	var primary_orientation := wall.get("orientation", &"y") as StringName
+	orientations.append(primary_orientation)
+	if (
+		wall.get("kind") != &"wall"
+		or not bool(wall.get("alive", false))
+		or float(wall.get("complete", 0.0)) < 1.0
+	):
+		return orientations
+	var corner_directions := _wall_corner_directions(wall)
+	if corner_directions.is_empty():
+		return orientations
+	# Neighbor sprites on +X/+Y already begin at this tile's shared endpoint.
+	# Only -X/-Y runs stop one edge short and need a segment owned by this tile.
+	# Replacing (rather than supplementing) the primary sprite prevents top and
+	# right turns from growing an unused wall arm beyond the polygon boundary.
+	orientations.clear()
+	if corner_directions.has(&"top_left"):
+		orientations.append(&"x")
+	if corner_directions.has(&"top_right"):
+		orientations.append(&"y")
+	return orientations
+
+
+func _wall_corner_directions(wall: Dictionary) -> Array[StringName]:
+	var result: Array[StringName] = []
+	if (
+		wall.get("kind") != &"wall"
+		or not bool(wall.get("alive", false))
+		or float(wall.get("complete", 0.0)) < 1.0
+	):
+		return result
+	var cell := wall.get("cell", Vector2i(-1, -1)) as Vector2i
+	var team := int(wall.get("team", RtsSimulation.TEAM_NEUTRAL))
+	for direction in WALL_CORNER_DIRECTION_ORDER:
+		var neighbor_offset := WALL_CORNER_NEIGHBOR_OFFSETS[direction] as Vector2i
+		var neighbor_cell: Vector2i = cell + neighbor_offset
+		var neighbor := _wall_render_lookup.get(
+			_wall_lookup_key(team, neighbor_cell),
+			{},
+		) as Dictionary
+		if (
+			not neighbor.is_empty()
+			and neighbor.get("orientation", &"y") == _wall_corner_direction_orientation(direction)
+		):
+			result.append(direction)
+	var has_x_axis := result.has(&"top_left") or result.has(&"bottom_right")
+	var has_y_axis := result.has(&"top_right") or result.has(&"bottom_left")
+	# Opposing arms are a straight run. Only perpendicular axes form a corner;
+	# T-junctions and crossings retain every connected arm.
+	if has_x_axis and has_y_axis:
+		return result
+	result.clear()
+	return result
+
+
+func _wall_corner_direction_anchor_offset(
+	direction: StringName,
+	projection_scale: float = 1.0,
+) -> Vector2:
+	# The normal 0° and 90° sprites sit on the two lower diamond edges. Their
+	# opposite-edge variants move one half-tile upward while crossing to the
+	# other side, so the measured opaque ground axis stays flush to the diamond.
+	if direction == &"bottom_left":
+		return -IsoProjection.project(Vector2(1.0, 0.0)) * projection_scale
+	if direction == &"bottom_right":
+		return -IsoProjection.project(Vector2(0.0, 1.0)) * projection_scale
+	return Vector2.ZERO
+
+
+func _draw_wall_joint_segments(
+	texture: Texture2D,
+	sprite_center: Vector2,
+	display_size: Vector2,
+	tint: Color,
+	orientations: Array[StringName],
+) -> void:
+	var footprint := Vector2i.ONE
+	var bottom_margin := _character_art_bottom_margin(texture)
+	var content_center_x := _texture_content_center_x(texture)
+	for orientation in [&"x", &"y"]:
+		if not orientations.has(orientation):
+			continue
+		var flip_h := _structure_sprite_flipped(
+			&"wall",
+			orientation,
+			footprint,
+			texture,
+		)
+		var axis_skew := _structure_sprite_axis_skew(
+			&"wall",
+			orientation,
+			footprint,
+			texture,
+			display_size,
+			flip_h,
+		)
+		var texture_center := (
+			sprite_center
+			+ _wall_sprite_axis_anchor_offset(orientation, camera_scale)
+		)
+		_draw_world_texture(
+			texture,
+			texture_center,
+			display_size,
+			tint,
+			flip_h,
+			0.0,
+			bottom_margin,
+			content_center_x,
+			axis_skew,
+		)
+
+
+func _fortification_target_axis_slope(
+	structure_kind: StringName,
+	orientation: StringName,
+	_footprint: Vector2i,
+) -> float:
+	var tile_slope := IsoProjection.TILE_HEIGHT / IsoProjection.TILE_WIDTH
+	if structure_kind in [&"wall", &"gate"]:
+		# Walls and gates sit on one of the two actual isometric tile axes. A
+		# rectangular gate footprint changes the length of that axis, not its angle.
+		return tile_slope if orientation == &"x" else -tile_slope
+	return 0.0
+
+
+func _structure_sprite_flipped(
+	structure_kind: StringName,
+	orientation: StringName,
+	footprint: Vector2i,
+	texture: Texture2D = null,
+) -> bool:
+	if structure_kind in RtsSimulation.FORTIFICATION_STRUCTURE_KINDS and texture != null:
+		var source_slope := _texture_ground_axis_slope(texture)
+		var target_slope := _fortification_target_axis_slope(
+			structure_kind,
+			orientation,
+			footprint,
+		)
+		if not is_zero_approx(source_slope) and not is_zero_approx(target_slope):
+			return source_slope * target_slope < 0.0
+	if structure_kind == &"gate":
+		return _gate_sprite_flipped_for_footprint(footprint)
+	return orientation == &"x"
+
+
+func _structure_sprite_axis_skew(
+	structure_kind: StringName,
+	orientation: StringName,
+	footprint: Vector2i,
+	texture: Texture2D,
+	display_size: Vector2,
+	flip_h: bool,
+) -> float:
+	if structure_kind not in RtsSimulation.FORTIFICATION_STRUCTURE_KINDS or texture == null:
+		return 0.0
+	var source_scale_x := display_size.x / maxf(float(texture.get_width()), 1.0)
+	var source_scale_y := display_size.y / maxf(float(texture.get_height()), 1.0)
+	var source_slope := _texture_ground_axis_slope(texture) * source_scale_y / maxf(source_scale_x, 0.0001)
+	var target_slope := _fortification_target_axis_slope(
+		structure_kind,
+		orientation,
+		footprint,
+	)
+	var horizontal_scale := -1.0 if flip_h else 1.0
+	return horizontal_scale * target_slope - source_slope
 
 
 func _update_movement_visuals(delta: float) -> void:
@@ -2212,9 +3105,14 @@ func _update_movement_visuals(delta: float) -> void:
 				"moving_for": 0.0,
 				"idle_wait_remaining": _idle_wobble_wait(entity_id, 0),
 				"idle_wobble_elapsed": 0.0,
-				"idle_turn_count": 0,
-				"was_idle_player_unit": false,
-			}
+					"idle_turn_count": 0,
+					"was_idle_player_unit": false,
+					"last_foot_cycle": -1,
+					"motion_blend": 0.0,
+					"start_impulse": 0.0,
+					"settle_impulse": 0.0,
+					"was_moving": false,
+				}
 		var visual := _movement_visuals[entity_id] as Dictionary
 		var previous_position := visual.get("position", position) as Vector2
 		var movement := position - previous_position
@@ -2223,8 +3121,28 @@ func _update_movement_visuals(delta: float) -> void:
 			if absf(projected_movement.x) > WALK_FACING_EPSILON:
 				visual["faces_left"] = projected_movement.x < 0.0
 			visual["moving_for"] = WALK_MOTION_MEMORY_SECONDS
+			if not bool(visual.get("was_moving", false)):
+				visual["start_impulse"] = 1.0
+			visual["was_moving"] = true
+			var foot_phase := _walk_animation_time * WALK_BOUNCE_SPEED + float(entity_id) * 1.61803398875
+			var foot_cycle := int(floor(foot_phase / PI))
+			if (
+				foot_cycle != int(visual.get("last_foot_cycle", -1))
+				and camera_scale > 0.45
+				and should_render_entity(entity_state)
+			):
+				_effect_director.emit_foot_dust(position, _ground_contact_color(position))
+			visual["last_foot_cycle"] = foot_cycle
 		else:
-			visual["moving_for"] = maxf(0.0, float(visual.get("moving_for", 0.0)) - delta)
+			var previous_moving_for := float(visual.get("moving_for", 0.0))
+			visual["moving_for"] = maxf(0.0, previous_moving_for - delta)
+			if previous_moving_for > 0.0 and float(visual["moving_for"]) <= 0.0 and bool(visual.get("was_moving", false)):
+				visual["settle_impulse"] = 1.0
+				visual["was_moving"] = false
+		var motion_target := 1.0 if float(visual.get("moving_for", 0.0)) > 0.0 else 0.0
+		visual["motion_blend"] = lerpf(float(visual.get("motion_blend", 0.0)), motion_target, clampf(delta * 10.0, 0.0, 1.0))
+		visual["start_impulse"] = maxf(0.0, float(visual.get("start_impulse", 0.0)) - delta * 7.0)
+		visual["settle_impulse"] = maxf(0.0, float(visual.get("settle_impulse", 0.0)) - delta * 6.0)
 		var is_idle_player_unit := (
 			_is_idle_player_unit_visual(entity_state)
 			and float(visual.get("moving_for", 0.0)) <= 0.0
@@ -2343,7 +3261,72 @@ func _movement_bounce_offset(entity_state: Dictionary) -> float:
 	return -absf(sin(phase)) * WALK_BOUNCE_HEIGHT * camera_scale * fade
 
 
-func _structure_display_size(kind: StringName) -> Vector2:
+func _movement_lean_rotation(entity_state: Dictionary) -> float:
+	if _effect_director.reduced_motion:
+		return 0.0
+	var visual := _movement_visuals.get(int(entity_state.get("id", -1)), {}) as Dictionary
+	var blend := float(visual.get("motion_blend", 0.0))
+	var direction := -1.0 if bool(visual.get("faces_left", false)) else 1.0
+	return direction * blend * 0.035
+
+
+func _movement_squash_scale(entity_state: Dictionary) -> Vector2:
+	if _effect_director.reduced_motion:
+		return Vector2.ONE
+	var entity_id := int(entity_state.get("id", -1))
+	var visual := _movement_visuals.get(entity_id, {}) as Dictionary
+	var blend := float(visual.get("motion_blend", 0.0))
+	var phase := _walk_animation_time * WALK_BOUNCE_SPEED + float(entity_id) * 1.61803398875
+	var foot_plant := pow(1.0 - absf(sin(phase)), 4.0) * blend
+	var start_impulse := float(visual.get("start_impulse", 0.0))
+	var settle_impulse := float(visual.get("settle_impulse", 0.0))
+	var squash := foot_plant * 0.045 + settle_impulse * 0.035
+	var stretch := start_impulse * 0.035
+	return Vector2(1.0 + squash - stretch * 0.35, 1.0 - squash + stretch)
+
+
+func _ground_contact_color(position: Vector2) -> Color:
+	var cell := Vector2i(position.floor())
+	match MapCatalog.terrain_at(cell):
+		&"road", &"bridge":
+			return Color(0.84, 0.68, 0.42, 0.48)
+		&"forest":
+			return Color(0.43, 0.65, 0.32, 0.48)
+		&"ridge":
+			return Color(0.58, 0.62, 0.58, 0.46)
+		_:
+			return Color(0.72, 0.73, 0.48, 0.42)
+
+
+func _structure_display_size(
+	kind: StringName,
+	footprint: Vector2i = Vector2i.ONE,
+	texture: Texture2D = null,
+) -> Vector2:
+	if kind in RtsSimulation.FORTIFICATION_STRUCTURE_KINDS and texture != null:
+		var content_rect := _texture_content_rect(texture)
+		var footprint_bounds_width := (
+			float(footprint.x + footprint.y)
+			* IsoProjection.TILE_WIDTH
+			* 0.5
+		)
+		# Walls and gates follow one sloped footprint edge, whose horizontal span
+		# depends only on that edge's length. Scaling either to the full diamond
+		# bounds would spill the sprite past its supporting tile axis.
+		var target_content_width := (
+			IsoProjection.TILE_WIDTH * 0.5 * WALL_SPRITE_SCALE
+			if kind == &"wall"
+			else (
+				float(maxi(footprint.x, footprint.y))
+				* IsoProjection.TILE_WIDTH
+				* 0.5
+				* _gate_sprite_scale(texture)
+			)
+			if kind == &"gate"
+			else footprint_bounds_width
+		)
+		var content_scale := target_content_width / maxf(float(content_rect.size.x), 1.0)
+		return Vector2(texture.get_width(), texture.get_height()) * content_scale
 	match kind:
 		&"wall":
 			return Vector2(114.0, 94.0)
@@ -2419,7 +3402,13 @@ func _draw_idle_worker_marker(center: Vector2) -> void:
 
 
 func _draw_health_bar(entity_state: Dictionary, center: Vector2, category: StringName) -> void:
-	var ratio := clampf(float(entity_state["hp"]) / float(entity_state["max_hp"]), 0.0, 1.0)
+	var max_hp := maxf(float(entity_state["max_hp"]), 1.0)
+	var ratio := clampf(float(entity_state["hp"]) / max_hp, 0.0, 1.0)
+	var display_ratio := clampf(
+		_presentation.display_hp(int(entity_state.get("id", -1)), float(entity_state["hp"])) / max_hp,
+		0.0,
+		1.0,
+	)
 	if ratio >= 0.999 and not selected_ids.has(int(entity_state["id"])):
 		return
 	var width := (52.0 if category == &"wildlife" else 46.0 if category == &"unit" else 86.0) * camera_scale
@@ -2427,6 +3416,12 @@ func _draw_health_bar(entity_state: Dictionary, center: Vector2, category: Strin
 	var rect := Rect2(center + Vector2(-width * 0.5, y_offset), Vector2(width, maxf(4.0, 6.0 * camera_scale)))
 	draw_rect(rect, Color(0.02, 0.03, 0.03, 0.9), true)
 	var health_color := _team_color(int(entity_state.get("team", RtsSimulation.TEAM_NEUTRAL)))
+	if display_ratio > ratio:
+		draw_rect(
+			Rect2(rect.position + Vector2.ONE, Vector2((rect.size.x - 2.0) * display_ratio, rect.size.y - 2.0)),
+			Color("f6b45f"),
+			true,
+		)
 	draw_rect(Rect2(rect.position + Vector2.ONE, Vector2((rect.size.x - 2.0) * ratio, rect.size.y - 2.0)), health_color, true)
 
 
@@ -2497,6 +3492,123 @@ func _draw_ellipse(center: Vector2, radius_x: float, radius_y: float, color: Col
 	draw_polyline(points, color, width, true)
 
 
+func _draw_ellipse_arc(
+	center: Vector2,
+	radius_x: float,
+	radius_y: float,
+	start_angle: float,
+	arc_length: float,
+	color: Color,
+	width: float,
+) -> void:
+	var points := PackedVector2Array()
+	for index in range(19):
+		var angle := start_angle + float(index) / 18.0 * arc_length
+		points.append(center + Vector2(cos(angle) * radius_x, sin(angle) * radius_y))
+	draw_polyline(points, color, width, true)
+
+
+func _entity_ring_radius(entity_state: Dictionary) -> Vector2:
+	var kind := entity_state.get("kind", &"") as StringName
+	var category := entity_state.get("category", &"") as StringName
+	if kind == &"jadeclaw":
+		return Vector2(34.0, 16.0)
+	if category == &"wildlife":
+		return Vector2(32.0, 15.0)
+	if category == &"unit":
+		return Vector2(27.0, 13.0)
+	if kind == &"yaoguai_den":
+		return Vector2(76.0, 34.0)
+	return Vector2(54.0, 25.0)
+
+
+func _draw_hover_overlay() -> void:
+	var entity_id := int(_presentation.hovered_entity_id)
+	if entity_id < 0:
+		return
+	var entity_state := simulation.entity(entity_id)
+	if entity_state.is_empty() or not should_render_entity(entity_state):
+		return
+	var center := _selection_ring_screen_position(entity_state)
+	var radius := _entity_ring_radius(entity_state) * camera_scale
+	var color := _team_color(int(entity_state.get("team", RtsSimulation.TEAM_NEUTRAL)))
+	var strength := _presentation.hover_strength(entity_id)
+	_draw_ellipse_arc(
+		center,
+		radius.x * 1.08,
+		radius.y * 1.08,
+		-_command_indicator_time * 0.7,
+		PI * 0.66,
+		Color(color, 0.55 + strength * 0.25),
+		maxf(1.2, 1.8 * camera_scale),
+	)
+	_draw_ellipse_arc(
+		center,
+		radius.x * 1.08,
+		radius.y * 1.08,
+		PI - _command_indicator_time * 0.7,
+		PI * 0.66,
+		Color(color, 0.28 + strength * 0.18),
+		maxf(1.0, 1.4 * camera_scale),
+	)
+
+
+func _draw_environment_sheen() -> void:
+	if camera_scale < 0.28:
+		return
+	for macro_y in range(MapCatalog.AUTHORED_SIZE.y):
+		for macro_x in range(MapCatalog.AUTHORED_SIZE.x):
+			var cell := Vector2i(macro_x, macro_y) * MapCatalog.CELL_SCALE
+			if MapCatalog.terrain_at(cell) != &"water" or not _is_block_on_screen(cell, MapCatalog.CELL_SCALE):
+				continue
+			var phase := _water_animation_time * 1.3 + float(macro_x * 7 + macro_y * 11)
+			var local := Vector2(0.5 + sin(phase * 0.47) * 0.18, 0.5 + cos(phase * 0.31) * 0.16)
+			var map_position := Vector2(cell) + local * float(MapCatalog.CELL_SCALE)
+			var center := camera_offset + IsoProjection.position_center(map_position) * camera_scale
+			var half_length := clampf(18.0 * camera_scale, 5.0, 20.0)
+			var alpha := 0.10 + (sin(phase) * 0.5 + 0.5) * 0.12
+			draw_line(
+				center - Vector2(half_length, half_length * 0.24),
+				center + Vector2(half_length, half_length * 0.24),
+				Color(0.72, 1.0, 0.96, alpha),
+				maxf(1.0, 1.4 * camera_scale),
+				true,
+			)
+
+
+func _emit_ambient_juice() -> void:
+	if simulation == null or camera_scale < 0.28:
+		return
+	var candidate: Dictionary = {}
+	var wrap_candidate: Dictionary = {}
+	var candidate_id := 2147483647
+	var wrap_id := 2147483647
+	for raw_entity in simulation.entities.values():
+		var entity_state := raw_entity as Dictionary
+		if (
+			not bool(entity_state.get("alive", false))
+			or entity_state.get("resource_kind") != &"lumber"
+			or not should_render_entity(entity_state)
+		):
+			continue
+		var entity_id := int(entity_state.get("id", -1))
+		if entity_id > _ambient_effect_cursor and entity_id < candidate_id:
+			candidate = entity_state
+			candidate_id = entity_id
+		if entity_id < wrap_id:
+			wrap_candidate = entity_state
+			wrap_id = entity_id
+	if candidate.is_empty():
+		candidate = wrap_candidate
+		candidate_id = wrap_id
+	if candidate.is_empty():
+		return
+	_ambient_effect_cursor = candidate_id
+	var phase := float(candidate_id) * 1.618 + _wind_animation_time * 0.16
+	var position := _entity_world_center(candidate) + Vector2(sin(phase), cos(phase * 0.73)) * 0.18
+	_effect_director.emit_ambient(position, Color(0.55, 0.84, 0.42, 0.72), &"leaf")
+
+
 func _draw_fog_of_war() -> void:
 	if not fog_enabled:
 		return
@@ -2532,19 +3644,258 @@ func _ensure_fog_mask_texture() -> void:
 	_fog_mask_dirty = false
 
 
-func _draw_effects() -> void:
-	for effect in _effects:
-		var ratio := clampf(float(effect["remaining"]) / float(effect["duration"]), 0.0, 1.0)
-		var color := effect.get("color", Color.WHITE) as Color
-		color.a = ratio
-		if effect.get("type") == &"attack":
-			var from := camera_offset + IsoProjection.position_center(effect["from"] as Vector2) * camera_scale
-			var to := camera_offset + IsoProjection.position_center(effect["to"] as Vector2) * camera_scale
-			draw_line(from + Vector2(0, -30) * camera_scale, to + Vector2(0, -24) * camera_scale, color, maxf(1.5, 3.0 * camera_scale), true)
+func _draw_effect_underlay() -> void:
+	for trace in _effect_director.traces:
+		var elapsed := float(trace.get("elapsed", 0.0))
+		if elapsed < 0.0:
+			continue
+		var duration := maxf(float(trace.get("duration", 0.001)), 0.001)
+		var progress := clampf(elapsed / duration, 0.0, 1.0)
+		var position := _effect_screen_position(trace.get("position", Vector2.ZERO) as Vector2)
+		var color := trace.get("color", Color.WHITE) as Color
+		color.a *= (1.0 - progress) * 0.48
+		var kind := trace.get("kind", &"residue") as StringName
+		var radius := (22.0 if kind == &"residue" else 46.0 if kind == &"rubble" else 34.0) * camera_scale
+		if kind == &"rubble":
+			for index in range(5):
+				var angle := float(index) / 5.0 * TAU + float(trace.get("seed", 0)) * 0.001
+				var shard := position + Vector2.from_angle(angle) * radius * (0.38 + float(index % 2) * 0.24)
+				draw_line(shard - Vector2(5.0, 2.0) * camera_scale, shard + Vector2(5.0, 2.0) * camera_scale, color, maxf(1.0, 2.0 * camera_scale), true)
 		else:
-			var effect_position := camera_offset + IsoProjection.position_center(effect["position"] as Vector2) * camera_scale
-			draw_circle(effect_position, (14.0 + (1.0 - ratio) * 24.0) * camera_scale, Color(color, 0.08), true)
-			draw_arc(effect_position, (14.0 + (1.0 - ratio) * 24.0) * camera_scale, 0.0, TAU, 28, color, 2.0, true)
+			_draw_ellipse(position, radius, radius * 0.42, color, maxf(1.0, 2.0 * camera_scale))
+	for pulse in _effect_director.pulses:
+		_draw_effect_pulse(pulse)
+
+
+func _draw_effects() -> void:
+	for trail in _effect_director.trails:
+		_draw_effect_trail(trail)
+	for impact in _effect_director.impacts:
+		_draw_effect_impact(impact)
+	for particle in _effect_director.particles:
+		_draw_effect_particle(particle)
+	for value in _effect_director.values:
+		_draw_effect_value(value)
+
+
+func _draw_death_snapshots() -> void:
+	for snapshot in _effect_director.deaths:
+		var elapsed := float(snapshot.get("elapsed", 0.0))
+		if elapsed < 0.0:
+			continue
+		var duration := maxf(float(snapshot.get("duration", 0.001)), 0.001)
+		var progress := clampf(elapsed / duration, 0.0, 1.0)
+		var category := snapshot.get("category", &"unit") as StringName
+		var kind := snapshot.get("kind", &"") as StringName
+		var faction := snapshot.get("faction", &"neutral") as StringName
+		var texture := _entity_texture(faction, kind)
+		if texture == null:
+			continue
+		var footprint := snapshot.get("footprint", Vector2i.ONE) as Vector2i
+		var display_size := Vector2(94.0, 104.0)
+		if category == &"wildlife":
+			display_size = _wildlife_display_size(kind)
+		elif category == &"structure":
+			display_size = _structure_display_size(kind, footprint, texture)
+		if kind == &"jadeclaw":
+			display_size = Vector2(124.0, 112.0)
+		elif kind == &"shenlong":
+			display_size = Vector2(448.0, 362.0)
+		var hold_progress := clampf((progress - 0.12) / 0.88, 0.0, 1.0)
+		var center := _effect_screen_position(snapshot.get("position", Vector2.ZERO) as Vector2)
+		if category == &"structure":
+			center += _footprint_ground_offset(footprint)
+		var seed_sign := -1.0 if int(snapshot.get("seed", 0)) % 2 == 0 else 1.0
+		var rotation := 0.0
+		var collapse_scale := Vector2.ONE
+		if not _effect_director.reduced_motion:
+			if category == &"structure":
+				collapse_scale = Vector2(1.0 + hold_progress * 0.08, 1.0 - hold_progress * 0.34)
+				center.y += hold_progress * 16.0 * camera_scale
+			else:
+				rotation = seed_sign * hold_progress * 0.72
+				center.y += hold_progress * 12.0 * camera_scale
+		var tint := Color(1.0, 0.72, 0.62, pow(1.0 - hold_progress, 1.4) * 0.82)
+		_draw_world_texture(
+			texture,
+			center,
+			display_size * camera_scale * collapse_scale,
+			tint,
+			false,
+			rotation,
+			_character_art_bottom_margin(texture),
+		)
+
+
+func _effect_screen_position(world_position: Vector2) -> Vector2:
+	return camera_offset + IsoProjection.position_center(world_position) * camera_scale
+
+
+func _draw_effect_pulse(pulse: Dictionary) -> void:
+	var elapsed := float(pulse.get("elapsed", 0.0))
+	if elapsed < 0.0:
+		return
+	var duration := maxf(float(pulse.get("duration", 0.001)), 0.001)
+	var progress := clampf(elapsed / duration, 0.0, 1.0)
+	var center := _effect_screen_position(pulse.get("position", Vector2.ZERO) as Vector2)
+	var color := pulse.get("color", Color.WHITE) as Color
+	var alpha := sin(progress * PI) * 0.88
+	color.a *= alpha
+	var radius := lerpf(9.0, 42.0, 1.0 - pow(1.0 - progress, 2.0)) * camera_scale
+	var kind := pulse.get("kind", &"select") as StringName
+	if kind == &"invalid":
+		var pinch := lerpf(22.0, 8.0, progress) * camera_scale
+		draw_line(center + Vector2(-pinch, -pinch * 0.5), center + Vector2(-pinch * 0.25, -pinch * 0.12), color, maxf(1.6, 2.6 * camera_scale), true)
+		draw_line(center + Vector2(pinch, pinch * 0.5), center + Vector2(pinch * 0.25, pinch * 0.12), color, maxf(1.6, 2.6 * camera_scale), true)
+		draw_line(center + Vector2(-5.0, -5.0) * camera_scale, center + Vector2(5.0, 5.0) * camera_scale, color, maxf(1.4, 2.2 * camera_scale), true)
+		draw_line(center + Vector2(5.0, -5.0) * camera_scale, center + Vector2(-5.0, 5.0) * camera_scale, color, maxf(1.4, 2.2 * camera_scale), true)
+		return
+	if kind in [&"attack", &"death"]:
+		var triangle := PackedVector2Array()
+		for index in range(4):
+			var angle := -PI * 0.5 + float(index) / 3.0 * TAU
+			triangle.append(center + Vector2.from_angle(angle) * radius)
+		draw_polyline(triangle, color, maxf(1.5, 2.5 * camera_scale), true)
+	elif kind in [&"move", &"order", &"queued", &"rally", &"build", &"complete", &"upgrade"]:
+		var diamond := PackedVector2Array([
+			center + Vector2(0.0, -radius * 0.55),
+			center + Vector2(radius, 0.0),
+			center + Vector2(0.0, radius * 0.55),
+			center + Vector2(-radius, 0.0),
+			center + Vector2(0.0, -radius * 0.55),
+		])
+		draw_polyline(diamond, color, maxf(1.2, 2.2 * camera_scale), true)
+		if bool(pulse.get("queued", false)):
+			var inner := radius * 0.68
+			draw_arc(center, inner, 0.15, PI * 1.25, 18, Color(color, color.a * 0.65), maxf(1.0, 1.5 * camera_scale), true)
+	elif kind == &"repair":
+		draw_arc(center, radius, 0.0, TAU, 24, color, maxf(1.3, 2.2 * camera_scale), true)
+		draw_line(center + Vector2(-radius * 0.42, 0.0), center + Vector2(radius * 0.42, 0.0), color, maxf(1.2, 2.0 * camera_scale), true)
+		draw_line(center + Vector2(0.0, -radius * 0.42), center + Vector2(0.0, radius * 0.42), color, maxf(1.2, 2.0 * camera_scale), true)
+	else:
+		_draw_ellipse(center, radius, radius * 0.46, color, maxf(1.2, 2.2 * camera_scale))
+
+
+func _draw_effect_trail(trail: Dictionary) -> void:
+	var elapsed := float(trail.get("elapsed", 0.0))
+	if elapsed < 0.0:
+		return
+	var duration := maxf(float(trail.get("duration", 0.001)), 0.001)
+	var progress := clampf(elapsed / duration, 0.0, 1.0)
+	var from := _effect_screen_position(trail.get("from", Vector2.ZERO) as Vector2) + Vector2(0.0, -30.0 * camera_scale)
+	var to := _effect_screen_position(trail.get("to", Vector2.ZERO) as Vector2) + Vector2(0.0, -24.0 * camera_scale)
+	var head := from.lerp(to, 1.0 - pow(1.0 - progress, 2.0))
+	var tail := from.lerp(to, maxf(0.0, progress - 0.34))
+	var color := trail.get("color", Color.WHITE) as Color
+	color.a *= sin(progress * PI)
+	var family := trail.get("family", &"melee") as StringName
+	if family in [&"melee", &"beast"]:
+		var direction := (to - from).normalized()
+		var normal := Vector2(-direction.y, direction.x)
+		var swing_center := to - direction * 13.0 * camera_scale
+		var swing_radius := (18.0 if family == &"melee" else 26.0) * camera_scale
+		draw_arc(swing_center, swing_radius, direction.angle() - 1.0, direction.angle() + 0.9, 16, color, maxf(2.0, 4.0 * camera_scale), true)
+		draw_circle(to + normal * sin(progress * PI) * 2.0, maxf(2.0, 4.5 * camera_scale), Color(color, color.a * 0.72))
+		return
+	if family == &"dragon":
+		var points := PackedVector2Array()
+		var direction := head - tail
+		var normal := Vector2(-direction.y, direction.x).normalized()
+		for index in range(9):
+			var weight := float(index) / 8.0
+			points.append(tail.lerp(head, weight) + normal * sin(weight * TAU * 1.5 + progress * TAU) * 4.0 * camera_scale)
+		draw_polyline(points, Color(color, color.a * 0.38), maxf(3.0, 7.0 * camera_scale), true)
+		draw_polyline(points, color, maxf(1.2, 2.6 * camera_scale), true)
+	else:
+		draw_line(tail, head, Color(color, color.a * 0.28), maxf(3.0, 7.0 * camera_scale), true)
+		draw_line(tail, head, color, maxf(1.2, 2.5 * camera_scale), true)
+		draw_circle(head, maxf(2.2, (5.5 if family == &"mystic" else 3.5) * camera_scale), color)
+		if family == &"mystic":
+			draw_circle(head, maxf(5.0, 10.0 * camera_scale), Color(color, color.a * 0.16))
+
+
+func _draw_effect_impact(impact: Dictionary) -> void:
+	var elapsed := float(impact.get("elapsed", 0.0))
+	if elapsed < 0.0:
+		return
+	var duration := maxf(float(impact.get("duration", 0.001)), 0.001)
+	var progress := clampf(elapsed / duration, 0.0, 1.0)
+	var center := _effect_screen_position(impact.get("position", Vector2.ZERO) as Vector2) + Vector2(0.0, -22.0 * camera_scale)
+	var color := impact.get("color", Color.WHITE) as Color
+	var flash := clampf(1.0 - progress / 0.43, 0.0, 1.0)
+	var radius := lerpf(4.0, 28.0, sqrt(progress)) * camera_scale
+	draw_circle(center, radius * 0.42, Color(color, flash * 0.44))
+	var faction := impact.get("faction", &"neutral") as StringName
+	var shape := EFFECT_CATALOG_SCRIPT.faction_shape(faction)
+	var edge_color := Color(color, (1.0 - progress) * 0.9)
+	if shape == &"triangle":
+		var points := PackedVector2Array()
+		for index in range(4):
+			points.append(center + Vector2.from_angle(-PI * 0.5 + float(index) / 3.0 * TAU) * radius)
+		draw_polyline(points, edge_color, maxf(1.3, 2.5 * camera_scale), true)
+	elif shape == &"diamond":
+		draw_polyline(PackedVector2Array([
+			center + Vector2(0, -radius), center + Vector2(radius, 0), center + Vector2(0, radius), center + Vector2(-radius, 0), center + Vector2(0, -radius),
+		]), edge_color, maxf(1.3, 2.5 * camera_scale), true)
+	elif shape == &"claw":
+		for offset in [-0.35, 0.0, 0.35]:
+			draw_arc(center + Vector2(offset * radius, 0.0), radius * 0.72, -2.4, -0.4, 12, edge_color, maxf(1.2, 2.3 * camera_scale), true)
+	else:
+		draw_arc(center, radius, 0.0, TAU, 24, edge_color, maxf(1.3, 2.5 * camera_scale), true)
+
+
+func _draw_effect_particle(particle: Dictionary) -> void:
+	var elapsed := float(particle.get("elapsed", 0.0))
+	if elapsed < 0.0:
+		return
+	var duration := maxf(float(particle.get("duration", 0.001)), 0.001)
+	var progress := clampf(elapsed / duration, 0.0, 1.0)
+	var velocity := particle.get("velocity", Vector2.ZERO) as Vector2
+	var shape := particle.get("shape", &"spark") as StringName
+	var offset := velocity * elapsed
+	if shape == &"inward":
+		offset = velocity * (duration - elapsed)
+	elif shape in [&"dust", &"debris", &"fleck", &"leaf"]:
+		offset.y += 42.0 * elapsed * elapsed
+	var center := _effect_screen_position(particle.get("position", Vector2.ZERO) as Vector2) + offset * camera_scale + Vector2(0.0, -18.0 * camera_scale)
+	var color := particle.get("color", Color.WHITE) as Color
+	color.a *= (1.0 - progress)
+	var radius := maxf(1.2, (3.2 - progress * 1.4) * camera_scale)
+	if shape in [&"triangle", &"debris", &"ray"]:
+		var direction := velocity.normalized()
+		var normal := Vector2(-direction.y, direction.x)
+		draw_colored_polygon(PackedVector2Array([
+			center + direction * radius * 2.2,
+			center - direction * radius + normal * radius,
+			center - direction * radius - normal * radius,
+		]), color)
+	elif shape in [&"diamond", &"fleck", &"leaf"]:
+		draw_colored_polygon(PackedVector2Array([
+			center + Vector2(0, -radius * 1.8), center + Vector2(radius, 0), center + Vector2(0, radius * 1.8), center + Vector2(-radius, 0),
+		]), color)
+	elif shape == &"claw":
+		draw_arc(center, radius * 2.0, -2.5, -0.3, 8, color, maxf(1.0, radius * 0.8), true)
+	else:
+		draw_circle(center, radius, color)
+
+
+func _draw_effect_value(value: Dictionary) -> void:
+	var elapsed := float(value.get("elapsed", 0.0))
+	if elapsed < 0.0:
+		return
+	var duration := maxf(float(value.get("duration", 0.001)), 0.001)
+	var progress := clampf(elapsed / duration, 0.0, 1.0)
+	var center := _effect_screen_position(value.get("position", Vector2.ZERO) as Vector2)
+	center += Vector2(0.0, lerpf(-38.0, -68.0, progress) * camera_scale)
+	var amount := int(round(float(value.get("amount", 0.0))))
+	var prefix := "+" if bool(value.get("positive", false)) else "−"
+	var label := "%s%d" % [prefix, absi(amount)]
+	var color := value.get("color", Color.WHITE) as Color
+	color.a *= sin(progress * PI)
+	var font := ThemeDB.fallback_font
+	var font_size := maxi(11, int(15.0 * camera_scale))
+	draw_string(font, center + Vector2(1.0, 1.0), label, HORIZONTAL_ALIGNMENT_CENTER, -1.0, font_size, Color(0.0, 0.0, 0.0, color.a * 0.72))
+	draw_string(font, center, label, HORIZONTAL_ALIGNMENT_CENTER, -1.0, font_size, color)
 
 
 func _entity_texture(faction: StringName, kind: StringName) -> Texture2D:

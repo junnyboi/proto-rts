@@ -24,6 +24,12 @@ const PERSISTENT_COMMAND_IDS: Array[StringName] = [
 	&"repair",
 	&"rally",
 ]
+const STRUCTURE_PRODUCTION_LISTS := {
+	&"stronghold": [&"worker"],
+	&"war_camp": [&"vanguard", &"mystic"],
+	&"hunters_lodge": [&"hunter"],
+	&"yaoguai_den": [&"jadeclaw"],
+}
 const COMMAND_VISIBLE_META := &"command_visible_for_update"
 const ARMED_TOOLTIP_SUFFIX := "\nARMED · Click again or Esc cancels"
 const RESOURCE_ICON_TEXTURES := {
@@ -72,6 +78,10 @@ var _resume_button: Button
 var _settings_button: Button
 var _resign_button: Button
 var _settings_audio_button: Button
+var _settings_effect_intensity_button: Button
+var _settings_reduced_motion_button: Button
+var _settings_camera_impulse_button: Button
+var _settings_damage_numbers_button: Button
 var _settings_back_button: Button
 var _pause_button: Button
 var _audio_button: Button
@@ -98,6 +108,10 @@ var audio_director: AudioDirector
 var leaderboard_store: LeaderboardStore
 var leaderboard_bridge: LeaderboardBridge
 var leaderboard_save_path: String = LeaderboardStore.SAVE_PATH
+var effect_intensity: StringName = &"full"
+var reduced_motion := false
+var camera_impulse: StringName = &"major"
+var damage_numbers: StringName = &"contextual"
 
 
 func _ready() -> void:
@@ -138,6 +152,28 @@ func _process(delta: float) -> void:
 		if _feedback_timer <= 0.0 and _feedback_label != null:
 			_feedback_label.text = ""
 			_toast_panel.visible = false
+
+
+func _input(event: InputEvent) -> void:
+	if not (event is InputEventKey):
+		return
+	var key := event as InputEventKey
+	if (
+		not key.pressed
+		or key.echo
+		or key.keycode != KEY_SPACE
+		or state != STATE_MATCH
+		or paused
+		or battlefield == null
+	):
+		return
+	var unit_kind := _first_selected_production_kind()
+	if unit_kind.is_empty():
+		return
+	# Handle Space before focused HUD buttons can consume their activation key.
+	audio_director.ensure_bgm()
+	_command_train(unit_kind)
+	get_viewport().set_input_as_handled()
 
 
 func _unhandled_key_input(event: InputEvent) -> void:
@@ -208,7 +244,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		KEY_E:
 			battlefield.select_all_army()
 			_show_feedback("Army selected.", false)
-		KEY_SPACE:
+		KEY_H:
 			battlefield.select_player_stronghold()
 		KEY_F:
 			battlefield.begin_attack_move(key.shift_pressed)
@@ -217,7 +253,8 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			battlefield.begin_patrol(key.shift_pressed)
 			_update_armed_command_styles()
 		KEY_R:
-			battlefield.begin_repair(key.shift_pressed)
+			if not battlefield.rotate_structure_placement():
+				battlefield.begin_repair(key.shift_pressed)
 			_update_armed_command_styles()
 		KEY_X:
 			simulation.command_stop(RtsSimulation.TEAM_PLAYER, battlefield.selected_commandable_units())
@@ -383,7 +420,7 @@ func _show_faction_select() -> void:
 	_connect_button(back, _show_title, &"ui_cancel")
 	root.add_child(back)
 
-	var controls := ThemeFactory.label("Controls: left select / inspect · drag box-select · right contextual order · Esc clear · F attack-move · X stop · Q workers · I idle workers · E army · Space stronghold · WASD / arrows camera · Cmd+wheel / pinch zoom", 14, ThemeFactory.MUTED)
+	var controls := ThemeFactory.label("Controls: left select / inspect · drag box-select · right contextual order · Esc clear · F attack-move · X stop · Q workers · I idle workers · E army · H stronghold · Space first unit · WASD / arrows camera · Cmd+wheel / pinch zoom", 14, ThemeFactory.MUTED)
 	controls.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 	controls.offset_left = 120
 	controls.offset_right = -120
@@ -450,6 +487,7 @@ func _start_match(faction_id: StringName) -> void:
 	battlefield.name = "Battlefield"
 	battlefield.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	battlefield.set_simulation(simulation)
+	battlefield.configure_effects(effect_intensity, reduced_motion, damage_numbers, camera_impulse)
 	battlefield.selection_changed.connect(_on_selection_changed)
 	battlefield.feedback.connect(_show_feedback)
 	battlefield.audio_cue.connect(audio_director.play_cue)
@@ -595,7 +633,7 @@ func _build_minimap_bay() -> Control:
 	utilities.add_child(_make_utility_button("Q", "Select all Workers", func() -> void: battlefield.select_all_workers()))
 	utilities.add_child(_make_utility_button("I", "Select all idle Workers", func() -> void: battlefield.select_all_idle_workers()))
 	utilities.add_child(_make_utility_button("E", "Select the army", func() -> void: battlefield.select_all_army()))
-	utilities.add_child(_make_utility_button("⌂", "Select and center the Stronghold · Space", func() -> void: battlefield.select_player_stronghold()))
+	utilities.add_child(_make_utility_button("H", "Select and center the Stronghold · H", func() -> void: battlefield.select_player_stronghold()))
 	_fog_button = _make_utility_button("", "Toggle fog of war", _toggle_fog_of_war, &"fog")
 	_fog_button.name = "FogToggle"
 	_fog_icon = _fog_button.get_node("Icon") as HudIcon
@@ -685,7 +723,7 @@ func _build_selection_bay() -> Control:
 	_selection_order = ThemeFactory.label("SELECT OR INSPECT AN ENTITY", 13, ThemeFactory.IVORY)
 	_selection_order.clip_text = true
 	info.add_child(_selection_order)
-	_selection_meta = ThemeFactory.label("Q WORKERS · I IDLE · E ARMY · SPACE STRONGHOLD", 11, ThemeFactory.JADE)
+	_selection_meta = ThemeFactory.label("Q WORKERS · I IDLE · E ARMY · H STRONGHOLD", 11, ThemeFactory.JADE)
 	_selection_meta.clip_text = true
 	info.add_child(_selection_meta)
 	_selection_detail = ThemeFactory.label("Left-click an entity to select or inspect it. Drag to box-select friendly units.", 11, ThemeFactory.MUTED_SAGE)
@@ -760,14 +798,15 @@ func _build_command_bay() -> Control:
 	_add_command_button(3, &"build_wall", "WOOD WALL", func() -> void: _command_build(&"wall"), load(FactionCatalog.entity_art_path(faction, &"wall")) as Texture2D)
 	_add_command_button(4, &"build_gate", "WOOD GATE", func() -> void: _command_build(&"gate"), load(FactionCatalog.entity_art_path(faction, &"gate")) as Texture2D)
 	_add_command_button(5, &"build_tower", "SENTRY TOWER", func() -> void: _command_build(&"sentry_tower"), load(FactionCatalog.entity_art_path(faction, &"sentry_tower")) as Texture2D)
-	_add_command_button(0, &"worker", "WORKER", func() -> void: _command_train(&"worker"), load(FactionCatalog.entity_art_path(faction, &"worker")) as Texture2D)
+	_add_command_button(0, &"worker", "WORKER", func() -> void: _command_train(&"worker"), load(FactionCatalog.entity_art_path(faction, &"worker")) as Texture2D, &"objective", "Space")
+	_add_command_button(1, &"stronghold_upgrade", "UPGRADE LVL 2", _command_upgrade_stronghold, null, &"population")
 	var hunter_icon: Texture2D = null
 	if FactionCatalog.can_train_unit(faction, &"hunter"):
 		hunter_icon = load(FactionCatalog.entity_art_path(faction, &"hunter")) as Texture2D
-	_add_command_button(0, &"hunter", "HUNTER", func() -> void: _command_train(&"hunter"), hunter_icon)
-	_add_command_button(0, &"vanguard", "VANGUARD", func() -> void: _command_train(&"vanguard"), load(FactionCatalog.entity_art_path(faction, &"vanguard")) as Texture2D)
+	_add_command_button(0, &"hunter", "HUNTER", func() -> void: _command_train(&"hunter"), hunter_icon, &"objective", "Space")
+	_add_command_button(0, &"vanguard", "VANGUARD", func() -> void: _command_train(&"vanguard"), load(FactionCatalog.entity_art_path(faction, &"vanguard")) as Texture2D, &"objective", "Space")
 	_add_command_button(1, &"mystic", "MYSTIC", func() -> void: _command_train(&"mystic"), load(FactionCatalog.entity_art_path(faction, &"mystic")) as Texture2D)
-	_add_command_button(0, &"jadeclaw", "JADECLAW", func() -> void: _command_train(&"jadeclaw"), load(FactionCatalog.entity_art_path(faction, &"jadeclaw")) as Texture2D)
+	_add_command_button(0, &"jadeclaw", "JADECLAW", func() -> void: _command_train(&"jadeclaw"), load(FactionCatalog.entity_art_path(faction, &"jadeclaw")) as Texture2D, &"objective", "Space")
 	_add_command_button(6, &"move", "MOVE", func() -> void:
 		battlefield.begin_move(Input.is_key_pressed(KEY_SHIFT))
 		_update_armed_command_styles()
@@ -803,6 +842,7 @@ func _add_command_button(
 	hotkey: String = "",
 ) -> void:
 	var button := HUD_COMMAND_BUTTON.new().configure(title, "", hotkey, texture, glyph, ThemeFactory.GOLD) as HudCommandButton
+	button.set_reduced_motion(reduced_motion)
 	button.name = "%sCommand" % String(id).capitalize()
 	if id in PERSISTENT_COMMAND_IDS:
 		button.toggle_mode = true
@@ -879,6 +919,8 @@ func _build_pause_overlay(root: Control) -> void:
 	pause_column.add_child(pause_hint)
 
 	_settings_menu = _make_modal_menu("SettingsMenu", "SETTINGS", "GAME OPTIONS")
+	_settings_menu.position = Vector2(-230.0, -280.0)
+	_settings_menu.size = Vector2(460.0, 560.0)
 	_pause_overlay.add_child(_settings_menu)
 	var settings_column := _settings_menu.get_node("MenuColumn") as VBoxContainer
 	var audio_heading := ThemeFactory.label("AUDIO", 12, ThemeFactory.MUTED_SAGE)
@@ -888,6 +930,25 @@ func _build_pause_overlay(root: Control) -> void:
 	_settings_audio_button.name = "AudioSettingButton"
 	_connect_button(_settings_audio_button, _toggle_audio, &"")
 	settings_column.add_child(_settings_audio_button)
+	var effects_heading := ThemeFactory.label("PRESENTATION", 12, ThemeFactory.MUTED_SAGE)
+	effects_heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	settings_column.add_child(effects_heading)
+	_settings_effect_intensity_button = _make_modal_button("", "Cycle effect density and pool budgets")
+	_settings_effect_intensity_button.name = "EffectIntensityButton"
+	_connect_button(_settings_effect_intensity_button, _cycle_effect_intensity)
+	settings_column.add_child(_settings_effect_intensity_button)
+	_settings_reduced_motion_button = _make_modal_button("", "Remove camera, rotation, and scale motion while preserving cues")
+	_settings_reduced_motion_button.name = "ReducedMotionButton"
+	_connect_button(_settings_reduced_motion_button, _toggle_reduced_motion)
+	settings_column.add_child(_settings_reduced_motion_button)
+	_settings_camera_impulse_button = _make_modal_button("", "Cycle planar camera impulse: Off, Major, or Full")
+	_settings_camera_impulse_button.name = "CameraImpulseButton"
+	_connect_button(_settings_camera_impulse_button, _cycle_camera_impulse)
+	settings_column.add_child(_settings_camera_impulse_button)
+	_settings_damage_numbers_button = _make_modal_button("", "Cycle floating values: Off, Contextual, or All")
+	_settings_damage_numbers_button.name = "DamageNumbersButton"
+	_connect_button(_settings_damage_numbers_button, _cycle_damage_numbers)
+	settings_column.add_child(_settings_damage_numbers_button)
 	var settings_spacer := Control.new()
 	settings_spacer.custom_minimum_size.y = 10.0
 	settings_column.add_child(settings_spacer)
@@ -900,6 +961,7 @@ func _build_pause_overlay(root: Control) -> void:
 	settings_column.add_child(settings_hint)
 
 	_update_audio_controls()
+	_update_effect_controls()
 	_pause_overlay.visible = false
 	_settings_menu.visible = false
 
@@ -1067,13 +1129,10 @@ func _update_objectives() -> void:
 func _update_selection_panel() -> void:
 	if battlefield == null or _selection_title == null:
 		return
-	for child in _selection_stacks.get_children():
-		_selection_stacks.remove_child(child)
-		child.queue_free()
-	_selection_stacks.visible = false
+	var ids: Array[int] = battlefield.selected_ids
+	var rebuild_selection_stacks := _reconcile_selection_stacks(ids)
 	_selection_health.visible = true
 	_selection_health_label.visible = true
-	var ids: Array[int] = battlefield.selected_ids
 	_selection_portrait.stretch_mode = (
 		TextureRect.STRETCH_KEEP_ASPECT_COVERED
 		if ids.is_empty()
@@ -1088,11 +1147,11 @@ func _update_selection_panel() -> void:
 		_selection_health.visible = false
 		_selection_health_label.visible = false
 		_selection_order.text = "SELECT OR INSPECT AN ENTITY"
-		_selection_meta.text = "Q WORKERS · I IDLE · E ARMY · SPACE STRONGHOLD"
+		_selection_meta.text = "Q WORKERS · I IDLE · E ARMY · H STRONGHOLD"
 		_selection_detail.text = "Left-click an entity to select or inspect it. Drag to box-select friendly units."
 		return
 	if ids.size() > 1:
-		_update_group_selection(ids)
+		_update_group_selection(ids, rebuild_selection_stacks)
 		return
 	var entity_state := simulation.entity(ids[0])
 	if entity_state.is_empty():
@@ -1116,10 +1175,49 @@ func _update_selection_panel() -> void:
 			elif entity_state.get("kind") == &"shenlong_egg":
 				_update_egg_selection(entity_state)
 			else:
-				_update_owned_selection(entity_state)
+				_update_owned_selection(entity_state, rebuild_selection_stacks)
 
 
-func _update_group_selection(ids: Array[int]) -> void:
+func _selection_stack_key(ids: Array[int]) -> String:
+	if ids.size() > 1:
+		var selected_id_parts := PackedStringArray()
+		for id in ids:
+			selected_id_parts.append(str(id))
+		return "group:%s" % ",".join(selected_id_parts)
+	if ids.size() != 1:
+		return ""
+	var entity_state := simulation.entity(ids[0])
+	if (
+		entity_state.is_empty()
+		or entity_state.get("category") != &"structure"
+		or entity_state.get("kind") != &"sentry_tower"
+		or int(entity_state.get("team", RtsSimulation.TEAM_NEUTRAL)) != RtsSimulation.TEAM_PLAYER
+		or float(entity_state.get("complete", 0.0)) < 1.0
+	):
+		return ""
+	var occupants := entity_state.get("garrisoned_unit_ids", []) as Array
+	if occupants.is_empty():
+		return ""
+	var occupant_id_parts := PackedStringArray()
+	for raw_id in occupants:
+		occupant_id_parts.append(str(int(raw_id)))
+	return "garrison:%d:%s" % [int(entity_state["id"]), ",".join(occupant_id_parts)]
+
+
+func _reconcile_selection_stacks(ids: Array[int]) -> bool:
+	var next_key := _selection_stack_key(ids)
+	_selection_stacks.visible = not next_key.is_empty()
+	var current_key := String(_selection_stacks.get_meta(&"contents_key", ""))
+	if next_key == current_key:
+		return false
+	_selection_stacks.set_meta(&"contents_key", next_key)
+	for child in _selection_stacks.get_children():
+		_selection_stacks.remove_child(child)
+		child.queue_free()
+	return true
+
+
+func _update_group_selection(ids: Array[int], rebuild_selection_stacks: bool) -> void:
 	var groups := {}
 	var current_hp := 0.0
 	var maximum_hp := 0.0
@@ -1150,6 +1248,8 @@ func _update_group_selection(ids: Array[int]) -> void:
 	_selection_meta.text = "%d TYPES · SHIFT QUEUES ORDERS" % groups.size()
 	_selection_detail.text = "Click a unit stack to select that type. Shared commands remain in fixed slots."
 	_selection_stacks.visible = true
+	if not rebuild_selection_stacks:
+		return
 	var group_kinds := groups.keys()
 	group_kinds.sort()
 	for raw_kind in group_kinds:
@@ -1289,7 +1389,7 @@ func _update_egg_selection(entity_state: Dictionary) -> void:
 		_selection_detail.text = "Defeat the neutral Shenlong to unlock this egg for every player."
 
 
-func _update_owned_selection(entity_state: Dictionary) -> void:
+func _update_owned_selection(entity_state: Dictionary, rebuild_selection_stacks: bool) -> void:
 	var kind := entity_state["kind"] as StringName
 	var faction := entity_state.get("faction", selected_faction) as StringName
 	var stats := FactionCatalog.stats(kind, faction)
@@ -1305,6 +1405,8 @@ func _update_owned_selection(entity_state: Dictionary) -> void:
 		affiliation = "ENEMY"
 		status_color = ThemeFactory.DANGER
 	_selection_title.text = String(stats["name"]).to_upper()
+	if kind == &"stronghold":
+		_selection_title.text += " LVL %d" % int(entity_state.get("stronghold_level", RtsSimulation.STRONGHOLD_INITIAL_LEVEL))
 	_selection_status.text = "%s %s" % [affiliation, category_label] if team != RtsSimulation.TEAM_PLAYER else category_label
 	_selection_status.add_theme_color_override(&"font_color", status_color)
 	if completion < 1.0:
@@ -1320,7 +1422,7 @@ func _update_owned_selection(entity_state: Dictionary) -> void:
 			_selection_order.text = "MANNED" if not occupants.is_empty() else "AWAITING GARRISON"
 			_selection_meta.text = "GARRISON %d/%d · DOUBLE OCCUPANT RANGE" % [occupants.size(), int(entity_state.get("garrison_capacity", 1))]
 			_selection_detail.text = "Right-click with a Hunter or Mystic to garrison. Click the occupant below to deploy them at the tower base."
-			if team == RtsSimulation.TEAM_PLAYER and not occupants.is_empty():
+			if team == RtsSimulation.TEAM_PLAYER and not occupants.is_empty() and rebuild_selection_stacks:
 				_selection_stacks.visible = true
 				for raw_id in occupants:
 					var occupant := simulation.entity(int(raw_id))
@@ -1495,7 +1597,9 @@ func _update_commands() -> void:
 			_show_cost_command(button_id, structure_kind, "Build")
 	if not structure.is_empty() and float(structure.get("complete", 0.0)) >= 1.0:
 		match structure.get("kind"):
-			&"stronghold": _show_cost_command(&"worker", &"worker", "Train", true)
+			&"stronghold":
+				_show_cost_command(&"worker", &"worker", "Train", true)
+				_show_stronghold_upgrade_command(structure)
 			&"war_camp":
 				_show_cost_command(&"vanguard", &"vanguard", "Train", true)
 				_show_cost_command(&"mystic", &"mystic", "Train", true)
@@ -1540,7 +1644,46 @@ func _show_cost_command(button_id: StringName, kind: StringName, verb: String, c
 	var tooltip := "%s %s · %s" % [verb, stats["name"], _long_cost(stats)]
 	if free_recovery_worker:
 		tooltip += "\nRecovery worker: free because you have no Workers left"
+	if not button.hotkey_text.is_empty():
+		tooltip += "\nHotkey: %s" % button.hotkey_text
 	var unavailable := _unavailable_reason(stats, check_population)
+	if not unavailable.is_empty():
+		tooltip += "\nUnavailable: %s" % unavailable
+	button.tooltip_text = tooltip
+
+
+func _show_stronghold_upgrade_command(stronghold: Dictionary) -> void:
+	var button := _command_buttons[&"stronghold_upgrade"] as HudCommandButton
+	var stronghold_id := int(stronghold.get("id", -1))
+	var current_level := int(stronghold.get("stronghold_level", RtsSimulation.STRONGHOLD_INITIAL_LEVEL))
+	var cost := simulation.stronghold_upgrade_cost(stronghold_id)
+	button.set_meta(COMMAND_VISIBLE_META, true)
+	if cost.is_empty():
+		button.set_command_title("MAX LEVEL")
+		button.set_cost_markup("")
+		button.disabled = true
+		button.tooltip_text = "Stronghold Lvl %d is the maximum level · population cap %d" % [
+			current_level,
+			int(simulation.players[RtsSimulation.TEAM_PLAYER]["population_cap"]),
+		]
+		return
+	var next_level := current_level + 1
+	button.set_command_title("UPGRADE LVL %d" % next_level)
+	button.set_cost_markup(_cost_markup(cost))
+	button.disabled = not simulation.can_upgrade_stronghold(
+		RtsSimulation.TEAM_PLAYER,
+		stronghold_id,
+	)
+	var next_population_cap := (
+		int(simulation.players[RtsSimulation.TEAM_PLAYER]["population_cap"])
+		+ RtsSimulation.STRONGHOLD_POPULATION_PER_UPGRADE
+	)
+	var tooltip := "Upgrade to Stronghold Lvl %d · %s · population cap rises to %d" % [
+		next_level,
+		_long_cost(cost),
+		next_population_cap,
+	]
+	var unavailable := _unavailable_reason(cost, false)
 	if not unavailable.is_empty():
 		tooltip += "\nUnavailable: %s" % unavailable
 	button.tooltip_text = tooltip
@@ -1660,6 +1803,18 @@ func _command_stop() -> void:
 	_show_feedback("Selected units halted.", false)
 
 
+func _first_selected_production_kind() -> StringName:
+	var structure_id := battlefield.primary_selected_structure()
+	if structure_id < 0:
+		return &""
+	var structure := simulation.entity(structure_id)
+	var production_list := STRUCTURE_PRODUCTION_LISTS.get(structure.get("kind", &""), []) as Array
+	if production_list.is_empty():
+		return &""
+	var first_kind := production_list[0] as StringName
+	return first_kind if simulation.is_kind_available(RtsSimulation.TEAM_PLAYER, first_kind) else &""
+
+
 func _command_train(kind: StringName) -> void:
 	var structure_id := battlefield.primary_selected_structure()
 	if structure_id < 0:
@@ -1670,6 +1825,30 @@ func _command_train(kind: StringName) -> void:
 		_show_feedback("%s added to the training queue." % String(kind).capitalize(), false)
 	else:
 		_show_feedback("Insufficient resources, Food, population, or production capacity.", true)
+
+
+func _command_upgrade_stronghold() -> void:
+	var stronghold_id := battlefield.primary_selected_structure()
+	if stronghold_id < 0:
+		_show_feedback("Select your Stronghold before upgrading it.", true)
+		return
+	if simulation.command_upgrade_stronghold(RtsSimulation.TEAM_PLAYER, stronghold_id):
+		var stronghold := simulation.entity(stronghold_id)
+		audio_director.play_ui(&"ui_confirm")
+		_show_feedback(
+			"Stronghold upgraded to Lvl %d. Population cap increased to %d." % [
+				int(stronghold.get("stronghold_level", RtsSimulation.STRONGHOLD_INITIAL_LEVEL)),
+				int(simulation.players[RtsSimulation.TEAM_PLAYER]["population_cap"]),
+			],
+			false,
+		)
+	else:
+		var cost := simulation.stronghold_upgrade_cost(stronghold_id)
+		if cost.is_empty():
+			_show_feedback("The Stronghold is already at maximum level.", true)
+		else:
+			_show_feedback("Insufficient resources for the Stronghold upgrade.", true)
+	_update_hud()
 
 
 func _command_cancel_training() -> void:
@@ -1803,6 +1982,7 @@ func _show_settings_menu() -> void:
 	_pause_menu.visible = false
 	_settings_menu.visible = true
 	_update_audio_controls()
+	_update_effect_controls()
 	_settings_audio_button.call_deferred("grab_focus")
 
 
@@ -1825,6 +2005,57 @@ func _toggle_audio() -> void:
 	_update_audio_controls()
 	if not is_muted:
 		audio_director.play_ui(&"ui_confirm")
+
+
+func _cycle_effect_intensity() -> void:
+	effect_intensity = &"low" if effect_intensity == &"full" else &"full"
+	_apply_effect_settings()
+
+
+func _toggle_reduced_motion() -> void:
+	reduced_motion = not reduced_motion
+	_apply_effect_settings()
+
+
+func _cycle_camera_impulse() -> void:
+	match camera_impulse:
+		&"off":
+			camera_impulse = &"major"
+		&"major":
+			camera_impulse = &"full"
+		_:
+			camera_impulse = &"off"
+	_apply_effect_settings()
+
+
+func _cycle_damage_numbers() -> void:
+	match damage_numbers:
+		&"off":
+			damage_numbers = &"contextual"
+		&"contextual":
+			damage_numbers = &"all"
+		_:
+			damage_numbers = &"off"
+	_apply_effect_settings()
+
+
+func _apply_effect_settings() -> void:
+	if battlefield != null:
+		battlefield.configure_effects(effect_intensity, reduced_motion, damage_numbers, camera_impulse)
+	for raw_button in _command_buttons.values():
+		(raw_button as HudCommandButton).set_reduced_motion(reduced_motion)
+	_update_effect_controls()
+
+
+func _update_effect_controls() -> void:
+	if _settings_effect_intensity_button != null:
+		_settings_effect_intensity_button.text = "EFFECTS: %s" % String(effect_intensity).to_upper()
+	if _settings_reduced_motion_button != null:
+		_settings_reduced_motion_button.text = "REDUCED MOTION: %s" % ("ON" if reduced_motion else "OFF")
+	if _settings_camera_impulse_button != null:
+		_settings_camera_impulse_button.text = "CAMERA IMPULSE: %s" % String(camera_impulse).to_upper()
+	if _settings_damage_numbers_button != null:
+		_settings_damage_numbers_button.text = "DAMAGE VALUES: %s" % String(damage_numbers).to_upper()
 
 
 func _update_audio_controls() -> void:
