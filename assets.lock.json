@@ -1254,6 +1254,334 @@
       "assetType": "image",
       "groupId": "template",
       "used": true
+    },
+    "assets/runtime/buildings/beast_gate.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/4bc8941d4eedf20c863efd4840df1c0626503a060cef92f1f221d146e5d7b5dc.webp",
+      "sha256": "sha256:a613a6576ba707fbd34364471c770662e9a0bd3b1c9a1f498cd4a98a8f3668f5",
+      "size": 142130,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/runtime/buildings/beast_sentry_tower.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/a75c1c7800e25caa7bf310b2a4235f3fc061fd67a817776f41bd982f5ec167c5.webp",
+      "sha256": "sha256:9950801743205f9c13dc8367d2a85424ac968761b9fc06a6f6ff505a2665ef82",
+      "size": 132304,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/runtime/buildings/beast_wall.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/7c868bb5eac53b3874c2f377704fb8a619d4a564ddabea0b6a4470d2196b8399.webp",
+      "sha256": "sha256:f4b38b5db022b64e0871c4ed46f43a33b4ccc7facc7cee55aa7a20b6e9d03805",
+      "size": 43085,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/runtime/buildings/celestial_gate.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/6f3adf42d9dfc0921a6cf4b2d55d5a91c549a08f89c204b88a567d36c453a3fc.webp",
+      "sha256": "sha256:f2b11d2e7f8382eb43ccf6b814ce07706d86fd9a3313055c304c6229e61ff730",
+      "size": 145653,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/runtime/buildings/celestial_sentry_tower.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/73ebdae39da492d41633507e9231b17224c8af6615def0d88d379df1894f13ba.webp",
+      "sha256": "sha256:91a13ced3362d56a804affde8e95ac0d818b52866ee8d82635118e4ccd776f73",
+      "size": 119995,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/runtime/buildings/celestial_wall.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/fb8b5f159a021cc4daf636be181849483a4586096c53d51829a0a93ef70b2bf2.webp",
+      "sha256": "sha256:b011d2f648e22b63905c6091eca8c3203998231d1ce508b1526582e4a32c4fe4",
+      "size": 40516,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/runtime/buildings/demon_gate.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/bb8eab2dd9843ca66566079592afcbf1acc89fe61c1c9cd5b58db0434cbd3572.webp",
+      "sha256": "sha256:c9021a55c3478a0550ece235f70b4632380e1e5a4c13660c5f4e543ca1cfd41a",
+      "size": 132171,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/runtime/buildings/demon_sentry_tower.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/9a877c8c913babec5ab582e28ef502c72a602b44f796c6eac2fcec72cafd852c.webp",
+      "sha256": "sha256:7baec308f0a1da2905aee79c92392ee51d95d7c62fd9f835615865db14fa1933",
+      "size": 119237,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/runtime/buildings/demon_wall.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/acbe47d985f25f4df4d1fff4306f1867c3da899355a9daa4d9217f3887457225.webp",
+      "sha256": "sha256:6191d820cfc6c959f53831cf125d8e5aecceb1f3b8750bfdbf15ac21c78338ff",
+      "size": 34463,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/runtime/buildings/human_gate.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/5cd66ad04a690d0c6d3e6a26b96f4e9effd5ae4af368caa5bfc3c49dbc1a1b95.webp",
+      "sha256": "sha256:50a167b97d07c5c0fa2d44bdb0c0216e1bb89e16452caf6249fb929ea4629c3e",
+      "size": 110481,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/runtime/buildings/human_sentry_tower.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/493535c7d430d4d6563b3b98711ebc8446cf2d2be5892baadbc2ce751a002625.webp",
+      "sha256": "sha256:6ca1f96ab84bf090b9c78151bdc92202bea08a184e2be78f4a16cd6c93a676cf",
+      "size": 107679,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/runtime/buildings/human_wall.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/09bbcdd8417d06e27015c304626de8a4064b89ff753405186a22ae9c066d8061.webp",
+      "sha256": "sha256:ac586b18fc1fb6417588d7a0c33f93744a134a357743256e8398d14c921e5ae4",
+      "size": 36941,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/runtime/objectives/shenlong_egg.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/09ea506aa6ca084002e688edb6045206463e760be52e08f23e5284c9b9d76090.webp",
+      "sha256": "sha256:3675a79ec20e5e6aa777c298da0d8648b421fa38676711b064ece21f3701edac",
+      "size": 49461,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/runtime/ui/utility_icons/audio_muted.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/53ae1c19fabb1a758eabf2a4a5f4543bf6b4f747942249e948f21703b2a58f95.webp",
+      "sha256": "sha256:bed5dfedf2dbe9c42e60baeff0dbed1c38b4a34859f8fad9d5535a4ac632d1c6",
+      "size": 6717,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/runtime/ui/utility_icons/audio_on.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/bbdae8503f828373aceffd3c774237bbe788457dc7bde322a2c3e353d74c90ed.webp",
+      "sha256": "sha256:ba6a2c15418d4cad87e72c343c0108837a00834a4c94b547cf2947a4546af357",
+      "size": 6553,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/runtime/ui/utility_icons/pause.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/3e9ef210091dea8fa9c770c0966ba6712b046e7f60830225c9b8b7028214770b.webp",
+      "sha256": "sha256:aa738f230244d2e556209a0e767c321dc60e3bcc6323e5cccc2ed70ca33349ea",
+      "size": 3839,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/runtime/ui/utility_icons/resume.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/cddaec533ece3661ca7f8b3a9d9d5f33585b4eca5aadf21e357e4e44e7f00ab3.webp",
+      "sha256": "sha256:6972672508c647419d88496f3de9543e4d0fde3a850da99349a87ba274027959",
+      "size": 5345,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/runtime/units/neutral_shenlong.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/788c11f75121581082f8a378d555a3fdd050bba6fe00fec21f0e15a863e98b67.webp",
+      "sha256": "sha256:ee74c874ed0a9bfc5feb44600097dcbaf75d6bde1ab9d4a334f409c51ad266c0",
+      "size": 129475,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/source/buildings/beast_gate.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/5f2b50918740d924343a353e7e6a6635a0d599cb893e6ae11ba58d5126882165.webp",
+      "sha256": "sha256:6a2bfed13a47a27d76b9b89b0eb0c31e6b0d2dc4e0aba21651719c18b7b262fa",
+      "size": 1835541,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/source/buildings/beast_sentry_tower.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/a7e5f6dd87ee5684ff1ef0b89259164b76b9f1d4dda29b372bea69c7e50d2b19.webp",
+      "sha256": "sha256:f41c008eb0538b2b306afa7b77aa40d627858408ea950bc4a35f7bbf9d0634ca",
+      "size": 2084566,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/source/buildings/beast_wall.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/9f3a3df869bdfbcddc05e7b0c53a540fd2513c79d63ead0474c950bb3ad43bd4.webp",
+      "sha256": "sha256:344a8abc031277cbacec7f653eff59f042c6eaf4e18d10979fcaba27fd2abcc7",
+      "size": 1709653,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/source/buildings/celestial_gate.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/1a67bd98c25cf803a7918dc9fe605b0c3379dc3ebe322b04d4b111a0afacb5f0.webp",
+      "sha256": "sha256:9dcb0c33f53f51d998821d4c1f7be51e7b5b108a021130c6b37303d0831ca454",
+      "size": 1719606,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/source/buildings/celestial_sentry_tower.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/5fd760f2d4ba425e67163d7a2cc2e931a9ac3e5594b761205e78dea1dbffffd9.webp",
+      "sha256": "sha256:5860361e2f435cd9c7fb6557916704c6eb92026c51efebfc138a26375d8f07e5",
+      "size": 1905344,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/source/buildings/celestial_wall.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/1689c0ae120acba4f04b4fb79be0dce477b3de95d3e07ea02f308a03fd880689.webp",
+      "sha256": "sha256:a02dcc4e0a857b486a22698da2315e9e38dd9b18a769e7faca2fb301bf8ee665",
+      "size": 1608545,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/source/buildings/celestial_wall_aligned.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/0e3417847aba7469b3da10db75d77ca2f2237ffb018ae60b393f8e48d99d33c4.webp",
+      "sha256": "sha256:64ef8bc4ac4ed5aca15b72df30873486ab294b09b4ab2f6ae6a5eb9e1b377e14",
+      "size": 1587553,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/source/buildings/demon_gate.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/356a32b23d8112064862ddfd208afa7fc56472a71e1508c1e9428c13f5b8a12b.webp",
+      "sha256": "sha256:291817596ebc4cf37ca224729b6c6e8110c28af78e07a520f9fe83f19336702d",
+      "size": 1700798,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/source/buildings/demon_gate_aligned.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/a07f64a4d08cddd832de68160504da77ce0b2181caf23e040e7705f6d2c74b40.webp",
+      "sha256": "sha256:c16f2b53dc68f813f6e64c42610dd0fd598f8b04d493e77f6b6b58ef58f995af",
+      "size": 1839170,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/source/buildings/demon_sentry_tower.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/403150bba95a52810a995323d857646175249eefaf9563c1e77205241d738797.webp",
+      "sha256": "sha256:1be0f9c305f3b87461dc6993ee0a7fc911458953101b713504e128371dd450e8",
+      "size": 1678986,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/source/buildings/demon_wall.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/5058a6aa0425618b559c1673e20f224283c9e6277b1b16926391b2a2d36cd63f.webp",
+      "sha256": "sha256:77b804a28fe95184a48016853e1a1f074eecc1aa304d20ed5f4013b0c5b9c667",
+      "size": 1576432,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/source/buildings/human_gate.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/097ca3853659e2cdea118ce6b9cd3fb7ae40bbfaa726d88824d8f533a3604e61.webp",
+      "sha256": "sha256:46976fa201bfc6b0017c8623d5ac83179465eefe44bb1a02cf4f2c1cae1cbe32",
+      "size": 1817077,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/source/buildings/human_sentry_tower.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/5929b93857e387eec8628cc242ea990e511aeba5c02212fde5a459eabd4167cb.webp",
+      "sha256": "sha256:ae7e90921735c3adf91863e2fbbeb252650cc885327097553172aeeb023d7eb4",
+      "size": 1893164,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/source/buildings/human_wall.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/e01c413edaf8c6871dd1062569ef847a3b419d2cf8a818b790592d80bad3f6b3.webp",
+      "sha256": "sha256:9b4f7b43ab8786702d4c1108d264ab95139bf68e9a4b321bcaed955e7d3d9591",
+      "size": 1794572,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/source/concepts/game-juice-combat-feedback.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/ae0d8f60f7c98870db82abe48e564018ee716eea9a188ef2b9300d58a1b0af36.webp",
+      "sha256": "sha256:c0b218b062929bf681b171bcc55db839924e8acd1c3173173d78a27f6b2bf759",
+      "size": 2473126,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/source/concepts/game-juice-hover-selection.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/e992f7f2cebc4e0634c12d8952b276348c4de70187cd2b750f980f1738dc157e.webp",
+      "sha256": "sha256:60e2b039ef166206577d201a00557d30b856418b7ec0378a9a276e8a13204744",
+      "size": 2222474,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/source/concepts/game-juice-world-economy.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/9da2a2cbc03c85887793ca5cba6ca15a33914b52e94538c5b5446336c17c31b3.webp",
+      "sha256": "sha256:f3aece4b89b5d36ac2ab638fe9880957cbf54fe1812aba881b5c2d5d6ef216d7",
+      "size": 2097699,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/source/objectives/shenlong_egg.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/c572a7010f3550c67013b5556f87c55304edfb2c66bf093b605ba5faeb8f5032.webp",
+      "sha256": "sha256:403bf247918355b0576a3288fe09cc3eab3097fdf1dbfab604f33fd282ecc69f",
+      "size": 1708141,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/source/ui/utility_icons/audio_muted.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/dc19bb707d1be593883f21b359e21f0d4a27027b59ecd5378f42abceb7017b00.webp",
+      "sha256": "sha256:b3c09f57672e6163371251dc777d7b5c3b5cd4b2a8d0c512a7ad8e4fece4f09d",
+      "size": 880437,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/source/ui/utility_icons/audio_on.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/46145166dc442e1ae05140d9e01fc9cd09087fb63860df6edf1f93fe4d030d5b.webp",
+      "sha256": "sha256:97bfc3aef514c8f58ea56d58f0c500f3e6c864308ab2936224166270c1955787",
+      "size": 1407154,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/source/ui/utility_icons/pause.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/391a0c516a914a084075c4a33708cef8a53d2dbd7e01d47789ae646b6f3ebd5c.webp",
+      "sha256": "sha256:536712ec63e4acc1d28006e9515f1564023d608126851db1b8885361e761bc8b",
+      "size": 1260588,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/source/ui/utility_icons/resume.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/89e4777d58aef884ce5fdae7d589b7e2a3becd8f017a4ca52746afd54543788b.webp",
+      "sha256": "sha256:8364d3ad0aa61f6830bd107c2814443595f232480ceb9caf1bda0d6de6545cca",
+      "size": 1449507,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/source/units/neutral_shenlong.png": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/04/c6dd5784c9221e8022921238f22690bc070785772067831b7352c81ce04d532a.webp",
+      "sha256": "sha256:a2ccc28e7f5a5a9dc02512e93d798be9d0f1354995db5590f4e9c76e54139146",
+      "size": 2528017,
+      "assetType": "image",
+      "groupId": "template",
+      "used": true
     }
   }
 }
