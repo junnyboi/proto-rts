@@ -692,6 +692,12 @@ func _test_food_building(
 	var stats := FactionCatalog.stats(structure_kind, &"human")
 	var expected_yield := simulation.structure_food_yield(structure_id)
 	var interval := float(stats.get("food_interval", 0.0))
+	var expected_passive_yield := (
+		int(stats.get("food_yield", 0))
+		* RtsSimulation.PASSIVE_FOOD_PRODUCTION_MULTIPLIER
+	)
+	if expected_yield != expected_passive_yield:
+		failures.append("%s passive Food production was not tripled" % String(structure_kind))
 	var food_before_harvest := int(simulation.players[RtsSimulation.TEAM_PLAYER]["food"])
 	simulation._advance_food_production(interval + RtsSimulation.TICK_SECONDS * 2.0)
 	if int(simulation.players[RtsSimulation.TEAM_PLAYER]["food"]) != food_before_harvest + expected_yield:
@@ -786,16 +792,27 @@ func _test_farm_worker_assignment(failures: Array[String]) -> void:
 	if not simulation.is_farm_staffed(farm_id):
 		failures.append("a Worker beside the Rice Farm did not begin staffing it")
 	var stats := FactionCatalog.stats(&"rice_farm", &"human")
-	var passive_yield := int(stats.get("food_yield", 0))
-	var expected_staffed_yield := passive_yield * RtsSimulation.FARM_WORKER_FOOD_MULTIPLIER
+	var passive_yield := (
+		int(stats.get("food_yield", 0))
+		* RtsSimulation.PASSIVE_FOOD_PRODUCTION_MULTIPLIER
+	)
+	var expected_staffed_yield := mini(
+		passive_yield * RtsSimulation.FARM_WORKER_FOOD_MULTIPLIER,
+		floori(RtsSimulation.STAFFED_FARM_FOOD_RATE_CAP * float(stats["food_interval"])),
+	)
 	if simulation.structure_food_yield(farm_id) != expected_staffed_yield:
-		failures.append("an assigned Worker did not multiply Rice Farm production by exactly five")
+		failures.append("an assigned Worker did not apply the capped Rice Farm production rate")
+	var staffed_rate := float(simulation.structure_food_yield(farm_id)) / float(stats["food_interval"])
+	if staffed_rate > RtsSimulation.STAFFED_FARM_FOOD_RATE_CAP:
+		failures.append("an assigned Worker raised Rice Farm production above 5 Food per second")
+	if simulation._staffed_farm_food_yield(100, 1.0) != 5:
+		failures.append("the staffed Rice Farm production ceiling did not cap a high yield at 5 Food per second")
 	var food_before_harvest := int(simulation.players[team]["food"])
 	simulation._advance_food_production(
 		float(stats["food_interval"]) + RtsSimulation.TICK_SECONDS * 2.0
 	)
 	if int(simulation.players[team]["food"]) != food_before_harvest + expected_staffed_yield:
-		failures.append("staffed Rice Farm did not deliver its fivefold harvest")
+		failures.append("staffed Rice Farm did not deliver its capped harvest")
 	simulation.command_move(team, [workers[0]], first_worker["cell"] as Vector2i + Vector2i(1, 0))
 	if simulation.farm_worker_id(farm_id) >= 0:
 		failures.append("reassigning a Farmer did not release the Rice Farm slot")
@@ -811,31 +828,9 @@ func _test_farm_worker_assignment(failures: Array[String]) -> void:
 		failures.append("destroying a Rice Farm left its Worker in a farm order")
 
 
-func _test_food_strategy_balance(failures: Array[String]) -> void:
+func _test_hunters_lodge_food_independence(failures: Array[String]) -> void:
 	var simulation := RtsSimulation.new()
 	simulation.setup(&"human", false)
-	var total_wildlife_bounty := 0
-	for wildlife_id in simulation.wildlife_ids():
-		total_wildlife_bounty += int(simulation.entity(wildlife_id).get("food_bounty", 0))
-	var farm_stats := FactionCatalog.stats(&"rice_farm", &"human")
-	var lodge_stats := FactionCatalog.stats(&"hunters_lodge", &"human")
-	var farm_food := (
-		float(farm_stats["food_yield"])
-		* RtsSimulation.FARM_WORKER_FOOD_MULTIPLIER
-		/ float(farm_stats["food_interval"])
-		* RtsSimulation.FOOD_BALANCE_HORIZON_SECONDS
-	)
-	var hunting_food := (
-		float(total_wildlife_bounty) / RtsSimulation.TEAM_COUNT
-		+ float(lodge_stats["food_yield"])
-		/ float(lodge_stats["food_interval"])
-		* RtsSimulation.FOOD_BALANCE_HORIZON_SECONDS
-	)
-	if absf(farm_food - hunting_food) > farm_food * 0.01:
-		failures.append(
-			"12-minute farming and hunting paths differ by more than one percent (%0.1f vs %0.1f Food)"
-			% [farm_food, hunting_food]
-		)
 	var lodge_site := simulation._find_build_site(
 		RtsSimulation.TEAM_PLAYER,
 		&"hunters_lodge",
@@ -2343,7 +2338,7 @@ func _run() -> void:
 	_test_food_building(&"rice_farm", failures)
 	_test_food_building(&"hunters_lodge", failures)
 	_test_farm_worker_assignment(failures)
-	_test_food_strategy_balance(failures)
+	_test_hunters_lodge_food_independence(failures)
 	_test_ai_food_economy(failures)
 	_test_ai_base_assault_waves(failures)
 	_test_ai_avoids_shenlong_until_ten_minutes(failures)

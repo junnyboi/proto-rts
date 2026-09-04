@@ -63,10 +63,9 @@ const WILDLIFE_REGENERATION_CYCLE_SECONDS := 5.0 * 60.0
 const WILDLIFE_FLEE_DISTANCE := 4.5
 const WILDLIFE_RETALIATION_LEASH_BONUS := 3.0
 const HUNTER_WILDLIFE_DAMAGE_MULTIPLIER := 3.0
+const PASSIVE_FOOD_PRODUCTION_MULTIPLIER := 3
 const FARM_WORKER_FOOD_MULTIPLIER := 5
-# One staffed Farm yields 720 Food over this horizon; one quarter of the map's
-# wildlife bounties plus a Lodge's passive yield produces 723.2 Food.
-const FOOD_BALANCE_HORIZON_SECONDS := 12.0 * 60.0
+const STAFFED_FARM_FOOD_RATE_CAP := 5.0
 const HUNTER_WANDER_MIN_DELAY := 0.8
 const HUNTER_WANDER_MAX_DELAY := 1.6
 const HUNTER_WANDER_SEED := 0x48554E54
@@ -5084,10 +5083,24 @@ func structure_food_yield(structure_id: int) -> int:
 		structure["kind"] as StringName,
 		structure["faction"] as StringName,
 	)
-	var food_yield := int(stats.get("food_yield", 0))
+	var food_yield := (
+		int(stats.get("food_yield", 0))
+		* PASSIVE_FOOD_PRODUCTION_MULTIPLIER
+	)
 	if structure.get("kind") == &"rice_farm" and is_farm_staffed(structure_id):
-		food_yield *= FARM_WORKER_FOOD_MULTIPLIER
+		food_yield = _staffed_farm_food_yield(
+			food_yield,
+			float(stats.get("food_interval", 0.0)),
+		)
 	return food_yield
+
+
+func _staffed_farm_food_yield(passive_food_yield: int, food_interval: float) -> int:
+	var staffed_yield := passive_food_yield * FARM_WORKER_FOOD_MULTIPLIER
+	if food_interval <= 0.0:
+		return staffed_yield
+	var capped_yield := floori(STAFFED_FARM_FOOD_RATE_CAP * food_interval)
+	return mini(staffed_yield, capped_yield)
 
 
 func drain_events() -> Array[Dictionary]:
