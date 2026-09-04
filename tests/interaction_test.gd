@@ -16,6 +16,7 @@ func _run() -> void:
 	root.add_child(battlefield)
 	await process_frame
 	_verify_smooth_camera_pan(battlefield, failures)
+	_verify_selection_drag_camera_arbitration(battlefield, failures)
 	_verify_zoom_input(battlefield, failures)
 	_verify_deterministic_entity_depth_sort(battlefield, failures)
 	_verify_entity_sprite_grounding(battlefield, simulation, failures)
@@ -291,6 +292,79 @@ func _verify_smooth_camera_pan(battlefield: Battlefield, failures: Array[String]
 	Input.action_release(&"camera_right")
 	if not battlefield.camera_offset.is_equal_approx(fine_step_offset):
 		failures.append("keyboard camera pan changed with frame cadence")
+	battlefield.center_on_player_stronghold()
+
+
+func _verify_selection_drag_camera_arbitration(
+	battlefield: Battlefield,
+	failures: Array[String],
+) -> void:
+	battlefield.center_on_player_stronghold()
+	var drag_start := Vector2(420.0, 260.0)
+	var drag_end := Vector2(610.0, 390.0)
+	battlefield.call("_handle_left_press", drag_start)
+
+	var touch_press := InputEventScreenTouch.new()
+	touch_press.index = 0
+	touch_press.position = drag_start
+	touch_press.pressed = true
+	battlefield.call("_gui_input", touch_press)
+
+	var camera_before_pointer_drag := battlefield.camera_offset
+	var emulated_touch_drag := InputEventScreenDrag.new()
+	emulated_touch_drag.index = 0
+	emulated_touch_drag.position = drag_end
+	emulated_touch_drag.relative = drag_end - drag_start
+	battlefield.call("_gui_input", emulated_touch_drag)
+	if not battlefield.camera_offset.is_equal_approx(camera_before_pointer_drag):
+		failures.append("emulated touch input panned the camera during box selection")
+	if not battlefield._selection_dragging or not battlefield._selection_current.is_equal_approx(drag_end):
+		failures.append("emulated touch input did not remain captured by box selection")
+
+	battlefield._middle_dragging = true
+	var mouse_motion := InputEventMouseMotion.new()
+	mouse_motion.position = drag_end + Vector2(30.0, 20.0)
+	mouse_motion.relative = Vector2(30.0, 20.0)
+	battlefield.call("_gui_input", mouse_motion)
+	if not battlefield.camera_offset.is_equal_approx(camera_before_pointer_drag):
+		failures.append("middle-button pointer motion panned the camera during box selection")
+
+	battlefield._camera_pan_velocity = Vector2(300.0, 0.0)
+	battlefield.call("_update_camera_pan", 0.05)
+	if not battlefield.camera_offset.is_equal_approx(camera_before_pointer_drag):
+		failures.append("keyboard pan momentum moved the camera during box selection")
+	if not battlefield._camera_pan_velocity.is_zero_approx():
+		failures.append("box selection did not cancel released keyboard pan momentum")
+
+	var scale_before_zoom_input := battlefield.camera_scale
+	var magnify := InputEventMagnifyGesture.new()
+	magnify.position = mouse_motion.position
+	magnify.factor = 1.1
+	battlefield.call("_gui_input", magnify)
+	var command_wheel := InputEventMouseButton.new()
+	command_wheel.button_index = MOUSE_BUTTON_WHEEL_UP
+	command_wheel.pressed = true
+	command_wheel.meta_pressed = true
+	command_wheel.position = mouse_motion.position
+	battlefield.call("_gui_input", command_wheel)
+	if not is_equal_approx(battlefield.camera_scale, scale_before_zoom_input):
+		failures.append("pointer zoom input changed the camera during box selection")
+
+	Input.action_press(&"camera_right")
+	var camera_before_wasd := battlefield.camera_offset
+	battlefield.call("_update_camera_pan", 0.05)
+	Input.action_release(&"camera_right")
+	if battlefield.camera_offset.x >= camera_before_wasd.x:
+		failures.append("active WASD input could not pan the camera during box selection")
+
+	var touch_release := InputEventScreenTouch.new()
+	touch_release.index = 0
+	touch_release.position = mouse_motion.position
+	touch_release.pressed = false
+	battlefield.call("_gui_input", touch_release)
+	battlefield.call("_handle_left_release", mouse_motion.position)
+	battlefield._middle_dragging = false
+	battlefield._camera_pan_velocity = Vector2.ZERO
 	battlefield.center_on_player_stronghold()
 
 

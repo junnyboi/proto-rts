@@ -563,7 +563,13 @@ func _gui_input(event: InputEvent) -> void:
 		if start_position.distance_to(drag.position) >= TOUCH_DRAG_THRESHOLD:
 			_touch_dragged[drag.index] = true
 		_mouse_position = drag.position
-		if _touch_positions.size() >= 2:
+		if _selection_pressed:
+			# Mouse-to-touch emulation can emit this alongside the mouse motion that
+			# owns box selection. Keep the gesture in selection space instead of
+			# interpreting the duplicate event as a camera pan.
+			_selection_current = drag.position
+			_selection_dragging = _selection_current.distance_to(_selection_start) >= 6.0
+		elif _touch_positions.size() >= 2:
 			_touch_gesture_consumed = true
 			var next_distance := _active_touch_distance()
 			if _touch_pinch_distance > 1.0 and next_distance > 1.0:
@@ -580,18 +586,20 @@ func _gui_input(event: InputEvent) -> void:
 	elif event is InputEventMouseMotion:
 		var motion := event as InputEventMouseMotion
 		_mouse_position = motion.position
+		if _selection_pressed:
+			_selection_current = motion.position
+			_selection_dragging = _selection_current.distance_to(_selection_start) >= 6.0
+			_refresh_cursor()
+			queue_redraw()
+			accept_event()
+			return
 		if _middle_dragging:
 			camera_offset += motion.relative
 			_clamp_camera()
 			_refresh_cursor()
 			accept_event()
 			return
-		if _selection_pressed:
-			_selection_current = motion.position
-			_selection_dragging = _selection_current.distance_to(_selection_start) >= 6.0
-			_refresh_cursor()
-			accept_event()
-		elif _placement_pressed:
+		if _placement_pressed:
 			_placement_current_cell = screen_to_cell(motion.position)
 			if placement_kind in [&"wall", &"gate"] and _placement_current_cell != _placement_start_cell:
 				placement_orientation = _automatic_drag_orientation(
@@ -604,14 +612,15 @@ func _gui_input(event: InputEvent) -> void:
 	elif event is InputEventMagnifyGesture:
 		var magnify := event as InputEventMagnifyGesture
 		_mouse_position = magnify.position
-		_zoom_at(magnify.position, clampf(magnify.factor, 0.5, 2.0))
+		if not _selection_pressed:
+			_zoom_at(magnify.position, clampf(magnify.factor, 0.5, 2.0))
 		accept_event()
 		return
 	elif event is InputEventMouseButton:
 		var button := event as InputEventMouseButton
 		_mouse_position = button.position
 		if button.button_index == MOUSE_BUTTON_MIDDLE:
-			_middle_dragging = button.pressed
+			_middle_dragging = button.pressed and not _selection_pressed
 			if button.pressed:
 				_camera_pan_velocity = Vector2.ZERO
 			_refresh_cursor()
@@ -622,9 +631,10 @@ func _gui_input(event: InputEvent) -> void:
 			and button.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]
 			and (button.meta_pressed or button.ctrl_pressed)
 		):
-			var scroll_amount := button.factor if button.factor > 0.0 else 1.0
-			var zoom_factor := pow(WHEEL_ZOOM_STEP, clampf(scroll_amount, 0.25, 4.0))
-			_zoom_at(button.position, zoom_factor if button.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / zoom_factor)
+			if not _selection_pressed:
+				var scroll_amount := button.factor if button.factor > 0.0 else 1.0
+				var zoom_factor := pow(WHEEL_ZOOM_STEP, clampf(scroll_amount, 0.25, 4.0))
+				_zoom_at(button.position, zoom_factor if button.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / zoom_factor)
 			accept_event()
 			return
 		if button.button_index == MOUSE_BUTTON_LEFT:
@@ -734,6 +744,7 @@ func _handle_left_press(screen_position: Vector2, append: bool = false) -> void:
 		return
 	_selection_pressed = true
 	_selection_dragging = false
+	_middle_dragging = false
 	_selection_additive = append
 	_selection_start = screen_position
 	_selection_current = screen_position
@@ -1866,6 +1877,9 @@ func _update_camera_pan(delta: float) -> void:
 		&"camera_up",
 		&"camera_down",
 	)
+	if _selection_pressed and direction.is_zero_approx():
+		_camera_pan_velocity = Vector2.ZERO
+		return
 	var target_velocity := direction * CAMERA_PAN_SPEED
 	if target_velocity.is_zero_approx() and _camera_pan_velocity.length() <= CAMERA_PAN_STOP_EPSILON:
 		_camera_pan_velocity = Vector2.ZERO
