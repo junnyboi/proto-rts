@@ -141,7 +141,7 @@ Completed producers accept only mapped units: Stronghold→Worker, War Camp→Va
 
 A team with no living or queued Worker may queue one zero-resource recovery Worker, but it still reserves one population and trains for the normal six seconds. Stronghold upgrades are immediate commands—not queue items—and raise capacity 24→30→36 for 200 then 300 of every resource. Completed units spawn on a nearby walkable cell and then receive an ordinary move order to the normalized rally cell.
 
-Rice Farm timers run even while unstaffed. A payout is 8 Food normally or 40 only if its single assigned Worker is still empty-handed, not carrying the Egg, assigned to that Farm, and in interaction range. The final builder is automatically assigned when the Farm completes. Hunter's Lodges always produce 18 Food every 50 seconds and their Hunter queue is independent.
+All passive Food producers apply a 3× multiplier to their catalog yield. Rice Farm timers run even while unstaffed: the current payout is 24 Food every 40 seconds, or 120 Food when its single assigned Worker is still empty-handed, not carrying the Egg, assigned to that Farm, and in interaction range. Staffing multiplies the passive payout by five but is capped at `floor(5 Food/second × interval)`; with the current values the staffed rate is 3 Food per second. The final builder is automatically assigned when the Farm completes. Hunter's Lodges always produce 54 Food every 50 seconds, and their passive yield remains independent of their Hunter queue and trained Hunter count.
 
 Demolition is immediate for owned buildable structures and foundations—War Camp, Farm, Lodge, Wall, Gate, or Tower—but never Strongholds or Dens. It refunds `floor(50% × current faction-adjusted build cost)` per resource and then uses ordinary structure-death cleanup; queued-unit resources are not refunded.
 
@@ -396,9 +396,9 @@ Candidate reels and source BGM are external inputs; a fresh clone cannot recreat
 | Required part | Rule |
 | --- | --- |
 | Tutorial state | Schema/tutorial version, completion, active step, elapsed timeout, fallback state, and detected input method. |
-| Trigger | Observes friendly selection, contextual orders, production, objective progress, pause, and tweak-panel opening. |
+| Trigger | Observes friendly selection, contextual orders, production, objective progress, and pause. |
 | Callout | Independent top-right safe-area panel with localized title/body/input copy, step count, Skip, and time-based fallback guidance. |
-| Progression | Select → command → production → objective → pause → Tweak Controls. |
+| Progression | Select → command → production → objective → pause. |
 | Persistence | Completion is separate from leaderboard/tweak data; title replay arms the next match. |
 | Tests | `tutorial_test.gd`, `responsive_input_test.gd`, localization parity, and native captures cover progression, persistence, methods, portrait reflow, and both locales. |
 
