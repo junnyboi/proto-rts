@@ -245,11 +245,15 @@ func setup(player_faction: StringName, enable_ai: bool = true) -> void:
 
 func advance(delta: float) -> void:
 	if not outcome.is_empty():
+		_accumulator = 0.0
 		return
 	_accumulator += minf(delta, 0.25)
 	while _accumulator >= TICK_SECONDS:
-		_tick(TICK_SECONDS)
 		_accumulator -= TICK_SECONDS
+		_tick(TICK_SECONDS)
+		if not outcome.is_empty():
+			_accumulator = 0.0
+			break
 
 
 func _tick(delta: float) -> void:
@@ -260,6 +264,9 @@ func _tick(delta: float) -> void:
 	_advance_production(delta)
 	_advance_worker_orders(delta)
 	_advance_combat_and_movement(delta)
+	if not outcome.is_empty():
+		state_changed.emit()
+		return
 	_resolve_unit_separation(delta)
 	_advance_wildlife_regeneration(delta)
 	_sync_carried_eggs()
@@ -831,7 +838,7 @@ func command_move(
 	attack_move: bool = false,
 	append: bool = false,
 ) -> bool:
-	if not _is_valid_team(issuer_team) or not MapCatalog.in_bounds(destination):
+	if not _can_issue_command(issuer_team) or not MapCatalog.in_bounds(destination):
 		return false
 	var units: Array[Dictionary] = []
 	for id in ids:
@@ -875,7 +882,7 @@ func command_move(
 
 
 func command_attack(issuer_team: int, ids: Array[int], target_id: int, append: bool = false) -> bool:
-	if not _is_valid_team(issuer_team):
+	if not _can_issue_command(issuer_team):
 		return false
 	var target := entity(target_id)
 	if target.is_empty() or not bool(target.get("alive", false)):
@@ -901,7 +908,7 @@ func command_attack(issuer_team: int, ids: Array[int], target_id: int, append: b
 
 
 func command_gather(issuer_team: int, ids: Array[int], resource_id: int, append: bool = false) -> bool:
-	if not _is_valid_team(issuer_team):
+	if not _can_issue_command(issuer_team):
 		return false
 	var resource := entity(resource_id)
 	if (
@@ -933,7 +940,7 @@ func command_assign_farm_worker(
 	farm_id: int,
 	append: bool = false,
 ) -> bool:
-	if not _is_valid_team(issuer_team):
+	if not _can_issue_command(issuer_team):
 		return false
 	var farm := entity(farm_id)
 	if (
@@ -967,7 +974,7 @@ func command_assign_farm_worker(
 
 
 func command_claim_egg(issuer_team: int, ids: Array[int], egg_id: int, append: bool = false) -> bool:
-	if not _is_valid_team(issuer_team):
+	if not _can_issue_command(issuer_team):
 		return false
 	var egg := entity(egg_id)
 	if not _is_claimable_shenlong_egg(egg):
@@ -1014,7 +1021,7 @@ func _can_worker_claim_egg(worker: Dictionary, egg: Dictionary) -> bool:
 
 
 func command_return_egg(issuer_team: int, ids: Array[int], stronghold_id: int, append: bool = false) -> bool:
-	if not _is_valid_team(issuer_team):
+	if not _can_issue_command(issuer_team):
 		return false
 	var stronghold := entity(stronghold_id)
 	if (
@@ -1039,7 +1046,7 @@ func command_return_egg(issuer_team: int, ids: Array[int], stronghold_id: int, a
 
 
 func command_deposit(issuer_team: int, ids: Array[int], stronghold_id: int, append: bool = false) -> int:
-	if not _is_valid_team(issuer_team):
+	if not _can_issue_command(issuer_team):
 		return 0
 	var stronghold := entity(stronghold_id)
 	if (
@@ -1094,7 +1101,7 @@ func command_deposit(issuer_team: int, ids: Array[int], stronghold_id: int, appe
 
 
 func command_stop(issuer_team: int, ids: Array[int]) -> bool:
-	if not _is_valid_team(issuer_team):
+	if not _can_issue_command(issuer_team):
 		return false
 	var issued := false
 	for id in ids:
@@ -1107,7 +1114,7 @@ func command_stop(issuer_team: int, ids: Array[int]) -> bool:
 
 
 func command_resign(issuer_team: int) -> bool:
-	if not _is_valid_team(issuer_team) or not outcome.is_empty():
+	if not _can_issue_command(issuer_team):
 		return false
 	players[issuer_team]["eliminated"] = true
 	var stronghold := _stronghold_for_team(issuer_team)
@@ -1120,7 +1127,7 @@ func command_resign(issuer_team: int) -> bool:
 
 
 func command_repair(issuer_team: int, ids: Array[int], target_id: int, append: bool = false) -> bool:
-	if not _is_valid_team(issuer_team):
+	if not _can_issue_command(issuer_team):
 		return false
 	var target := entity(target_id)
 	if int(target.get("team", TEAM_NEUTRAL)) != issuer_team:
@@ -1141,7 +1148,7 @@ func command_repair(issuer_team: int, ids: Array[int], target_id: int, append: b
 
 
 func command_construct(issuer_team: int, ids: Array[int], target_id: int, append: bool = false) -> bool:
-	if not _is_valid_team(issuer_team):
+	if not _can_issue_command(issuer_team):
 		return false
 	var target := entity(target_id)
 	if int(target.get("team", TEAM_NEUTRAL)) != issuer_team:
@@ -1167,7 +1174,7 @@ func command_garrison(
 	tower_id: int,
 	append: bool = false,
 ) -> bool:
-	if not _is_valid_team(issuer_team):
+	if not _can_issue_command(issuer_team):
 		return false
 	var tower := entity(tower_id)
 	if not _is_available_sentry_tower(tower, issuer_team):
@@ -1200,7 +1207,7 @@ func command_garrison(
 
 
 func command_ungarrison(issuer_team: int, tower_id: int, unit_id: int) -> bool:
-	if not _is_valid_team(issuer_team):
+	if not _can_issue_command(issuer_team):
 		return false
 	var tower := entity(tower_id)
 	var unit := entity(unit_id)
@@ -1219,7 +1226,7 @@ func command_ungarrison(issuer_team: int, tower_id: int, unit_id: int) -> bool:
 
 
 func command_patrol(issuer_team: int, ids: Array[int], destination: Vector2i, append: bool = false) -> bool:
-	if not _is_valid_team(issuer_team) or not MapCatalog.in_bounds(destination):
+	if not _can_issue_command(issuer_team) or not MapCatalog.in_bounds(destination):
 		return false
 	var units: Array[Dictionary] = []
 	for id in ids:
@@ -1556,7 +1563,7 @@ func command_build(
 	cell: Vector2i,
 	orientation: StringName = &"y",
 ) -> bool:
-	if not _is_valid_team(issuer_team) or structure_kind not in BUILDABLE_STRUCTURE_KINDS:
+	if not _can_issue_command(issuer_team) or structure_kind not in BUILDABLE_STRUCTURE_KINDS:
 		return false
 	var worker := entity(worker_id)
 	if (
@@ -1611,7 +1618,7 @@ func demolition_refund(structure_id: int) -> Dictionary:
 
 
 func can_demolish_structure(issuer_team: int, structure_id: int) -> bool:
-	if not _is_valid_team(issuer_team) or bool(players[issuer_team].get("eliminated", false)):
+	if not _can_issue_command(issuer_team):
 		return false
 	var structure := entity(structure_id)
 	return (
@@ -1700,7 +1707,7 @@ func command_build_wall_line(
 	var result: Array[int] = []
 	var worker := entity(worker_id)
 	if (
-		not _is_valid_team(issuer_team)
+		not _can_issue_command(issuer_team)
 		or worker.is_empty()
 		or worker.get("kind") != &"worker"
 		or not _is_commandable_unit(worker)
@@ -1783,7 +1790,7 @@ func can_place_war_camp(team: int, cell: Vector2i) -> bool:
 
 
 func command_train(issuer_team: int, structure_id: int, unit_kind: StringName) -> bool:
-	if not _is_valid_team(issuer_team) or bool(players[issuer_team].get("eliminated", false)):
+	if not _can_issue_command(issuer_team):
 		return false
 	var structure := entity(structure_id)
 	if structure.is_empty() or not bool(structure.get("alive", false)):
@@ -1855,7 +1862,7 @@ func stronghold_upgrade_cost(stronghold_id: int) -> Dictionary:
 
 
 func can_upgrade_stronghold(issuer_team: int, stronghold_id: int) -> bool:
-	if not _is_valid_team(issuer_team) or bool(players[issuer_team].get("eliminated", false)):
+	if not _can_issue_command(issuer_team):
 		return false
 	var stronghold := entity(stronghold_id)
 	if (
@@ -1905,7 +1912,7 @@ func command_cancel_training(
 	queue_index: int = -1,
 	expected_order_id: int = -1,
 ) -> Dictionary:
-	if not _is_valid_team(requesting_team):
+	if not _can_issue_command(requesting_team):
 		return {}
 	var structure := entity(structure_id)
 	if (
@@ -1949,7 +1956,7 @@ func command_cancel_training(
 
 
 func set_rally(issuer_team: int, structure_id: int, cell: Vector2i) -> bool:
-	if not _is_valid_team(issuer_team) or not MapCatalog.in_bounds(cell):
+	if not _can_issue_command(issuer_team) or not MapCatalog.in_bounds(cell):
 		return false
 	var structure := entity(structure_id)
 	if (
@@ -2006,7 +2013,9 @@ func _set_path(entity_state: Dictionary, destination: Vector2i) -> void:
 	if not MapCatalog.in_bounds(start):
 		return
 	var team := int(entity_state.get("team", TEAM_NEUTRAL))
-	_set_friendly_structures_solid(team, false)
+	var can_phase_through_friendly_structures := not bool(entity_state.get("carrying_egg", false))
+	if can_phase_through_friendly_structures:
+		_set_friendly_structures_solid(team, false)
 	var shenlong_avoidance_cells := _block_ai_shenlong_avoidance_zone(entity_state)
 	var start_was_solid := _astar.is_point_solid(start)
 	if start_was_solid:
@@ -2017,7 +2026,8 @@ func _set_path(entity_state: Dictionary, destination: Vector2i) -> void:
 		_astar.set_point_solid(start, true)
 	for cell in shenlong_avoidance_cells:
 		_astar.set_point_solid(cell, false)
-	_set_friendly_structures_solid(team, true)
+	if can_phase_through_friendly_structures:
+		_set_friendly_structures_solid(team, true)
 	entity_state["path_endpoint"] = target
 	var path: Array[Vector2] = []
 	for cell in cell_path:
@@ -2668,6 +2678,8 @@ func _resource_event_color(resource_kind: StringName) -> Color:
 
 func _advance_combat_and_movement(delta: float) -> void:
 	for raw_id in entities.keys():
+		if not outcome.is_empty():
+			return
 		var current := entity(int(raw_id))
 		if current.is_empty() or not bool(current.get("alive", false)):
 			continue
@@ -3349,15 +3361,21 @@ func _resolve_stronghold_elimination(eliminated_team: int) -> void:
 	players[eliminated_team]["eliminated"] = true
 	_cull_eliminated_team(eliminated_team)
 	if eliminated_team == TEAM_PLAYER:
-		outcome = &"defeat"
-		match_ended.emit(outcome)
+		_finish_match(&"defeat")
 		return
 	var remaining := living_rival_count()
 	if remaining <= 0:
-		outcome = &"victory"
-		match_ended.emit(outcome)
+		_finish_match(&"victory")
 	else:
 		battle_notice.emit("A rival Stronghold has fallen. %d rivals remain." % remaining, TEAM_PLAYER)
+
+
+func _finish_match(result: StringName) -> void:
+	if not outcome.is_empty() or result not in [&"victory", &"defeat"]:
+		return
+	outcome = result
+	_accumulator = 0.0
+	match_ended.emit(outcome)
 
 
 func _cull_eliminated_team(eliminated_team: int) -> void:
@@ -3533,7 +3551,8 @@ func _is_path_cell_walkable_for(entity_state: Dictionary, cell: Vector2i) -> boo
 		return false
 	var blocker := entity(blocker_id)
 	return (
-		not blocker.is_empty()
+		not bool(entity_state.get("carrying_egg", false))
+		and not blocker.is_empty()
 		and blocker.get("category") == &"structure"
 		and int(blocker.get("team", TEAM_NEUTRAL)) == int(entity_state.get("team", TEAM_NEUTRAL))
 		and blocker.get("kind") not in SOLID_FRIENDLY_STRUCTURE_KINDS
@@ -4472,7 +4491,7 @@ func _cell_occupied_by_static_entity(
 		var entity_state := raw_entity as Dictionary
 		if not bool(entity_state.get("alive", false)):
 			continue
-		if entity_state.get("category") not in [&"structure", &"resource"]:
+		if entity_state.get("category") not in [&"structure", &"resource", &"objective"]:
 			continue
 		for occupied in MapCatalog.footprint_cells(
 			entity_state["cell"] as Vector2i,
@@ -4587,6 +4606,14 @@ func _is_commandable_unit(entity_state: Dictionary) -> bool:
 
 func _is_valid_team(team: int) -> bool:
 	return team >= 0 and team < players.size()
+
+
+func _can_issue_command(team: int) -> bool:
+	return (
+		outcome.is_empty()
+		and _is_valid_team(team)
+		and not bool(players[team].get("eliminated", false))
+	)
 
 
 func _is_military_unit(entity_state: Dictionary) -> bool:

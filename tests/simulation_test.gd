@@ -1793,6 +1793,361 @@ func _test_resignation_outcome(failures: Array[String]) -> void:
 		failures.append("the final rival resignation did not award victory")
 
 
+func _test_post_outcome_commands_are_rejected(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human", false)
+	var team := RtsSimulation.TEAM_PLAYER
+	for resource_kind in [&"jade", &"lumber", &"essence", &"food"]:
+		simulation.players[team][resource_kind] = 5000
+	var worker_ids := simulation.team_entity_ids(team, [&"worker"])
+	var worker_id := worker_ids[0]
+	var worker := simulation.entity(worker_id)
+	var deposit_worker := simulation.entity(worker_ids[1])
+	var egg_carrier := simulation.entity(worker_ids[2])
+	var stronghold_id := simulation.primary_structure_id(team, &"stronghold")
+	var stronghold := simulation.entity(stronghold_id)
+	var farm_id := simulation._spawn_structure(team, &"rice_farm", Vector2i(32, 40), true)
+	var tower_id := simulation._spawn_structure(team, &"sentry_tower", Vector2i(34, 40), true)
+	var wall_id := simulation._spawn_structure(team, &"wall", Vector2i(37, 40), true)
+	var foundation_id := simulation._spawn_structure(team, &"war_camp", Vector2i(38, 40), false)
+	var military_id := simulation._spawn_unit(team, &"vanguard", Vector2i(36, 42))
+	var garrison_unit_id := simulation._spawn_unit(team, &"mystic", Vector2i(35, 42))
+	var garrison_candidate_id := simulation._spawn_unit(team, &"mystic", Vector2i(35, 43))
+	var resource_id := -1
+	for raw_entity in simulation.entities.values():
+		var entity_state := raw_entity as Dictionary
+		if bool(entity_state.get("alive", false)) and entity_state.get("category") == &"resource":
+			resource_id = int(entity_state["id"])
+			break
+	var egg := simulation.shenlong_egg()
+	var guardian := simulation.shenlong_guardian()
+	if resource_id < 0 or egg.is_empty() or guardian.is_empty():
+		failures.append("post-outcome command fixture was incomplete")
+		return
+	var guardian_target_id := int((simulation.entity(simulation.cave_ids()[0])["guardian_ids"] as Array)[0])
+	var guardian_target := simulation.entity(guardian_target_id)
+	guardian_target["position"] = Vector2(36, 43)
+	guardian_target["cell"] = Vector2i(36, 43)
+	var resource := simulation.entity(resource_id)
+	var resource_approach := simulation._nearest_walkable_around(resource["cell"] as Vector2i, 3)
+	worker["position"] = Vector2(resource_approach)
+	worker["cell"] = resource_approach
+	stronghold["hp"] = float(stronghold["max_hp"]) - 10.0
+	deposit_worker["cargo_kind"] = &"lumber"
+	deposit_worker["cargo_amount"] = 10.0
+	var deposit_cell := (stronghold["cell"] as Vector2i) + Vector2i(0, -1)
+	deposit_worker["position"] = Vector2(deposit_cell)
+	deposit_worker["cell"] = deposit_cell
+	egg["claimable"] = true
+	egg["carried_by"] = -1
+	egg_carrier["carrying_egg"] = true
+	egg_carrier["carried_egg_id"] = int(egg["id"])
+	simulation._enter_garrison(simulation.entity(tower_id), simulation.entity(garrison_unit_id))
+	simulation._refresh_visibility()
+	if not simulation.command_train(team, stronghold_id, &"worker"):
+		failures.append("post-outcome command fixture could not create a cancellable queue entry")
+		return
+	var fixture_entities := simulation.entities.duplicate(true)
+	var fixture_players := simulation.players.duplicate(true)
+	var fixture_events := simulation._events.duplicate(true)
+	var fixture_next_entity_id := simulation._next_entity_id
+	var fixture_next_order_id := simulation._next_production_order_id
+	var build_site := simulation._find_build_site(team, &"war_camp", Vector2i(30, 40))
+	var second_build_site := simulation._find_build_site(team, &"war_camp", Vector2i(28, 40))
+	var wall_site := simulation._find_build_site(team, &"wall", Vector2i(30, 42))
+	if (
+		build_site == Vector2i(-1, -1)
+		or second_build_site == Vector2i(-1, -1)
+		or wall_site == Vector2i(-1, -1)
+	):
+		failures.append("post-outcome command fixture could not find legal build sites")
+		return
+	var live_results := [
+		simulation.command_move(team, [worker_id], Vector2i(30, 40)),
+		simulation.command_attack(team, [military_id], guardian_target_id),
+		simulation.command_gather(team, [worker_id], resource_id),
+		simulation.command_assign_farm_worker(team, [worker_id], farm_id),
+		simulation.command_claim_egg(team, [worker_id], int(egg["id"])),
+		simulation.command_return_egg(team, [worker_ids[2]], stronghold_id),
+		simulation.command_stop(team, [worker_id]),
+		simulation.command_repair(team, [worker_id], stronghold_id),
+		simulation.command_construct(team, [worker_id], foundation_id),
+		simulation.command_garrison(team, [garrison_candidate_id], tower_id),
+		simulation.command_ungarrison(team, tower_id, garrison_unit_id),
+		simulation.command_patrol(team, [military_id], Vector2i(30, 40)),
+		simulation.command_build(team, worker_id, &"war_camp", build_site),
+		simulation.command_build_war_camp(team, worker_id, second_build_site),
+		simulation.command_train(team, stronghold_id, &"worker"),
+		simulation.command_upgrade_stronghold(team, stronghold_id),
+		simulation.set_rally(team, stronghold_id, Vector2i(30, 40)),
+	]
+	var live_result_names := [
+		"command_move",
+		"command_attack",
+		"command_gather",
+		"command_assign_farm_worker",
+		"command_claim_egg",
+		"command_return_egg",
+		"command_stop",
+		"command_repair",
+		"command_construct",
+		"command_garrison",
+		"command_ungarrison",
+		"command_patrol",
+		"command_build",
+		"command_build_war_camp",
+		"command_train",
+		"command_upgrade_stronghold",
+		"set_rally",
+	]
+	for result_index in range(live_results.size()):
+		if not bool(live_results[result_index]):
+			failures.append(
+				"post-outcome fixture left %s invalid before terminal state"
+				% String(live_result_names[result_index])
+			)
+			return
+	if simulation.command_deposit(team, [worker_ids[1]], stronghold_id) != 1:
+		failures.append("post-outcome deposit fixture was not valid before terminal state")
+		return
+	if simulation.command_demolish(team, wall_id).is_empty():
+		failures.append("post-outcome demolition fixture was not valid before terminal state")
+		return
+	if simulation.command_build_wall_line(team, worker_id, wall_site, wall_site).is_empty():
+		failures.append("post-outcome wall-line fixture was not valid before terminal state")
+		return
+	if simulation.command_cancel_training(team, stronghold_id).is_empty():
+		failures.append("post-outcome cancellation fixture was not valid before terminal state")
+		return
+	if not simulation.command_resign(team):
+		failures.append("post-outcome resignation fixture was not valid before terminal state")
+		return
+	simulation.entities = fixture_entities
+	simulation.players = fixture_players
+	simulation._events = fixture_events
+	simulation._next_entity_id = fixture_next_entity_id
+	simulation._next_production_order_id = fixture_next_order_id
+	simulation.outcome = &""
+	simulation._accumulator = 0.0
+	simulation._rebuild_pathfinding()
+	worker = simulation.entity(worker_id)
+	stronghold = simulation.entity(stronghold_id)
+	egg = simulation.entity(int(egg["id"]))
+	for rival_team in [RtsSimulation.TEAM_ENEMY, RtsSimulation.TEAM_RIVAL_TWO, RtsSimulation.TEAM_RIVAL_THREE]:
+		if not simulation.command_resign(rival_team):
+			failures.append("post-outcome command fixture could not eliminate rival team %d" % rival_team)
+			return
+	if simulation.outcome != &"victory":
+		failures.append("post-outcome command fixture did not reach victory")
+		return
+	var entities_before := simulation.entities.duplicate(true)
+	var players_before := simulation.players.duplicate(true)
+	var events_before := simulation._events.duplicate(true)
+	var bool_results := [
+		simulation.command_move(team, [worker_id], Vector2i(30, 40)),
+		simulation.command_attack(team, [military_id], guardian_target_id),
+		simulation.command_gather(team, [worker_id], resource_id),
+		simulation.command_assign_farm_worker(team, [worker_id], farm_id),
+		simulation.command_claim_egg(team, [worker_id], int(egg["id"])),
+		simulation.command_return_egg(team, [worker_ids[2]], stronghold_id),
+		simulation.command_stop(team, [worker_id]),
+		simulation.command_repair(team, [worker_id], stronghold_id),
+		simulation.command_construct(team, [worker_id], foundation_id),
+		simulation.command_garrison(team, [garrison_candidate_id], tower_id),
+		simulation.command_ungarrison(team, tower_id, garrison_unit_id),
+		simulation.command_patrol(team, [military_id], Vector2i(30, 40)),
+		simulation.command_build(team, worker_id, &"war_camp", build_site),
+		simulation.command_build_war_camp(team, worker_id, second_build_site),
+		simulation.command_train(team, stronghold_id, &"worker"),
+		simulation.command_upgrade_stronghold(team, stronghold_id),
+		simulation.set_rally(team, stronghold_id, Vector2i(30, 40)),
+		simulation.command_resign(team),
+	]
+	for result in bool_results:
+		if bool(result):
+			failures.append("a bool-returning public mutation succeeded after match outcome")
+			break
+	if simulation.command_deposit(team, [worker_ids[1]], stronghold_id) != 0:
+		failures.append("a deposit mutation succeeded after match outcome")
+	if not simulation.command_demolish(team, wall_id).is_empty():
+		failures.append("a demolition mutation succeeded after match outcome")
+	if not simulation.command_build_wall_line(team, worker_id, wall_site, wall_site).is_empty():
+		failures.append("a wall-line mutation succeeded after match outcome")
+	if not simulation.command_cancel_training(team, stronghold_id).is_empty():
+		failures.append("a production cancellation succeeded after match outcome")
+	if simulation.can_demolish_structure(team, wall_id):
+		failures.append("demolition remained available after match outcome")
+	if simulation.can_upgrade_stronghold(team, stronghold_id):
+		failures.append("Stronghold upgrade remained available after match outcome")
+	if simulation.entities != entities_before or simulation.players != players_before:
+		failures.append("a rejected post-outcome command mutated authoritative state")
+	if simulation._events != events_before:
+		failures.append("a rejected post-outcome command emitted presentation events")
+	var tick_simulation := RtsSimulation.new()
+	tick_simulation.setup(&"human", false)
+	var player_stronghold := tick_simulation.entity(
+		tick_simulation.primary_structure_id(RtsSimulation.TEAM_PLAYER, &"stronghold")
+	)
+	var executioner_id := tick_simulation._spawn_unit(
+		RtsSimulation.TEAM_ENEMY,
+		&"vanguard",
+		(player_stronghold["cell"] as Vector2i) + Vector2i(2, 1),
+	)
+	var residual_mover_id := tick_simulation._spawn_unit(
+		RtsSimulation.TEAM_ENEMY,
+		&"vanguard",
+		(player_stronghold["cell"] as Vector2i) + Vector2i(3, 1),
+	)
+	var executioner := tick_simulation.entity(executioner_id)
+	var residual_mover := tick_simulation.entity(residual_mover_id)
+	player_stronghold["hp"] = 1.0
+	executioner["damage"] = 1000.0
+	executioner["order"] = &"attack"
+	executioner["target_id"] = int(player_stronghold["id"])
+	tick_simulation._refresh_visibility()
+	if not tick_simulation.command_move(
+		RtsSimulation.TEAM_ENEMY,
+		[residual_mover_id],
+		Vector2i(40, 40),
+	):
+		failures.append("same-tick outcome fixture could not issue its trailing move")
+		return
+	var mover_position_before := residual_mover["position"] as Vector2
+	tick_simulation.advance(0.25)
+	if tick_simulation.outcome != &"defeat":
+		failures.append("same-tick outcome fixture did not defeat the player")
+	if not (residual_mover["position"] as Vector2).is_equal_approx(mover_position_before):
+		failures.append("an entity later in the combat loop moved after terminal outcome")
+	if not is_equal_approx(tick_simulation.elapsed_time, RtsSimulation.TICK_SECONDS):
+		failures.append("fixed-step advancement continued after terminal outcome")
+	if not is_zero_approx(tick_simulation._accumulator):
+		failures.append("terminal outcome retained residual fixed-step time")
+	var resignation_simulation := RtsSimulation.new()
+	resignation_simulation.setup(&"human", false)
+	resignation_simulation.advance(0.05)
+	if is_zero_approx(resignation_simulation._accumulator):
+		failures.append("resignation accumulator fixture did not retain fractional time")
+	if not resignation_simulation.command_resign(RtsSimulation.TEAM_PLAYER):
+		failures.append("resignation accumulator fixture could not end its match")
+	if not is_zero_approx(resignation_simulation._accumulator):
+		failures.append("resignation did not clear residual fixed-step time immediately")
+	resignation_simulation.advance(RtsSimulation.TICK_SECONDS)
+	if not is_zero_approx(resignation_simulation._accumulator):
+		failures.append("post-resignation advance restored residual fixed-step time")
+	var elimination_simulation := RtsSimulation.new()
+	elimination_simulation.setup(&"human", false)
+	elimination_simulation.advance(0.05)
+	var eliminated_stronghold := elimination_simulation.entity(
+		elimination_simulation.primary_structure_id(RtsSimulation.TEAM_PLAYER, &"stronghold")
+	)
+	var elimination_attacker_id := elimination_simulation._spawn_unit(
+		RtsSimulation.TEAM_ENEMY,
+		&"vanguard",
+		(eliminated_stronghold["cell"] as Vector2i) + Vector2i(2, 1),
+	)
+	elimination_simulation._kill(
+		eliminated_stronghold,
+		elimination_simulation.entity(elimination_attacker_id),
+	)
+	if elimination_simulation.outcome != &"defeat":
+		failures.append("direct elimination accumulator fixture did not end its match")
+	if not is_zero_approx(elimination_simulation._accumulator):
+		failures.append("direct Stronghold elimination did not clear residual fixed-step time")
+
+
+func _test_egg_reserves_structure_footprints(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human", false)
+	var team := RtsSimulation.TEAM_PLAYER
+	for resource_kind in [&"jade", &"lumber", &"essence", &"food"]:
+		simulation.players[team][resource_kind] = 5000
+	var egg := simulation.shenlong_egg()
+	if egg.is_empty():
+		failures.append("Dragon Egg reservation fixture did not spawn an Egg")
+		return
+	var egg_cell := egg["cell"] as Vector2i
+	var worker_id := simulation.team_entity_ids(team, [&"worker"])[0]
+	if not simulation.command_move(team, [worker_id], egg_cell):
+		failures.append("construction reservation incorrectly made the Dragon Egg unreachable")
+	if simulation.can_place_structure(team, &"war_camp", egg_cell):
+		failures.append("a one-cell structure could overlap the guarded Dragon Egg")
+	if simulation.can_place_structure(team, &"rice_farm", egg_cell - Vector2i.ONE):
+		failures.append("a multi-cell structure footprint could overlap the guarded Dragon Egg")
+	if simulation.can_place_wall_line(team, egg_cell, egg_cell):
+		failures.append("a wall line could overlap the guarded Dragon Egg")
+	var entity_count_before := simulation.entities.size()
+	var resources_before := simulation.players[team].duplicate(true)
+	if simulation.command_build(team, worker_id, &"war_camp", egg_cell):
+		failures.append("a construction command built over the guarded Dragon Egg")
+	if simulation.entities.size() != entity_count_before or simulation.players[team] != resources_before:
+		failures.append("rejected construction over the Dragon Egg mutated authoritative state")
+	var guardian := simulation.shenlong_guardian()
+	var attacker_id := simulation._spawn_unit(team, &"vanguard", MapCatalog.SHENLONG_CELL + Vector2i(1, 0))
+	simulation._kill(guardian, simulation.entity(attacker_id))
+	if simulation.can_place_structure(team, &"war_camp", egg_cell):
+		failures.append("an unlocked Dragon Egg stopped reserving its cell")
+	var dropped_cell := egg_cell + Vector2i(0, 1)
+	egg["position"] = Vector2(dropped_cell)
+	egg["cell"] = dropped_cell
+	if simulation.can_place_structure(team, &"war_camp", dropped_cell):
+		failures.append("a moved or dropped Dragon Egg did not reserve its current cell")
+	egg["alive"] = false
+	if not simulation.can_place_structure(team, &"war_camp", dropped_cell):
+		failures.append("a consumed Dragon Egg kept reserving its former cell")
+
+
+func _test_egg_carrier_avoids_friendly_structures(failures: Array[String]) -> void:
+	var simulation := RtsSimulation.new()
+	simulation.setup(&"human", false)
+	var team := RtsSimulation.TEAM_PLAYER
+	var egg := simulation.shenlong_egg()
+	var guardian := simulation.shenlong_guardian()
+	if egg.is_empty() or guardian.is_empty():
+		failures.append("Egg carrier pathing fixture did not spawn the objective")
+		return
+	var attacker_id := simulation._spawn_unit(team, &"vanguard", MapCatalog.SHENLONG_CELL + Vector2i(1, 0))
+	simulation._kill(guardian, simulation.entity(attacker_id))
+	var farm_id := simulation._spawn_structure(team, &"rice_farm", Vector2i(42, 39), true)
+	simulation._rebuild_pathfinding()
+	var carrier_id := simulation._spawn_unit(team, &"worker", Vector2i(40, 41))
+	var carrier := simulation.entity(carrier_id)
+	if not simulation.command_claim_egg(team, [carrier_id], int(egg["id"])):
+		failures.append("an uncarried reserved Dragon Egg was not claimable")
+		return
+	var claim_timeout := 1.0
+	while not bool(carrier.get("carrying_egg", false)) and claim_timeout > 0.0:
+		simulation.advance(RtsSimulation.TICK_SECONDS)
+		claim_timeout -= RtsSimulation.TICK_SECONDS
+	if not bool(carrier.get("carrying_egg", false)):
+		failures.append("a Worker could not reach and claim the reserved Dragon Egg")
+		return
+	var destination := Vector2i(45, 40)
+	if not simulation.command_move(team, [carrier_id], destination):
+		failures.append("an Egg carrier could not receive a move around a friendly structure")
+		return
+	var farm := simulation.entity(farm_id)
+	var farm_cells := MapCatalog.footprint_cells(
+		farm["cell"] as Vector2i,
+		farm["footprint"] as Vector2i,
+	)
+	var travel_timeout := 8.0
+	var reached_destination := false
+	while travel_timeout > 0.0:
+		simulation.advance(RtsSimulation.TICK_SECONDS)
+		travel_timeout -= RtsSimulation.TICK_SECONDS
+		if egg.get("cell") != carrier.get("cell"):
+			failures.append("the Dragon Egg stopped following its carrier during rerouting")
+			return
+		if (egg["cell"] as Vector2i) in farm_cells:
+			failures.append("an Egg carrier phased through a friendly structure footprint")
+			return
+		if (carrier["position"] as Vector2).distance_to(Vector2(destination)) <= 0.1:
+			reached_destination = true
+			break
+	if not reached_destination:
+		failures.append("an Egg carrier failed to reroute around a friendly structure")
+
+
 func _test_four_player_shenlong_objective(failures: Array[String]) -> void:
 	var simulation := RtsSimulation.new()
 	simulation.setup(&"human", false)
@@ -2002,6 +2357,9 @@ func _run() -> void:
 	_test_hunter_attacks_enemy_hunters(failures)
 	_test_lifetime_scoring(failures)
 	_test_resignation_outcome(failures)
+	_test_post_outcome_commands_are_rejected(failures)
+	_test_egg_reserves_structure_footprints(failures)
+	_test_egg_carrier_avoids_friendly_structures(failures)
 	_test_four_faction_free_for_all(failures)
 	_test_four_player_shenlong_objective(failures)
 	var simulation := RtsSimulation.new()
@@ -2268,7 +2626,7 @@ func _run() -> void:
 			failures.append("destroying all rival Strongholds did not produce victory")
 
 	if failures.is_empty():
-		print("PASS simulation_test: four-faction free-for-all roster and island starts, deposits, cargo integrity, attack-move, formations, harmless-wildlife pass-through, hostile separation, Food costs and producers, Stronghold population upgrades, AI food economy, assault waves, and one-hour skill test, guardian wandering, wildlife regeneration, tree retargeting, monster bounties, cave capture and recapture, Jadeclaw production, economy, construction, combat, victory, and resignation")
+		print("PASS simulation_test: four-faction free-for-all roster and island starts, deposits, cargo integrity, attack-move, formations, harmless-wildlife pass-through, hostile separation, Food costs and producers, Stronghold population upgrades, AI food economy, assault waves, and one-hour skill test, guardian wandering, wildlife regeneration, tree retargeting, monster bounties, cave capture and recapture, Jadeclaw production, economy, construction, combat, terminal command guards, Egg occupancy, victory, and resignation")
 		quit(0)
 	else:
 		for failure in failures:
