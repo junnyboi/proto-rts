@@ -1,7 +1,7 @@
 class_name HudCommandButton
 extends Button
 
-var command_title := "COMMAND"
+var command_title := ""
 var cost_markup := ""
 var hotkey_text := ""
 var art_texture: Texture2D
@@ -201,7 +201,7 @@ func _layout_badge() -> void:
 
 
 func _badge_label() -> String:
-	return "SPC" if hotkey_text == "Space" else hotkey_text
+	return I18n.t(&"ui.hotkey.space_short") if hotkey_text == I18n.t(&"ui.hotkey.space") else hotkey_text
 
 
 func _refresh_content() -> void:

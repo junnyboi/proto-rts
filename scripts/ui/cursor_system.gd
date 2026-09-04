@@ -44,103 +44,103 @@ const DEFINITIONS := {
 		"shape": Input.CURSOR_ARROW,
 		"texture": preload("res://assets/runtime/cursors/select.png"),
 		"hotspot": Vector2(3.0, 3.0),
-		"label": "Select",
+		"label_key": &"cursor.select",
 	},
 	UI_ACTION: {
 		"shape": Input.CURSOR_POINTING_HAND,
 		"texture": preload("res://assets/runtime/cursors/ui_action.png"),
 		"hotspot": Vector2(20.0, 4.0),
-		"label": "Activate",
+		"label_key": &"cursor.activate",
 	},
 	BOX_SELECT: {
 		"shape": Input.CURSOR_CROSS,
 		"texture": preload("res://assets/runtime/cursors/box_select.png"),
 		"hotspot": Vector2(32.0, 32.0),
-		"label": "Box select",
+		"label_key": &"cursor.box_select",
 	},
 	MOVE: {
 		"shape": Input.CURSOR_MOVE,
 		"texture": preload("res://assets/runtime/cursors/move.png"),
 		"hotspot": Vector2(32.0, 32.0),
-		"label": "Move",
+		"label_key": &"cursor.move",
 	},
 	ATTACK: {
 		"shape": Input.CURSOR_BDIAGSIZE,
 		"texture": preload("res://assets/runtime/cursors/attack.png"),
 		"hotspot": Vector2(32.0, 32.0),
-		"label": "Attack",
+		"label_key": &"cursor.attack",
 	},
 	ATTACK_MOVE: {
 		"shape": Input.CURSOR_FDIAGSIZE,
 		"texture": preload("res://assets/runtime/cursors/attack_move.png"),
 		"hotspot": Vector2(32.0, 32.0),
-		"label": "Attack-move",
+		"label_key": &"cursor.attack_move",
 	},
 	PATROL: {
 		"shape": Input.CURSOR_HSPLIT,
 		"texture": preload("res://assets/runtime/cursors/patrol.png"),
 		"hotspot": Vector2(32.0, 32.0),
-		"label": "Patrol",
+		"label_key": &"cursor.patrol",
 	},
 	RALLY: {
 		"shape": Input.CURSOR_VSPLIT,
 		"texture": preload("res://assets/runtime/cursors/rally.png"),
 		"hotspot": Vector2(32.0, 49.0),
-		"label": "Set rally point",
+		"label_key": &"cursor.rally",
 	},
 	GATHER_JADE: {
 		"shape": Input.CURSOR_HSIZE,
 		"texture": preload("res://assets/runtime/cursors/gather_jade.png"),
 		"hotspot": Vector2(32.0, 32.0),
-		"label": "Gather Jade",
+		"label_key": &"cursor.gather_jade",
 	},
 	GATHER_LUMBER: {
 		"shape": Input.CURSOR_VSIZE,
 		"texture": preload("res://assets/runtime/cursors/gather_lumber.png"),
 		"hotspot": Vector2(32.0, 32.0),
-		"label": "Gather Lumber",
+		"label_key": &"cursor.gather_lumber",
 	},
 	GATHER_ESSENCE: {
 		"shape": Input.CURSOR_IBEAM,
 		"texture": preload("res://assets/runtime/cursors/gather_essence.png"),
 		"hotspot": Vector2(32.0, 32.0),
-		"label": "Gather Essence",
+		"label_key": &"cursor.gather_essence",
 	},
 	HUNT: {
 		"shape": Input.CURSOR_HELP,
 		"texture": preload("res://assets/runtime/cursors/hunt.png"),
 		"hotspot": Vector2(32.0, 32.0),
-		"label": "Hunt",
+		"label_key": &"cursor.hunt",
 	},
 	DEPOSIT: {
 		"shape": Input.CURSOR_CAN_DROP,
 		"texture": preload("res://assets/runtime/cursors/deposit.png"),
 		"hotspot": Vector2(32.0, 32.0),
-		"label": "Return resources",
+		"label_key": &"cursor.deposit",
 	},
 	REPAIR: {
 		"shape": Input.CURSOR_BUSY,
 		"texture": preload("res://assets/runtime/cursors/repair.png"),
 		"hotspot": Vector2(32.0, 32.0),
-		"label": "Repair",
+		"label_key": &"cursor.repair",
 	},
 	BUILD: {
 		"shape": Input.CURSOR_WAIT,
 		"texture": preload("res://assets/runtime/cursors/build.png"),
 		"hotspot": Vector2(32.0, 32.0),
-		"label": "Place structure",
+		"label_key": &"cursor.build",
 	},
 	FORBIDDEN: {
 		"shape": Input.CURSOR_FORBIDDEN,
 		"texture": preload("res://assets/runtime/cursors/forbidden.png"),
 		"hotspot": Vector2(32.0, 32.0),
-		"label": "Unavailable",
+		"label_key": &"cursor.forbidden",
 	},
 	PAN: {
 		"shape": Input.CURSOR_DRAG,
 		"texture": preload("res://assets/runtime/cursors/pan.png"),
 		"hotspot": Vector2(32.0, 32.0),
-		"label": "Pan camera",
+		"label_key": &"cursor.pan",
 	},
 }
 
@@ -202,4 +202,4 @@ static func texture_for(state: StringName) -> Texture2D:
 
 static func label_for(state: StringName) -> String:
 	var definition := DEFINITIONS.get(state, DEFINITIONS[SELECT]) as Dictionary
-	return String(definition["label"])
+	return I18n.t(definition["label_key"] as StringName)

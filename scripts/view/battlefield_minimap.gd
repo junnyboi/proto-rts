@@ -37,7 +37,7 @@ func _ready() -> void:
 	clip_contents = true
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	tooltip_text = "Click or drag to move the battlefield camera."
+	tooltip_text = I18n.t(&"ui.minimap.tooltip")
 	_ensure_image_caches()
 	set_process(true)
 

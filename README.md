@@ -22,7 +22,7 @@ Do not describe a proposed capability as shipped. The current status is:
 | Local leaderboard | **Implemented** | Versioned local profile/history with backup recovery. |
 | Hosted global leaderboard | **Adapter only** | The Web bridge exists, but this repository does not contain its host/backend. |
 | First-play tutorial with callouts | **Not implemented** | The objective tracker and initial toast are guidance, not a tutorial state machine. |
-| English/Simplified Chinese localization | **Not implemented** | Visible text is hard-coded English; there are no translation resources or `tr()` calls. |
+| English/Simplified Chinese localization | **Implemented** | The title selector switches the session between `en-US` and `zh-CN`; keyed catalogs, strict placeholders, and a bundled CJK font cover runtime copy. |
 | Durable gameplay/settings configuration | **Not implemented** | Current effect/audio settings survive screen rebuilds only for the current app session. |
 | Config synchronization back to a sandbox/host | **Not implemented** | Add a validated versioned host bridge; a Web export cannot write directly to the sandbox. |
 | Player-selectable difficulty | **Not implemented** | AI pacing is currently controlled by simulation constants. |
@@ -39,6 +39,7 @@ Do not describe a proposed capability as shipped. The current status is:
 | Projection and view | `scripts/core/iso_projection.gd`, `scripts/view/` | Isometric conversion, camera, rendering, picking, fog presentation, minimap, and input translation. |
 | Game juice | `scripts/view/effects/` | Bounded view-only effects, local transforms, hit flashes, health easing, and regenerated-wildlife fade-in. |
 | UI system | `scripts/ui/` | Shared theme, command buttons, fallback icons, cursors, and leaderboard dialog. |
+| Localization | `scripts/services/localization.gd`, `localization/` | Validates locale/key/placeholder parity and resolves presentation copy through `I18n.t(key, values)`. |
 | Audio | `scripts/audio/audio_director.gd`, `default_bus_layout.tres` | Persistent score, cue routing, cooldowns, priorities, pitch variance, fog filtering, and a bounded 16-voice pool. |
 | Persistence/services | `scripts/services/` | Local leaderboard profile/history and optional same-origin parent-window Web bridge. |
 
@@ -192,7 +193,7 @@ The only top-level states are `title`, `faction`, `match`, and `result`. Pause a
 
 | Screen or overlay | Existing contents | Required behavior |
 | --- | --- | --- |
-| Title | Covered key art, title, Start Game, leaderboard | Start receives initial keyboard focus. |
+| Title | Covered key art, title, Start Game, leaderboard, EN/CN selector | Start receives initial keyboard focus; changing locale rebuilds the title immediately and remains active for the session. |
 | Faction select | Four catalog-driven portrait cards, Back, control legend | First faction receives focus; callbacks keep the selected faction ID. |
 | Match HUD | Score/resources/population/dens/time, objectives, minimap, inspection/selection, production and 4 × 3 command grid | Read state from simulation; expose commands only for valid player-owned selections. |
 | Pause | Resume, Settings, Resign | Stops simulation and Battlefield input; Resume receives focus. |
@@ -208,7 +209,7 @@ The reference viewport is **1280 × 720** with `canvas_items` stretch. Major roo
 
 | Region | Reference rule |
 | --- | --- |
-| Title action stack | Centered, approximately 520 × 218; primary/secondary actions approximately 340 px wide. |
+| Title action stack | Centered, approximately 520 × 292; primary/secondary actions approximately 340 px wide, with 92 px locale buttons. |
 | Faction cards | Centered 1180 × 500 row, 14 px separation; each card approximately 284 × 500. |
 | Top HUD | Full width; 8 px side and 6 px top inset; 50 px height; 40 × 34 pause/audio controls. |
 | Bottom HUD | Full width; 8 px side/bottom inset; 234 px height; 236 px minimap, flexible selection panel, 424 px command bay. |
@@ -397,15 +398,13 @@ A real tutorial should use a separate versioned model:
 
 The toast lane is not suitable for critical tutorial state: every message replaces the prior text and restarts a short timer. Add a queue, priority policy, accessible history, and explicit callout ownership before using it for durable guidance.
 
-### Localization implementation plan — no current resources
+### Localization contract
 
-The repository has no translation catalogs/resources, locale/fallback configuration, `tr()` calls, language selector, or bundled CJK font. All visible and dynamic copy is hard-coded English. EN/zh_CN support is therefore a first implementation, not completion of an existing scaffold:
+English (`en-US`) and Simplified Chinese (`zh-CN`) ship as strict JSON key-value catalogs under `localization/`. `I18n.t(key, placeholder_values)` resolves the active locale, falls back to English, and requires an exact placeholder-name match. Both catalogs must contain identical non-empty keys and matching placeholder sets. Presentation code localizes faction/entity names, commands, resources, objectives, settings, feedback, result copy, leaderboard copy, minimap/cursor labels, and dynamic phrases at render time.[14]
 
-1. Replace visible strings with stable translation keys and parameterized `tr()` formatting.
-2. Add `en` and `zh_CN` resources, explicit locale/fallback policy, and a language selector.
-3. Localize faction identity, entities, commands, resources, objectives, tutorial, settings, errors, result, leaderboard, and dynamic numeric phrases.
-4. Bundle a font with Latin, punctuation, and Simplified Chinese coverage; verify fallback, shaping, and line breaking.
-5. Audit fixed-width HUD/dialog geometry and add locale tests/captures.
+The simulation retains stable IDs and emits semantic `battle_notice(key, placeholder_values, team)` events; it never owns translated prose. `FactionCatalog` likewise stores `name_key`, `role_key`, and other display-key fields rather than locale-specific text. New player-facing copy must enter both catalogs and be rendered through `I18n.t(...)`—do not place localized prose in simulation state or persisted records.
+
+The title-screen EN/CN selector applies for the current app session. It intentionally has no durable preferences storage yet. `ThemeFactory` installs the bundled Noto Sans CJK SC font for Latin, punctuation, and Simplified Chinese coverage. Keep its copyright notice with the font. `tests/localization_test.gd` checks catalog/key/placeholder parity, literal call-site keys, raw-copy regressions, title switching, and catalog-wide font coverage; `tests/localization_visual_capture.gd` produces seven Chinese UI states for manual layout review.[15]
 
 Do not bake language text into generated images. Key art, portraits, icons, cursors, and command indicators must remain language-neutral.
 
@@ -460,12 +459,13 @@ Use the **smallest relevant gate**. Documentation-only changes need reference ch
 cd /home/ubuntu/proto-rts
 export GODOT_BIN=/path/to/Godot_v4.7.2
 
-# Registered 18-suite regression and performance gate:
+# Registered 19-suite regression and performance gate:
 GODOT_BIN="$GODOT_BIN" tools/run_tests.sh
 
 # UI/render/art work: native capture generators:
 "$GODOT_BIN" --path . --script tests/visual_capture.gd
 "$GODOT_BIN" --path . --script tests/cursor_visual_capture.gd
+"$GODOT_BIN" --path . --script tests/localization_visual_capture.gd
 
 # Release build:
 mkdir -p build/web
@@ -501,7 +501,7 @@ The performance regression expects Battlefield below a 33.3 ms p95 redraw budget
 | Hidden actions leak through effects/audio | Keep player-visibility filtering before presentation/audio consumption. |
 | Effects or SFX degrade long matches | Preserve bounded pools, expiry, cooldown, active-instance caps, and priority stealing. |
 | “Tutorial” is only a toast | Implement versioned first-play state, ordered triggers, persistence, skip/replay, and locale-ready callouts. |
-| “EN/CN support” is only themed art | Add translation keys/resources, fonts, locale selection, dynamic formatting, and visual tests. |
+| Locales drift or leak raw prose | Keep catalog/key/placeholder parity, route dynamic copy through `I18n.t(...)`, retain the CJK font, and review the Chinese capture suite. |
 | Web config “syncs to sandbox” directly | Use an authenticated/validated host adapter; Web code has no direct sandbox filesystem access. |
 | Global leaderboard is assumed secure | Supply the missing host/backend, consent, real build revision, and server validation; the current bridge is same-origin only. |
 | Generated outputs drift | Processors do not prune every stale file and tests do not recompute every manifest; inspect inventories/reports and verify SHA-256 separately. |
@@ -521,3 +521,5 @@ The performance regression expects Battlefield below a 33.3 ms p95 redraw budget
 [11]: scripts/data/map_catalog.gd "Authored terrain, starts, resources, wildlife, and objective data"
 [12]: tools/run_tests.sh "Registered Godot regression and performance suite"
 [13]: scripts/services/leaderboard_bridge.gd "Same-origin Web leaderboard protocol"
+[14]: scripts/services/localization.gd "Strict EN/CN localization service and placeholder contract"
+[15]: tests/localization_test.gd "Catalog, call-site, title-selector, and font-coverage regression gate"

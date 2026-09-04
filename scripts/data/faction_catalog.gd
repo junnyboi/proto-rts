@@ -6,34 +6,34 @@ const WILDLIFE_KINDS: Array[StringName] = [&"deer", &"bison", &"chicken", &"boar
 
 const DATA := {
 	&"celestial": {
-		"name": "Celestial Court",
-		"epithet": "Edicts of the High Sky",
-		"identity": "Ranged control, spiritual economy, and farming",
-		"passive": "Mandate of Heaven — +15% Essence income; Mystics gain +0.8 range.",
+		"name_key": &"faction.celestial.name",
+		"epithet_key": &"faction.celestial.epithet",
+		"identity_key": &"faction.celestial.identity",
+		"passive_key": &"faction.celestial.passive",
 		"accent": Color("74d7d0"),
 		"dark": Color("17383d"),
 	},
 	&"demon": {
-		"name": "Demon Host",
-		"epithet": "The Ten-Thousand Hungers",
-		"identity": "Attrition, hunting, and aggressive momentum",
-		"passive": "Feast of Ash — kills heal the attacker and yield 3 Essence.",
+		"name_key": &"faction.demon.name",
+		"epithet_key": &"faction.demon.epithet",
+		"identity_key": &"faction.demon.identity",
+		"passive_key": &"faction.demon.passive",
 		"accent": Color("f05a47"),
 		"dark": Color("451b22"),
 	},
 	&"beast": {
-		"name": "Beast Clans",
-		"epithet": "Pacts of Fang and Feather",
-		"identity": "Mobile hunting and map pressure",
-		"passive": "Wild Hunt — units move 18% faster; Vanguards cost 15 less Jade.",
+		"name_key": &"faction.beast.name",
+		"epithet_key": &"faction.beast.epithet",
+		"identity_key": &"faction.beast.identity",
+		"passive_key": &"faction.beast.passive",
 		"accent": Color("e5b85c"),
 		"dark": Color("3c3822"),
 	},
 	&"human": {
-		"name": "Human Dynasty",
-		"epithet": "Walls, Banners, Resolve",
-		"identity": "Balanced armies with farming and hunting",
-		"passive": "Ordered Realm — +10% Jade income; War Camps cost 15% less.",
+		"name_key": &"faction.human.name",
+		"epithet_key": &"faction.human.epithet",
+		"identity_key": &"faction.human.identity",
+		"passive_key": &"faction.human.passive",
 		"accent": Color("e36b50"),
 		"dark": Color("3b2021"),
 	},
@@ -41,8 +41,8 @@ const DATA := {
 
 const BASE_STATS := {
 	&"worker": {
-		"name": "Worker",
-		"role": "Gathers resources, constructs buildings, and can staff one Rice Farm.",
+		"name_key": &"entity.worker.name",
+		"role_key": &"entity.worker.role",
 		"max_hp": 72.0,
 		"speed": 1.30,
 		"damage": 5.0,
@@ -56,8 +56,8 @@ const BASE_STATS := {
 		"food_cost": 30,
 	},
 	&"hunter": {
-		"name": "Hunter",
-		"role": "Hunts wildlife for one-time Food bounties. Deals triple damage to wildlife.",
+		"name_key": &"entity.hunter.name",
+		"role_key": &"entity.hunter.role",
 		"max_hp": 88.0,
 		"speed": 2.0,
 		"damage": 8.0,
@@ -71,8 +71,8 @@ const BASE_STATS := {
 		"food_cost": 25,
 	},
 	&"vanguard": {
-		"name": "Vanguard",
-		"role": "Durable melee infantry for direct assaults.",
+		"name_key": &"entity.vanguard.name",
+		"role_key": &"entity.vanguard.role",
 		"max_hp": 165.0,
 		"speed": 1.85,
 		"damage": 19.0,
@@ -86,8 +86,8 @@ const BASE_STATS := {
 		"food_cost": 40,
 	},
 	&"mystic": {
-		"name": "Mystic",
-		"role": "Fragile ranged attacker empowered by Essence.",
+		"name_key": &"entity.mystic.name",
+		"role_key": &"entity.mystic.role",
 		"max_hp": 92.0,
 		"speed": 1.75,
 		"damage": 27.0,
@@ -101,8 +101,8 @@ const BASE_STATS := {
 		"food_cost": 50,
 	},
 	&"jadeclaw": {
-		"name": "Jadeclaw",
-		"role": "Durable cave monster with strong melee pressure.",
+		"name_key": &"entity.jadeclaw.name",
+		"role_key": &"entity.jadeclaw.role",
 		"max_hp": 280.0,
 		"speed": 1.65,
 		"damage": 24.0,
@@ -116,8 +116,8 @@ const BASE_STATS := {
 		"food_cost": 65,
 	},
 	&"shenlong": {
-		"name": "Shenlong",
-		"role": "Mythic celestial dragon hatched from the central Dragon Egg.",
+		"name_key": &"entity.shenlong.name",
+		"role_key": &"entity.shenlong.role",
 		"max_hp": 1200.0,
 		"speed": 2.05,
 		"damage": 58.0,
@@ -131,8 +131,8 @@ const BASE_STATS := {
 		"food_cost": 0,
 	},
 	&"shenlong_egg": {
-		"name": "Dragon Egg",
-		"role": "Defeat Shenlong, then send an empty-handed Worker to carry the egg home.",
+		"name_key": &"entity.shenlong_egg.name",
+		"role_key": &"entity.shenlong_egg.role",
 		"max_hp": 1.0,
 		"population": 0,
 		"train_time": 0.0,
@@ -141,8 +141,8 @@ const BASE_STATS := {
 		"food_cost": 0,
 	},
 	&"chicken": {
-		"name": "Wild Chicken",
-		"role": "Skittish prey that flees from hunters.",
+		"name_key": &"entity.chicken.name",
+		"role_key": &"entity.chicken.role",
 		"max_hp": 18.0,
 		"speed": 1.45,
 		"damage": 0.0,
@@ -158,8 +158,8 @@ const BASE_STATS := {
 		"retaliates": false,
 	},
 	&"deer": {
-		"name": "Sika Deer",
-		"role": "Fast prey that flees from hunters.",
+		"name_key": &"entity.deer.name",
+		"role_key": &"entity.deer.role",
 		"max_hp": 55.0,
 		"speed": 2.05,
 		"damage": 0.0,
@@ -175,8 +175,8 @@ const BASE_STATS := {
 		"retaliates": false,
 	},
 	&"bison": {
-		"name": "Wild Bison",
-		"role": "Slow, durable prey that flees from hunters.",
+		"name_key": &"entity.bison.name",
+		"role_key": &"entity.bison.role",
 		"max_hp": 150.0,
 		"speed": 1.25,
 		"damage": 0.0,
@@ -192,8 +192,8 @@ const BASE_STATS := {
 		"retaliates": false,
 	},
 	&"boar": {
-		"name": "Wild Boar",
-		"role": "Dangerous prey that retaliates when attacked.",
+		"name_key": &"entity.boar.name",
+		"role_key": &"entity.boar.role",
 		"max_hp": 100.0,
 		"speed": 1.65,
 		"damage": 13.0,
@@ -209,8 +209,8 @@ const BASE_STATS := {
 		"retaliates": true,
 	},
 	&"bear": {
-		"name": "Moon Bear",
-		"role": "Ferocious prey that retaliates when attacked.",
+		"name_key": &"entity.bear.name",
+		"role_key": &"entity.bear.role",
 		"max_hp": 230.0,
 		"speed": 1.4,
 		"damage": 22.0,
@@ -226,8 +226,8 @@ const BASE_STATS := {
 		"retaliates": true,
 	},
 	&"stronghold": {
-		"name": "Stronghold",
-		"role": "Command center, resource drop-off, and worker production.",
+		"name_key": &"entity.stronghold.name",
+		"role_key": &"entity.stronghold.role",
 		"max_hp": 1500.0,
 		"population": 0,
 		"train_time": 0.0,
@@ -236,8 +236,8 @@ const BASE_STATS := {
 		"footprint": Vector2i(2, 2),
 	},
 	&"war_camp": {
-		"name": "War Camp",
-		"role": "Trains Vanguards and Mystics.",
+		"name_key": &"entity.war_camp.name",
+		"role_key": &"entity.war_camp.role",
 		"max_hp": 850.0,
 		"population": 0,
 		"train_time": 8.0,
@@ -247,8 +247,8 @@ const BASE_STATS := {
 		"footprint": Vector2i(1, 1),
 	},
 	&"rice_farm": {
-		"name": "Rice Farm",
-		"role": "Produces 8 Food every 40 seconds; one assigned Worker increases output fivefold.",
+		"name_key": &"entity.rice_farm.name",
+		"role_key": &"entity.rice_farm.role",
 		"max_hp": 650.0,
 		"population": 0,
 		"train_time": 0.0,
@@ -260,8 +260,8 @@ const BASE_STATS := {
 		"footprint": Vector2i(2, 2),
 	},
 	&"hunters_lodge": {
-		"name": "Hunter's Lodge",
-		"role": "Passively produces 18 Food every 50 seconds and trains bounty-earning Hunters.",
+		"name_key": &"entity.hunters_lodge.name",
+		"role_key": &"entity.hunters_lodge.role",
 		"max_hp": 600.0,
 		"population": 0,
 		"train_time": 0.0,
@@ -273,8 +273,8 @@ const BASE_STATS := {
 		"footprint": Vector2i(1, 1),
 	},
 	&"wall": {
-		"name": "Wood Wall",
-		"role": "A compact defensive barrier. Drag during placement to build a snapped straight line.",
+		"name_key": &"entity.wall.name",
+		"role_key": &"entity.wall.role",
 		"max_hp": 300.0,
 		"population": 0,
 		"train_time": 0.0,
@@ -284,8 +284,8 @@ const BASE_STATS := {
 		"footprint": Vector2i.ONE,
 	},
 	&"gate": {
-		"name": "Wood Gate",
-		"role": "A fortified passage that friendly units can cross while enemies remain blocked.",
+		"name_key": &"entity.gate.name",
+		"role_key": &"entity.gate.role",
 		"max_hp": 700.0,
 		"population": 0,
 		"train_time": 0.0,
@@ -295,8 +295,8 @@ const BASE_STATS := {
 		"footprint": Vector2i(2, 4),
 	},
 	&"sentry_tower": {
-		"name": "Sentry Tower",
-		"role": "Garrisons up to two Hunters or Mystics. Occupants attack automatically with double range.",
+		"name_key": &"entity.sentry_tower.name",
+		"role_key": &"entity.sentry_tower.role",
 		"max_hp": 900.0,
 		"population": 0,
 		"train_time": 0.0,
@@ -307,8 +307,8 @@ const BASE_STATS := {
 		"garrison_capacity": 2,
 	},
 	&"yaoguai_den": {
-		"name": "Yaoguai Den",
-		"role": "Guarded neutral objective. Capture it to produce Jadeclaws.",
+		"name_key": &"entity.yaoguai_den.name",
+		"role_key": &"entity.yaoguai_den.role",
 		"max_hp": 1200.0,
 		"population": 0,
 		"train_time": 0.0,
@@ -321,6 +321,16 @@ const BASE_STATS := {
 
 static func definition(faction_id: StringName) -> Dictionary:
 	return (DATA.get(faction_id, DATA[&"human"]) as Dictionary).duplicate(true)
+
+
+static func faction_text_key(faction_id: StringName, field: StringName) -> StringName:
+	var definition_value := DATA.get(faction_id, DATA[&"human"]) as Dictionary
+	return definition_value.get("%s_key" % field, &"faction.human.name") as StringName
+
+
+static func entity_text_key(kind: StringName, field: StringName = &"name") -> StringName:
+	var stats_value := BASE_STATS.get(kind, BASE_STATS[&"worker"]) as Dictionary
+	return stats_value.get("%s_key" % field, &"entity.worker.name") as StringName
 
 
 static func stats(kind: StringName, faction_id: StringName) -> Dictionary:

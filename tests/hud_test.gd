@@ -36,7 +36,8 @@ func _run() -> void:
 	director._music_player.stop()
 	for player in director._players:
 		player.stop()
-	await create_timer(0.15).timeout
+	# Let Godot's audio thread release active Ogg playback before the direct test exits.
+	await create_timer(0.35).timeout
 	for player in director._players:
 		player.stream = null
 	director._music_player.stream = null

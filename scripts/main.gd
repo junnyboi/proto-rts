@@ -31,7 +31,7 @@ const STRUCTURE_PRODUCTION_LISTS := {
 	&"yaoguai_den": [&"jadeclaw"],
 }
 const COMMAND_VISIBLE_META := &"command_visible_for_update"
-const ARMED_TOOLTIP_SUFFIX := "\nARMED · Click again or Esc cancels"
+const ARMED_TOOLTIP_SUFFIX_KEY := &"ui.command.armed_suffix"
 const RESOURCE_ICON_TEXTURES := {
 	&"jade": preload("res://assets/runtime/ui/resource_icons/jade.png"),
 	&"lumber": preload("res://assets/runtime/ui/resource_icons/lumber.png"),
@@ -103,6 +103,7 @@ var _result_overlay: Control
 var _leaderboard_dialog: LeaderboardDialog
 var _leaderboard_button: Button
 var _result_leaderboard_button: Button
+var _locale_buttons: Dictionary = {}
 var _match_score_recorded := false
 var audio_director: AudioDirector
 var leaderboard_store: LeaderboardStore
@@ -228,7 +229,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 				battlefield.cancel_modes()
 				audio_director.play_ui(&"ui_cancel")
 				_update_armed_command_styles()
-				_show_feedback("Command cancelled.", false)
+				_show_feedback(I18n.t(&"feedback.command_cancelled"), false)
 			elif not battlefield.selected_ids.is_empty():
 				battlefield.select_entities([])
 			else:
@@ -237,13 +238,13 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			_toggle_pause()
 		KEY_Q:
 			battlefield.select_all_workers()
-			_show_feedback("All workers selected.", false)
+			_show_feedback(I18n.t(&"feedback.all_workers_selected"), false)
 		KEY_I:
 			battlefield.select_all_idle_workers()
-			_show_feedback("Idle workers selected.", false)
+			_show_feedback(I18n.t(&"feedback.idle_workers_selected"), false)
 		KEY_E:
 			battlefield.select_all_army()
-			_show_feedback("Army selected.", false)
+			_show_feedback(I18n.t(&"feedback.army_selected"), false)
 		KEY_H:
 			battlefield.select_player_stronghold()
 		KEY_F:
@@ -259,7 +260,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		KEY_X:
 			simulation.command_stop(RtsSimulation.TEAM_PLAYER, battlefield.selected_commandable_units())
 			audio_director.play_ui(&"ui_cancel")
-			_show_feedback("Selected units halted.", false)
+			_show_feedback(I18n.t(&"feedback.units_halted"), false)
 
 
 func _control_group_index(key: InputEventKey) -> int:
@@ -326,6 +327,7 @@ func _clear_screen() -> void:
 	_leaderboard_dialog = null
 	_leaderboard_button = null
 	_result_leaderboard_button = null
+	_locale_buttons.clear()
 
 
 func _make_screen() -> Control:
@@ -365,29 +367,66 @@ func _show_title() -> void:
 	_add_title_background(root, 0.42)
 
 	var content := VBoxContainer.new()
-	content.custom_minimum_size = Vector2(520, 218)
+	content.custom_minimum_size = Vector2(520, 292)
 	content.set_anchors_preset(Control.PRESET_CENTER)
-	content.position = Vector2(-260, -109)
+	content.position = Vector2(-260, -146)
 	content.alignment = BoxContainer.ALIGNMENT_CENTER
 	content.add_theme_constant_override(&"separation", 22)
 	root.add_child(content)
 
-	var title := ThemeFactory.label("GAME TEMPLATE - RTS", 48, Color("fff0c8"))
+	var title := ThemeFactory.label(I18n.t(&"ui.title.heading"), 48, Color("fff0c8"))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	content.add_child(title)
-	var play := ThemeFactory.button("START GAME")
+	var play := ThemeFactory.button(I18n.t(&"ui.title.start"))
 	play.custom_minimum_size = Vector2(340, 56)
 	play.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_connect_button(play, _show_faction_select)
 	content.add_child(play)
-	_leaderboard_button = ThemeFactory.button("LEADERBOARD", "View local and global rankings")
+	_leaderboard_button = ThemeFactory.button(I18n.t(&"ui.leaderboard"), I18n.t(&"ui.leaderboard_tooltip"))
 	_leaderboard_button.name = "TitleLeaderboardButton"
 	_leaderboard_button.custom_minimum_size = Vector2(340, 48)
 	_leaderboard_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_connect_button(_leaderboard_button, func() -> void: _open_leaderboard(_leaderboard_button))
 	content.add_child(_leaderboard_button)
+	_build_locale_selector(content)
 	_build_leaderboard_dialog(root)
 	play.grab_focus()
+
+
+func _build_locale_selector(container: VBoxContainer) -> void:
+	var selector := VBoxContainer.new()
+	selector.name = "LocaleSelector"
+	selector.alignment = BoxContainer.ALIGNMENT_CENTER
+	selector.add_theme_constant_override(&"separation", 6)
+	container.add_child(selector)
+	var label := ThemeFactory.label(I18n.t(&"locale.label"), 11, ThemeFactory.MUTED_SAGE)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	selector.add_child(label)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override(&"separation", 8)
+	selector.add_child(row)
+	var group := ButtonGroup.new()
+	group.allow_unpress = false
+	for definition: Array in [
+		[&"en-US", &"locale.en", "EnglishLocaleButton"],
+		[&"zh-CN", &"locale.zh", "ChineseLocaleButton"],
+	]:
+		var locale_id := definition[0] as StringName
+		var button := ThemeFactory.button(I18n.t(definition[1] as StringName))
+		button.name = String(definition[2])
+		button.custom_minimum_size = Vector2(92.0, 36.0)
+		button.toggle_mode = true
+		button.button_group = group
+		button.set_pressed_no_signal(locale_id == I18n.locale())
+		_connect_button(button, _select_locale.bind(locale_id))
+		row.add_child(button)
+		_locale_buttons[locale_id] = button
+
+
+func _select_locale(locale_id: StringName) -> void:
+	if I18n.set_locale(locale_id):
+		_show_title()
 
 
 func _show_faction_select() -> void:
@@ -396,7 +435,7 @@ func _show_faction_select() -> void:
 	var root := _make_screen()
 	_add_title_background(root, 0.72)
 
-	var title := ThemeFactory.label("CHOOSE YOUR FACTION", 32, Color("fff0c8"))
+	var title := ThemeFactory.label(I18n.t(&"ui.faction.choose"), 32, Color("fff0c8"))
 	title.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	title.offset_top = 22
 	title.offset_bottom = 64
@@ -414,18 +453,18 @@ func _show_faction_select() -> void:
 	for faction_id in FactionCatalog.ORDER:
 		card_row.add_child(_make_faction_card(faction_id))
 
-	var back := ThemeFactory.button("BACK")
+	var back := ThemeFactory.button(I18n.t(&"ui.faction.back"))
 	back.position = Vector2(20, 18)
 	back.size = Vector2(110, 40)
 	_connect_button(back, _show_title, &"ui_cancel")
 	root.add_child(back)
 
-	var controls := ThemeFactory.label("Controls: left select / inspect · drag box-select · right contextual order · Esc clear · F attack-move · X stop · Q workers · I idle workers · E army · H stronghold · Space first unit · WASD / arrows camera · Cmd+wheel / pinch zoom", 14, ThemeFactory.MUTED)
+	var controls := ThemeFactory.label(I18n.t(&"ui.faction.controls"), 14, ThemeFactory.MUTED)
 	controls.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 	controls.offset_left = 120
 	controls.offset_right = -120
-	controls.offset_top = -42
-	controls.offset_bottom = -12
+	controls.offset_top = -64
+	controls.offset_bottom = -8
 	controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	controls.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	root.add_child(controls)
@@ -446,14 +485,15 @@ func _make_faction_card(faction_id: StringName) -> PanelContainer:
 	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	column.add_child(portrait)
-	var name_label := ThemeFactory.label(String(definition["name"]), 23, definition["accent"] as Color)
+	var faction_name := I18n.t(FactionCatalog.faction_text_key(faction_id, &"name"))
+	var name_label := ThemeFactory.label(faction_name, 23, definition["accent"] as Color)
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(name_label)
-	var identity := ThemeFactory.label(String(definition["identity"]), 15, ThemeFactory.PARCHMENT)
+	var identity := ThemeFactory.label(I18n.t(FactionCatalog.faction_text_key(faction_id, &"identity")), 15, ThemeFactory.PARCHMENT)
 	identity.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	identity.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(identity)
-	var passive := ThemeFactory.label(String(definition["passive"]), 13, ThemeFactory.MUTED)
+	var passive := ThemeFactory.label(I18n.t(FactionCatalog.faction_text_key(faction_id, &"passive")), 13, ThemeFactory.MUTED)
 	passive.custom_minimum_size.y = 62
 	passive.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	passive.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -462,7 +502,7 @@ func _make_faction_card(faction_id: StringName) -> PanelContainer:
 	var button_spacer := Control.new()
 	button_spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	column.add_child(button_spacer)
-	var choose := ThemeFactory.button("COMMAND %s" % String(definition["name"]).to_upper())
+	var choose := ThemeFactory.button(I18n.t(&"ui.faction.command", {"faction": faction_name.to_upper()}))
 	_connect_button(choose, func() -> void: _start_match(faction_id))
 	column.add_child(choose)
 	if faction_id == FactionCatalog.ORDER[0]:
@@ -499,7 +539,7 @@ func _start_match(faction_id: StringName) -> void:
 	_build_help_panel(root)
 	_build_leaderboard_dialog(root)
 	_update_hud()
-	_show_feedback("Harvest resources, build food production, and capture Yaoguai Dens before destroying the rival Stronghold.", false)
+	_show_feedback(I18n.t(&"feedback.match_intro"), false)
 
 
 func _build_top_bar(root: Control) -> void:
@@ -515,25 +555,25 @@ func _build_top_bar(root: Control) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override(&"separation", 5)
 	panel.add_child(row)
-	_score_label = ThemeFactory.label("SCORE: 0", 14, ThemeFactory.GOLD)
+	_score_label = ThemeFactory.label(I18n.t(&"ui.hud.score", {"score": 0}), 14, ThemeFactory.GOLD)
 	_score_label.name = "ScoreLabel"
 	_score_label.custom_minimum_size.x = 222
 	_score_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	row.add_child(_score_label)
-	_add_resource_chip(row, &"jade", &"jade", "JADE", ThemeFactory.JADE, 88.0)
-	_add_resource_chip(row, &"lumber", &"lumber", "LUMBER", ThemeFactory.LUMBER, 100.0)
-	_add_resource_chip(row, &"essence", &"essence", "ESSENCE", ThemeFactory.ESSENCE, 108.0)
-	_add_resource_chip(row, &"food", &"food", "FOOD", ThemeFactory.FOOD, 136.0)
-	_add_resource_chip(row, &"population", &"population", "POP", ThemeFactory.IVORY, 88.0)
-	_add_resource_chip(row, &"dens", &"den", "DENS", ThemeFactory.GOLD, 82.0)
-	_add_resource_chip(row, &"time", &"clock", "TIME", ThemeFactory.MUTED, 82.0)
-	_pause_button = ThemeFactory.icon_button(HUD_UTILITY_ICON_TEXTURES[&"pause"], "Pause the realm")
+	_add_resource_chip(row, &"jade", &"jade", I18n.t(&"ui.hud.jade"), ThemeFactory.JADE, 88.0)
+	_add_resource_chip(row, &"lumber", &"lumber", I18n.t(&"ui.hud.lumber"), ThemeFactory.LUMBER, 100.0)
+	_add_resource_chip(row, &"essence", &"essence", I18n.t(&"ui.hud.essence"), ThemeFactory.ESSENCE, 108.0)
+	_add_resource_chip(row, &"food", &"food", I18n.t(&"ui.hud.food"), ThemeFactory.FOOD, 136.0)
+	_add_resource_chip(row, &"population", &"population", I18n.t(&"ui.hud.population"), ThemeFactory.IVORY, 88.0)
+	_add_resource_chip(row, &"dens", &"den", I18n.t(&"ui.hud.dens"), ThemeFactory.GOLD, 82.0)
+	_add_resource_chip(row, &"time", &"clock", I18n.t(&"ui.hud.time"), ThemeFactory.MUTED, 82.0)
+	_pause_button = ThemeFactory.icon_button(HUD_UTILITY_ICON_TEXTURES[&"pause"], I18n.t(&"ui.hud.pause"))
 	_pause_button.name = "PauseButton"
 	_pause_button.pressed.connect(_toggle_pause)
 	row.add_child(_pause_button)
 	_audio_button = ThemeFactory.icon_button(
 		HUD_UTILITY_ICON_TEXTURES[&"audio_muted" if audio_director.muted else &"audio_on"],
-		"Toggle music and sound effects",
+		I18n.t(&"ui.hud.audio_tooltip"),
 	)
 	_audio_button.name = "AudioButton"
 	_audio_button.pressed.connect(_toggle_audio)
@@ -616,10 +656,10 @@ func _build_minimap_bay() -> Control:
 	panel.add_child(column)
 	var header := HBoxContainer.new()
 	column.add_child(header)
-	var title := ThemeFactory.label("JADE MERIDIAN", 11, ThemeFactory.GOLD)
+	var title := ThemeFactory.label(I18n.t(&"ui.hud.map_name"), 11, ThemeFactory.GOLD)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(title)
-	var map_state := ThemeFactory.label("TACTICAL MAP", 9, ThemeFactory.MUTED_SAGE)
+	var map_state := ThemeFactory.label(I18n.t(&"ui.hud.map_state"), 9, ThemeFactory.MUTED_SAGE)
 	header.add_child(map_state)
 	_minimap = BATTLEFIELD_MINIMAP.new()
 	_minimap.name = "Minimap"
@@ -630,16 +670,16 @@ func _build_minimap_bay() -> Control:
 	var utilities := HBoxContainer.new()
 	utilities.add_theme_constant_override(&"separation", 3)
 	column.add_child(utilities)
-	utilities.add_child(_make_utility_button("Q", "Select all Workers", func() -> void: battlefield.select_all_workers()))
-	utilities.add_child(_make_utility_button("I", "Select all idle Workers", func() -> void: battlefield.select_all_idle_workers()))
-	utilities.add_child(_make_utility_button("E", "Select the army", func() -> void: battlefield.select_all_army()))
-	utilities.add_child(_make_utility_button("H", "Select and center the Stronghold · H", func() -> void: battlefield.select_player_stronghold()))
-	_fog_button = _make_utility_button("", "Toggle fog of war", _toggle_fog_of_war, &"fog")
+	utilities.add_child(_make_utility_button("Q", I18n.t(&"ui.hud.select_workers"), func() -> void: battlefield.select_all_workers()))
+	utilities.add_child(_make_utility_button("I", I18n.t(&"ui.hud.select_idle_workers"), func() -> void: battlefield.select_all_idle_workers()))
+	utilities.add_child(_make_utility_button("E", I18n.t(&"ui.hud.select_army"), func() -> void: battlefield.select_all_army()))
+	utilities.add_child(_make_utility_button("H", I18n.t(&"ui.hud.select_stronghold"), func() -> void: battlefield.select_player_stronghold()))
+	_fog_button = _make_utility_button("", I18n.t(&"ui.hud.fog_toggle"), _toggle_fog_of_war, &"fog")
 	_fog_button.name = "FogToggle"
 	_fog_icon = _fog_button.get_node("Icon") as HudIcon
 	utilities.add_child(_fog_button)
-	utilities.add_child(_make_utility_button("−", "Zoom battlefield out", func() -> void: battlefield.zoom_by(1.0 / 1.14)))
-	utilities.add_child(_make_utility_button("+", "Zoom battlefield in", func() -> void: battlefield.zoom_by(1.14)))
+	utilities.add_child(_make_utility_button("−", I18n.t(&"ui.hud.zoom_out"), func() -> void: battlefield.zoom_by(1.0 / 1.14)))
+	utilities.add_child(_make_utility_button("+", I18n.t(&"ui.hud.zoom_in"), func() -> void: battlefield.zoom_by(1.14)))
 	return panel
 
 
@@ -698,11 +738,11 @@ func _build_selection_bay() -> Control:
 	body.add_child(info)
 	var title_row := HBoxContainer.new()
 	info.add_child(title_row)
-	_selection_title = ThemeFactory.label("NO SELECTION", 20, ThemeFactory.GOLD)
+	_selection_title = ThemeFactory.label(I18n.t(&"ui.selection.no_selection"), 20, ThemeFactory.GOLD)
 	_selection_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_selection_title.clip_text = true
 	title_row.add_child(_selection_title)
-	_selection_status = ThemeFactory.label("COMMAND", 10, ThemeFactory.JADE)
+	_selection_status = ThemeFactory.label(I18n.t(&"ui.selection.command"), 10, ThemeFactory.JADE)
 	_selection_status.add_theme_stylebox_override(&"normal", ThemeFactory.badge_style())
 	_selection_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_selection_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -720,13 +760,13 @@ func _build_selection_bay() -> Control:
 	_selection_health_label.custom_minimum_size.x = 92.0
 	_selection_health_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	health_row.add_child(_selection_health_label)
-	_selection_order = ThemeFactory.label("SELECT OR INSPECT AN ENTITY", 13, ThemeFactory.IVORY)
+	_selection_order = ThemeFactory.label(I18n.t(&"ui.selection.select_prompt"), 13, ThemeFactory.IVORY)
 	_selection_order.clip_text = true
 	info.add_child(_selection_order)
-	_selection_meta = ThemeFactory.label("Q WORKERS · I IDLE · E ARMY · H STRONGHOLD", 11, ThemeFactory.JADE)
+	_selection_meta = ThemeFactory.label(I18n.t(&"ui.selection.quick_select"), 11, ThemeFactory.JADE)
 	_selection_meta.clip_text = true
 	info.add_child(_selection_meta)
-	_selection_detail = ThemeFactory.label("Left-click an entity to select or inspect it. Drag to box-select friendly units.", 11, ThemeFactory.MUTED_SAGE)
+	_selection_detail = ThemeFactory.label(I18n.t(&"ui.selection.select_instruction"), 11, ThemeFactory.MUTED_SAGE)
 	_selection_detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_selection_detail.max_lines_visible = 2
 	_selection_detail.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -749,12 +789,12 @@ func _build_queue_panel() -> PanelContainer:
 	var title_column := VBoxContainer.new()
 	title_column.custom_minimum_size.x = 74.0
 	row.add_child(title_column)
-	var title := ThemeFactory.label("PRODUCTION", 9, ThemeFactory.GOLD)
+	var title := ThemeFactory.label(I18n.t(&"ui.production.title"), 9, ThemeFactory.GOLD)
 	title_column.add_child(title)
-	var hint := ThemeFactory.label("CLICK TO CANCEL", 8, ThemeFactory.MUTED_SAGE)
+	var hint := ThemeFactory.label(I18n.t(&"ui.production.cancel_hint"), 8, ThemeFactory.MUTED_SAGE)
 	title_column.add_child(hint)
 	for index in range(5):
-		var tile := ThemeFactory.button("", "Cancel this unit for a full refund")
+		var tile := ThemeFactory.button("", I18n.t(&"ui.production.cancel_unit_tooltip"))
 		tile.name = "QueueTile%d" % index
 		tile.custom_minimum_size = Vector2(84.0, 38.0)
 		tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -792,44 +832,44 @@ func _build_command_bay() -> Control:
 		_command_grid.add_child(slot)
 		_command_slots.append(slot)
 	var faction := simulation.players[RtsSimulation.TEAM_PLAYER]["faction"] as StringName
-	_add_command_button(0, &"build", "WAR CAMP", func() -> void: _command_build(&"war_camp"), load(FactionCatalog.entity_art_path(faction, &"war_camp")) as Texture2D)
-	_add_command_button(1, &"build_farm", "RICE FARM", func() -> void: _command_build(&"rice_farm"), load(FactionCatalog.entity_art_path(faction, &"rice_farm")) as Texture2D)
-	_add_command_button(2, &"build_lodge", "HUNTER LODGE", func() -> void: _command_build(&"hunters_lodge"), load(FactionCatalog.entity_art_path(faction, &"hunters_lodge")) as Texture2D)
-	_add_command_button(3, &"build_wall", "WOOD WALL", func() -> void: _command_build(&"wall"), load(FactionCatalog.entity_art_path(faction, &"wall")) as Texture2D)
-	_add_command_button(4, &"build_gate", "WOOD GATE", func() -> void: _command_build(&"gate"), load(FactionCatalog.entity_art_path(faction, &"gate")) as Texture2D)
-	_add_command_button(5, &"build_tower", "SENTRY TOWER", func() -> void: _command_build(&"sentry_tower"), load(FactionCatalog.entity_art_path(faction, &"sentry_tower")) as Texture2D)
-	_add_command_button(0, &"worker", "WORKER", func() -> void: _command_train(&"worker"), load(FactionCatalog.entity_art_path(faction, &"worker")) as Texture2D, &"objective", "Space")
-	_add_command_button(1, &"stronghold_upgrade", "UPGRADE LVL 2", _command_upgrade_stronghold, null, &"population")
+	_add_command_button(0, &"build", I18n.t(&"ui.command.war_camp"), func() -> void: _command_build(&"war_camp"), load(FactionCatalog.entity_art_path(faction, &"war_camp")) as Texture2D)
+	_add_command_button(1, &"build_farm", I18n.t(&"ui.command.rice_farm"), func() -> void: _command_build(&"rice_farm"), load(FactionCatalog.entity_art_path(faction, &"rice_farm")) as Texture2D)
+	_add_command_button(2, &"build_lodge", I18n.t(&"ui.command.hunters_lodge"), func() -> void: _command_build(&"hunters_lodge"), load(FactionCatalog.entity_art_path(faction, &"hunters_lodge")) as Texture2D)
+	_add_command_button(3, &"build_wall", I18n.t(&"ui.command.wall"), func() -> void: _command_build(&"wall"), load(FactionCatalog.entity_art_path(faction, &"wall")) as Texture2D)
+	_add_command_button(4, &"build_gate", I18n.t(&"ui.command.wood_gate"), func() -> void: _command_build(&"gate"), load(FactionCatalog.entity_art_path(faction, &"gate")) as Texture2D)
+	_add_command_button(5, &"build_tower", I18n.t(&"ui.command.sentry_tower"), func() -> void: _command_build(&"sentry_tower"), load(FactionCatalog.entity_art_path(faction, &"sentry_tower")) as Texture2D)
+	_add_command_button(0, &"worker", I18n.t(&"ui.command.worker"), func() -> void: _command_train(&"worker"), load(FactionCatalog.entity_art_path(faction, &"worker")) as Texture2D, &"objective", I18n.t(&"ui.hotkey.space"))
+	_add_command_button(1, &"stronghold_upgrade", I18n.t(&"ui.command.upgrade", {"level": 2}), _command_upgrade_stronghold, null, &"population")
 	var hunter_icon: Texture2D = null
 	if FactionCatalog.can_train_unit(faction, &"hunter"):
 		hunter_icon = load(FactionCatalog.entity_art_path(faction, &"hunter")) as Texture2D
-	_add_command_button(0, &"hunter", "HUNTER", func() -> void: _command_train(&"hunter"), hunter_icon, &"objective", "Space")
-	_add_command_button(0, &"vanguard", "VANGUARD", func() -> void: _command_train(&"vanguard"), load(FactionCatalog.entity_art_path(faction, &"vanguard")) as Texture2D, &"objective", "Space")
-	_add_command_button(1, &"mystic", "MYSTIC", func() -> void: _command_train(&"mystic"), load(FactionCatalog.entity_art_path(faction, &"mystic")) as Texture2D)
-	_add_command_button(0, &"jadeclaw", "JADECLAW", func() -> void: _command_train(&"jadeclaw"), load(FactionCatalog.entity_art_path(faction, &"jadeclaw")) as Texture2D, &"objective", "Space")
-	_add_command_button(6, &"move", "MOVE", func() -> void:
+	_add_command_button(0, &"hunter", I18n.t(&"ui.command.hunter"), func() -> void: _command_train(&"hunter"), hunter_icon, &"objective", I18n.t(&"ui.hotkey.space"))
+	_add_command_button(0, &"vanguard", I18n.t(&"ui.command.vanguard"), func() -> void: _command_train(&"vanguard"), load(FactionCatalog.entity_art_path(faction, &"vanguard")) as Texture2D, &"objective", I18n.t(&"ui.hotkey.space"))
+	_add_command_button(1, &"mystic", I18n.t(&"ui.command.mystic"), func() -> void: _command_train(&"mystic"), load(FactionCatalog.entity_art_path(faction, &"mystic")) as Texture2D)
+	_add_command_button(0, &"jadeclaw", I18n.t(&"ui.command.jadeclaw"), func() -> void: _command_train(&"jadeclaw"), load(FactionCatalog.entity_art_path(faction, &"jadeclaw")) as Texture2D, &"objective", I18n.t(&"ui.hotkey.space"))
+	_add_command_button(6, &"move", I18n.t(&"ui.command.move"), func() -> void:
 		battlefield.begin_move(Input.is_key_pressed(KEY_SHIFT))
 		_update_armed_command_styles()
 	, null, &"move")
-	_add_command_button(7, &"attack_move", "ATTACK-MOVE", func() -> void:
+	_add_command_button(7, &"attack_move", I18n.t(&"ui.command.attack_move"), func() -> void:
 		battlefield.begin_attack_move(Input.is_key_pressed(KEY_SHIFT))
 		_update_armed_command_styles()
 	, null, &"attack_move", "F")
-	_add_command_button(8, &"patrol", "PATROL", func() -> void:
+	_add_command_button(8, &"patrol", I18n.t(&"ui.command.patrol"), func() -> void:
 		battlefield.begin_patrol(Input.is_key_pressed(KEY_SHIFT))
 		_update_armed_command_styles()
 	, null, &"patrol", "T")
-	_add_command_button(9, &"repair", "REPAIR", func() -> void:
+	_add_command_button(9, &"repair", I18n.t(&"ui.command.repair"), func() -> void:
 		battlefield.begin_repair(Input.is_key_pressed(KEY_SHIFT))
 		_update_armed_command_styles()
 	, null, &"repair", "R")
-	_add_command_button(10, &"rally", "RALLY", func() -> void:
+	_add_command_button(10, &"rally", I18n.t(&"ui.command.rally"), func() -> void:
 		battlefield.begin_rally()
 		_update_armed_command_styles()
 	, null, &"rally")
-	_add_command_button(9, &"demolish", "DEMOLISH", _command_demolish, null, &"cancel")
-	_add_command_button(11, &"stop", "STOP", _command_stop, null, &"stop", "X")
-	_add_command_button(11, &"cancel_queue", "CANCEL LAST", _command_cancel_training, null, &"cancel")
+	_add_command_button(9, &"demolish", I18n.t(&"ui.command.demolish"), _command_demolish, null, &"cancel")
+	_add_command_button(11, &"stop", I18n.t(&"ui.command.stop"), _command_stop, null, &"stop", "X")
+	_add_command_button(11, &"cancel_queue", I18n.t(&"ui.command.cancel_last"), _command_cancel_training, null, &"cancel")
 	return panel
 
 
@@ -898,66 +938,66 @@ func _build_pause_overlay(root: Control) -> void:
 	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_pause_overlay.add_child(shade)
 
-	_pause_menu = _make_modal_menu("PauseMenu", "PAUSED", "THE MANDATE AWAITS")
+	_pause_menu = _make_modal_menu("PauseMenu", I18n.t(&"ui.pause.paused"), I18n.t(&"ui.pause.mandate_waits"))
 	_pause_overlay.add_child(_pause_menu)
 	var pause_column := _pause_menu.get_node("MenuColumn") as VBoxContainer
-	_resume_button = _make_modal_button("RESUME", "Return to the battle")
+	_resume_button = _make_modal_button(I18n.t(&"ui.pause.resume"), I18n.t(&"ui.pause.resume_tooltip"))
 	_resume_button.name = "ResumeButton"
 	_connect_button(_resume_button, func() -> void: _set_paused(false))
 	pause_column.add_child(_resume_button)
-	_settings_button = _make_modal_button("SETTINGS", "Open game settings")
+	_settings_button = _make_modal_button(I18n.t(&"ui.pause.settings"), I18n.t(&"ui.pause.open_settings"))
 	_settings_button.name = "SettingsButton"
 	_connect_button(_settings_button, _show_settings_menu)
 	pause_column.add_child(_settings_button)
-	_resign_button = _make_modal_button("RESIGN", "Concede this match")
+	_resign_button = _make_modal_button(I18n.t(&"ui.pause.resign"), I18n.t(&"ui.pause.resign_tooltip"))
 	_resign_button.name = "ResignButton"
 	_resign_button.add_theme_color_override(&"font_color", ThemeFactory.DANGER)
 	_resign_button.add_theme_color_override(&"font_hover_color", Color("ff8b7f"))
 	_connect_button(_resign_button, _resign_match, &"ui_cancel")
 	pause_column.add_child(_resign_button)
-	var pause_hint := ThemeFactory.label("ESC OR P TO RESUME", 12, ThemeFactory.MUTED_SAGE)
+	var pause_hint := ThemeFactory.label(I18n.t(&"ui.pause.resume_hint"), 12, ThemeFactory.MUTED_SAGE)
 	pause_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	pause_column.add_child(pause_hint)
 
-	_settings_menu = _make_modal_menu("SettingsMenu", "SETTINGS", "GAME OPTIONS")
+	_settings_menu = _make_modal_menu("SettingsMenu", I18n.t(&"ui.pause.settings"), I18n.t(&"ui.pause.game_options"))
 	_settings_menu.position = Vector2(-230.0, -280.0)
 	_settings_menu.size = Vector2(460.0, 560.0)
 	_pause_overlay.add_child(_settings_menu)
 	var settings_column := _settings_menu.get_node("MenuColumn") as VBoxContainer
-	var audio_heading := ThemeFactory.label("AUDIO", 12, ThemeFactory.MUTED_SAGE)
+	var audio_heading := ThemeFactory.label(I18n.t(&"ui.pause.audio"), 12, ThemeFactory.MUTED_SAGE)
 	audio_heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	settings_column.add_child(audio_heading)
-	_settings_audio_button = _make_modal_button("", "Toggle music and sound effects")
+	_settings_audio_button = _make_modal_button("", I18n.t(&"ui.hud.audio_tooltip"))
 	_settings_audio_button.name = "AudioSettingButton"
 	_connect_button(_settings_audio_button, _toggle_audio, &"")
 	settings_column.add_child(_settings_audio_button)
-	var effects_heading := ThemeFactory.label("PRESENTATION", 12, ThemeFactory.MUTED_SAGE)
+	var effects_heading := ThemeFactory.label(I18n.t(&"ui.pause.presentation"), 12, ThemeFactory.MUTED_SAGE)
 	effects_heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	settings_column.add_child(effects_heading)
-	_settings_effect_intensity_button = _make_modal_button("", "Cycle effect density and pool budgets")
+	_settings_effect_intensity_button = _make_modal_button("", I18n.t(&"ui.pause.effects_tooltip"))
 	_settings_effect_intensity_button.name = "EffectIntensityButton"
 	_connect_button(_settings_effect_intensity_button, _cycle_effect_intensity)
 	settings_column.add_child(_settings_effect_intensity_button)
-	_settings_reduced_motion_button = _make_modal_button("", "Remove camera, rotation, and scale motion while preserving cues")
+	_settings_reduced_motion_button = _make_modal_button("", I18n.t(&"ui.pause.reduced_motion_tooltip"))
 	_settings_reduced_motion_button.name = "ReducedMotionButton"
 	_connect_button(_settings_reduced_motion_button, _toggle_reduced_motion)
 	settings_column.add_child(_settings_reduced_motion_button)
-	_settings_camera_impulse_button = _make_modal_button("", "Cycle planar camera impulse: Off, Major, or Full")
+	_settings_camera_impulse_button = _make_modal_button("", I18n.t(&"ui.pause.camera_impulse_tooltip"))
 	_settings_camera_impulse_button.name = "CameraImpulseButton"
 	_connect_button(_settings_camera_impulse_button, _cycle_camera_impulse)
 	settings_column.add_child(_settings_camera_impulse_button)
-	_settings_damage_numbers_button = _make_modal_button("", "Cycle floating values: Off, Contextual, or All")
+	_settings_damage_numbers_button = _make_modal_button("", I18n.t(&"ui.pause.damage_values_tooltip"))
 	_settings_damage_numbers_button.name = "DamageNumbersButton"
 	_connect_button(_settings_damage_numbers_button, _cycle_damage_numbers)
 	settings_column.add_child(_settings_damage_numbers_button)
 	var settings_spacer := Control.new()
 	settings_spacer.custom_minimum_size.y = 10.0
 	settings_column.add_child(settings_spacer)
-	_settings_back_button = _make_modal_button("BACK", "Return to the pause menu")
+	_settings_back_button = _make_modal_button(I18n.t(&"ui.pause.back"), I18n.t(&"ui.pause.back_tooltip"))
 	_settings_back_button.name = "SettingsBackButton"
 	_connect_button(_settings_back_button, _show_pause_menu, &"ui_cancel")
 	settings_column.add_child(_settings_back_button)
-	var settings_hint := ThemeFactory.label("ESC TO GO BACK", 12, ThemeFactory.MUTED_SAGE)
+	var settings_hint := ThemeFactory.label(I18n.t(&"ui.pause.go_back_hint"), 12, ThemeFactory.MUTED_SAGE)
 	settings_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	settings_column.add_child(settings_hint)
 
@@ -1016,7 +1056,7 @@ func _build_help_panel(root: Control) -> void:
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override(&"separation", 1)
 	_objective_panel.add_child(column)
-	_objective_toggle = ThemeFactory.button("OBJECTIVES    ▴", "Collapse or expand the objective tracker")
+	_objective_toggle = ThemeFactory.button(I18n.t(&"ui.objective.title_expanded"), I18n.t(&"ui.objective.tooltip"))
 	_objective_toggle.name = "ObjectiveToggle"
 	_objective_toggle.custom_minimum_size.y = 22.0
 	_objective_toggle.add_theme_font_size_override(&"font_size", 11)
@@ -1043,16 +1083,17 @@ func _update_hud() -> void:
 		return
 	var player := simulation.players[RtsSimulation.TEAM_PLAYER]
 	var player_definition := FactionCatalog.definition(player["faction"] as StringName)
-	_score_label.text = "SCORE: %d" % simulation.team_score(RtsSimulation.TEAM_PLAYER)
+	_score_label.text = I18n.t(&"ui.hud.score", {"score": simulation.team_score(RtsSimulation.TEAM_PLAYER)})
 	_score_label.add_theme_color_override(&"font_color", player_definition["accent"] as Color)
 	var minutes := floori(simulation.elapsed_time / 60.0)
 	var seconds := int(simulation.elapsed_time) % 60
 	(_resource_values[&"jade"] as Label).text = "%d" % int(player["jade"])
 	(_resource_values[&"lumber"] as Label).text = "%d" % int(player["lumber"])
 	(_resource_values[&"essence"] as Label).text = "%d" % int(player["essence"])
-	(_resource_values[&"food"] as Label).text = "%d  +%.1f/s" % [
-		int(player["food"]), simulation.food_income_per_second(RtsSimulation.TEAM_PLAYER),
-	]
+	(_resource_values[&"food"] as Label).text = I18n.t(&"ui.hud.food_value", {
+		"amount": int(player["food"]),
+		"rate": "%.1f" % simulation.food_income_per_second(RtsSimulation.TEAM_PLAYER),
+	})
 	var remaining_population := int(player["population_cap"]) - int(player["population"])
 	var population_label := _resource_values[&"population"] as Label
 	population_label.text = "%d/%d" % [int(player["population"]), int(player["population_cap"])]
@@ -1074,7 +1115,7 @@ func _update_hud() -> void:
 	if _fog_icon != null:
 		_fog_icon.glyph_color = ThemeFactory.JADE if battlefield.fog_enabled else ThemeFactory.MUTED_SAGE
 		_fog_icon.queue_redraw()
-		_fog_button.tooltip_text = "Fog of war on" if battlefield.fog_enabled else "Fog of war off"
+		_fog_button.tooltip_text = I18n.t(&"ui.hud.fog_on") if battlefield.fog_enabled else I18n.t(&"ui.hud.fog_off")
 
 
 func _on_selection_changed(_ids: Array) -> void:
@@ -1104,10 +1145,10 @@ func _update_objectives() -> void:
 	var rivals_defeated := RtsSimulation.TEAM_COUNT - 1 - simulation.living_rival_count()
 	var completed: Array[bool] = [food_buildings > 0, dens > 0, not player_shenlongs.is_empty(), simulation.living_rival_count() == 0]
 	var copy: Array[String] = [
-		"Build Food Supply  %d/1" % mini(food_buildings, 1),
-		"Capture a Yaoguai Den  %d/%d" % [dens, MapCatalog.CAVES.size()],
-		"Hatch the Dragon Egg  %d/1" % mini(player_shenlongs.size(), 1),
-		"Defeat Rival Strongholds  %d/3" % rivals_defeated,
+		I18n.t(&"ui.objective.food_supply", {"count": mini(food_buildings, 1), "total": 1}),
+		I18n.t(&"ui.objective.capture_den", {"count": dens, "total": MapCatalog.CAVES.size()}),
+		I18n.t(&"ui.objective.hatch_egg", {"count": mini(player_shenlongs.size(), 1), "total": 1}),
+		I18n.t(&"ui.objective.defeat_rivals", {"count": rivals_defeated, "total": RtsSimulation.TEAM_COUNT - 1}),
 	]
 	var next_index := 3
 	for index in range(completed.size()):
@@ -1124,7 +1165,7 @@ func _update_objectives() -> void:
 		row.visible = not _objective_collapsed or index == next_index
 	_objective_panel.size.y = 58.0 if _objective_collapsed else 154.0
 	_objective_panel.add_theme_stylebox_override(&"panel", ThemeFactory.objective_style(not completed.all(func(value: bool) -> bool: return value)))
-	_objective_toggle.text = "OBJECTIVES    ▾" if _objective_collapsed else "OBJECTIVES    ▴"
+	_objective_toggle.text = I18n.t(&"ui.objective.title_collapsed") if _objective_collapsed else I18n.t(&"ui.objective.title_expanded")
 
 
 func _update_selection_panel() -> void:
@@ -1142,14 +1183,14 @@ func _update_selection_panel() -> void:
 	if ids.is_empty():
 		_selection_portrait.texture = load(FactionCatalog.portrait_path(selected_faction)) as Texture2D
 		_selection_portrait_frame.add_theme_stylebox_override(&"panel", ThemeFactory.portrait_style(FactionCatalog.definition(selected_faction)["accent"] as Color))
-		_selection_title.text = "NO SELECTION"
-		_selection_status.text = "COMMAND"
+		_selection_title.text = I18n.t(&"ui.selection.no_selection")
+		_selection_status.text = I18n.t(&"ui.selection.command")
 		_selection_status.add_theme_color_override(&"font_color", ThemeFactory.JADE)
 		_selection_health.visible = false
 		_selection_health_label.visible = false
-		_selection_order.text = "SELECT OR INSPECT AN ENTITY"
-		_selection_meta.text = "Q WORKERS · I IDLE · E ARMY · H STRONGHOLD"
-		_selection_detail.text = "Left-click an entity to select or inspect it. Drag to box-select friendly units."
+		_selection_order.text = I18n.t(&"ui.selection.select_prompt")
+		_selection_meta.text = I18n.t(&"ui.selection.quick_select")
+		_selection_detail.text = I18n.t(&"ui.selection.select_instruction")
 		return
 	if ids.size() > 1:
 		_update_group_selection(ids, rebuild_selection_stacks)
@@ -1241,13 +1282,13 @@ func _update_group_selection(ids: Array[int], rebuild_selection_stacks: bool) ->
 			mixed_orders = true
 	_selection_portrait.texture = load(FactionCatalog.portrait_path(selected_faction)) as Texture2D
 	_selection_portrait_frame.add_theme_stylebox_override(&"panel", ThemeFactory.portrait_style(FactionCatalog.definition(selected_faction)["accent"] as Color))
-	_selection_title.text = "%d UNITS SELECTED" % ids.size()
-	_selection_status.text = "GROUP"
+	_selection_title.text = I18n.t(&"ui.selection.group_title", {"count": ids.size()})
+	_selection_status.text = I18n.t(&"ui.selection.group")
 	_selection_status.add_theme_color_override(&"font_color", ThemeFactory.JADE)
-	_set_selection_progress(current_hp, maximum_hp, "%d / %d TOTAL HP" % [int(current_hp), int(maximum_hp)], ThemeFactory.JADE)
-	_selection_order.text = "MIXED ORDERS" if mixed_orders else _order_label({"order": shared_order}).to_upper()
-	_selection_meta.text = "%d TYPES · SHIFT QUEUES ORDERS" % groups.size()
-	_selection_detail.text = "Click a unit stack to select that type. Shared commands remain in fixed slots."
+	_set_selection_progress(current_hp, maximum_hp, I18n.t(&"ui.selection.total_health", {"current": int(current_hp), "maximum": int(maximum_hp)}), ThemeFactory.JADE)
+	_selection_order.text = I18n.t(&"ui.selection.mixed_orders") if mixed_orders else _order_label({"order": shared_order}).to_upper()
+	_selection_meta.text = I18n.t(&"ui.selection.group_meta", {"count": groups.size()})
+	_selection_detail.text = I18n.t(&"ui.selection.group_detail")
 	_selection_stacks.visible = true
 	if not rebuild_selection_stacks:
 		return
@@ -1259,7 +1300,7 @@ func _update_group_selection(ids: Array[int], rebuild_selection_stacks: bool) ->
 		for raw_id in groups[kind] as Array:
 			subgroup.append(int(raw_id))
 		var sample := simulation.entity(subgroup[0])
-		var stack := ThemeFactory.button("%s  ×%d" % [String(kind).replace("_", " ").capitalize(), subgroup.size()], "Select only this unit type")
+		var stack := ThemeFactory.button(I18n.t(&"ui.selection.stack", {"unit": I18n.t(FactionCatalog.entity_text_key(kind)), "count": subgroup.size()}), I18n.t(&"ui.selection.select_only_type"))
 		stack.custom_minimum_size = Vector2(84.0, 28.0)
 		stack.add_theme_font_size_override(&"font_size", 9)
 		stack.icon = _selection_art_texture(sample)
@@ -1275,20 +1316,20 @@ func _select_subgroup(ids: Array[int]) -> void:
 func _on_garrison_unit_pressed(tower_id: int, unit_id: int) -> void:
 	if simulation.command_ungarrison(RtsSimulation.TEAM_PLAYER, tower_id, unit_id):
 		audio_director.play_ui(&"ui_confirm")
-		_show_feedback("Unit ungarrisoned at the base of the Sentry Tower.", false)
+		_show_feedback(I18n.t(&"feedback.unit_ungarrisoned"), false)
 	else:
-		_show_feedback("That unit can no longer be ungarrisoned from this tower.", true)
+		_show_feedback(I18n.t(&"feedback.unit_ungarrison_failed"), true)
 
 
 func _update_resource_selection(entity_state: Dictionary) -> void:
 	var resource_kind := entity_state.get("resource_kind", &"jade") as StringName
-	var resource_name := "Jade Outcrop"
+	var resource_name := I18n.t(&"resource.jade.name")
 	var resource_color := ThemeFactory.JADE
 	if resource_kind == &"lumber":
-		resource_name = "Lumber Tree"
+		resource_name = I18n.t(&"resource.lumber.name")
 		resource_color = ThemeFactory.LUMBER
 	elif resource_kind == &"essence":
-		resource_name = "Essence Shrine"
+		resource_name = I18n.t(&"resource.essence.name")
 		resource_color = ThemeFactory.ESSENCE
 	var assigned := 0
 	for raw_entity in simulation.entities.values():
@@ -1303,24 +1344,23 @@ func _update_resource_selection(entity_state: Dictionary) -> void:
 	var amount := float(entity_state.get("amount", 0.0))
 	var max_amount := float(entity_state.get("max_amount", maxf(amount, 1.0)))
 	_selection_title.text = resource_name.to_upper()
-	_selection_status.text = "RESOURCE"
+	_selection_status.text = I18n.t(&"ui.selection.resource")
 	_selection_status.add_theme_color_override(&"font_color", resource_color)
-	_set_selection_progress(amount, max_amount, "%d REMAIN" % int(amount), resource_color)
-	_selection_order.text = "%d WORKERS ASSIGNED" % assigned
-	_selection_meta.text = String(resource_kind).to_upper()
-	_selection_detail.text = "Select Workers, then right-click this source to begin gathering."
+	_set_selection_progress(amount, max_amount, I18n.t(&"ui.selection.remain", {"amount": int(amount)}), resource_color)
+	_selection_order.text = I18n.t(&"ui.selection.workers_assigned", {"count": assigned})
+	_selection_meta.text = I18n.t(StringName("value.%s" % resource_kind)).to_upper()
+	_selection_detail.text = I18n.t(&"ui.selection.resource_detail")
 
 
 func _update_wildlife_selection(entity_state: Dictionary) -> void:
-	var stats := FactionCatalog.stats(entity_state["kind"] as StringName, &"neutral")
-	var reaction := "RETALIATES" if bool(entity_state.get("retaliates", false)) else "FLEES"
-	_selection_title.text = String(stats["name"]).to_upper()
-	_selection_status.text = "WILDLIFE"
+	var reaction := I18n.t(&"ui.selection.wildlife_retaliates") if bool(entity_state.get("retaliates", false)) else I18n.t(&"ui.selection.wildlife_flees")
+	_selection_title.text = I18n.t(FactionCatalog.entity_text_key(entity_state["kind"] as StringName)).to_upper()
+	_selection_status.text = I18n.t(&"ui.selection.wildlife")
 	_selection_status.add_theme_color_override(&"font_color", ThemeFactory.FOOD)
-	_set_selection_progress(float(entity_state["hp"]), float(entity_state["max_hp"]), "%d / %d HP" % [int(entity_state["hp"]), int(entity_state["max_hp"])], ThemeFactory.JADE)
+	_set_selection_progress(float(entity_state["hp"]), float(entity_state["max_hp"]), I18n.t(&"ui.selection.health", {"current": int(entity_state["hp"]), "maximum": int(entity_state["max_hp"])}), ThemeFactory.JADE)
 	_selection_order.text = reaction
-	_selection_meta.text = "%d FOOD BOUNTY" % int(entity_state.get("food_bounty", 0))
-	_selection_detail.text = "Hunters deal triple damage to wildlife. %s" % String(stats["role"])
+	_selection_meta.text = I18n.t(&"ui.selection.food_bounty", {"amount": int(entity_state.get("food_bounty", 0))})
+	_selection_detail.text = I18n.t(&"ui.selection.wildlife_detail", {"role": I18n.t(FactionCatalog.entity_text_key(entity_state["kind"] as StringName, &"role"))})
 
 
 func _update_den_selection(entity_state: Dictionary) -> void:
@@ -1328,66 +1368,66 @@ func _update_den_selection(entity_state: Dictionary) -> void:
 	var guardians := simulation.cave_guardian_count(int(entity_state["id"]))
 	var progress := float(entity_state.get("capture_progress", 0.0))
 	var contested := bool(entity_state.get("capture_contested", false))
-	_selection_title.text = "YAOGUAI DEN"
+	_selection_title.text = I18n.t(FactionCatalog.entity_text_key(&"yaoguai_den")).to_upper()
 	if guardians > 0:
-		_selection_status.text = "GUARDED"
+		_selection_status.text = I18n.t(&"ui.selection.guarded")
 	elif contested:
-		_selection_status.text = "CONTESTED"
+		_selection_status.text = I18n.t(&"ui.selection.capture_contested")
 	elif owner == RtsSimulation.TEAM_PLAYER:
-		_selection_status.text = "CONTROLLED"
+		_selection_status.text = I18n.t(&"ui.selection.controlled")
 	elif owner > RtsSimulation.TEAM_PLAYER:
-		_selection_status.text = "RIVAL"
+		_selection_status.text = I18n.t(&"ui.selection.rival")
 	else:
-		_selection_status.text = "CLEARED"
+		_selection_status.text = I18n.t(&"ui.selection.cleared")
 	var status_color := ThemeFactory.DANGER if contested or owner > RtsSimulation.TEAM_PLAYER else ThemeFactory.GOLD if owner == RtsSimulation.TEAM_NEUTRAL else ThemeFactory.JADE
 	_selection_status.add_theme_color_override(&"font_color", status_color)
 	if progress > 0.0 or contested:
-		_set_selection_progress(progress, RtsSimulation.CAVE_CAPTURE_SECONDS, "CAPTURE %d%%" % int(100.0 * progress / RtsSimulation.CAVE_CAPTURE_SECONDS), status_color)
+		_set_selection_progress(progress, RtsSimulation.CAVE_CAPTURE_SECONDS, I18n.t(&"ui.selection.capture_progress", {"percent": int(100.0 * progress / RtsSimulation.CAVE_CAPTURE_SECONDS)}), status_color)
 	else:
-		_set_selection_progress(float(entity_state["hp"]), float(entity_state["max_hp"]), "%d / %d HP" % [int(entity_state["hp"]), int(entity_state["max_hp"])], ThemeFactory.JADE)
+		_set_selection_progress(float(entity_state["hp"]), float(entity_state["max_hp"]), I18n.t(&"ui.selection.health", {"current": int(entity_state["hp"]), "maximum": int(entity_state["max_hp"])}), ThemeFactory.JADE)
 	if guardians > 0:
-		_selection_order.text = "%d GUARDIANS REMAIN" % guardians
+		_selection_order.text = I18n.t(&"ui.selection.guardians_remain", {"count": guardians})
 	elif owner == RtsSimulation.TEAM_PLAYER:
-		_selection_order.text = "DEN SECURED"
+		_selection_order.text = I18n.t(&"ui.selection.den_secured")
 	elif contested:
-		_selection_order.text = "CAPTURE CONTESTED"
+		_selection_order.text = I18n.t(&"ui.selection.capture_contested")
 	else:
-		_selection_order.text = "HOLD THE RING FOR 6 SECONDS"
+		_selection_order.text = I18n.t(&"ui.selection.hold_ring")
 	var queue := entity_state.get("queue", []) as Array
-	_selection_meta.text = "JADECLAW QUEUE  %d" % queue.size() if owner == RtsSimulation.TEAM_PLAYER else "CAPTURE OBJECTIVE"
+	_selection_meta.text = I18n.t(&"ui.selection.queue_meta", {"count": queue.size(), "rally": _cell_label(entity_state.get("rally_cell", Vector2i.ZERO) as Vector2i)}) if owner == RtsSimulation.TEAM_PLAYER else I18n.t(&"ui.selection.capture_objective")
 	if not queue.is_empty():
 		var item := queue[0] as Dictionary
-		_selection_detail.text = "Calling Jadeclaw · %.1fs remaining · rally %s" % [float(item.get("remaining", 0.0)), _cell_label(entity_state.get("rally_cell", Vector2i.ZERO) as Vector2i)]
+		_selection_detail.text = I18n.t(&"ui.selection.den_detail_training", {"seconds": "%.1f" % float(item.get("remaining", 0.0)), "rally": _cell_label(entity_state.get("rally_cell", Vector2i.ZERO) as Vector2i)})
 	elif guardians > 0:
-		_selection_detail.text = "Defeat the guardians, then occupy the capture ring uncontested."
+		_selection_detail.text = I18n.t(&"ui.selection.den_detail_guardians")
 	else:
-		_selection_detail.text = "Produces Jadeclaws when controlled · rally %s" % _cell_label(entity_state.get("rally_cell", Vector2i.ZERO) as Vector2i)
+		_selection_detail.text = I18n.t(&"ui.selection.den_detail_capture", {"rally": _cell_label(entity_state.get("rally_cell", Vector2i.ZERO) as Vector2i)})
 
 
 func _update_egg_selection(entity_state: Dictionary) -> void:
 	var carrier := simulation.entity(int(entity_state.get("carried_by", -1)))
-	_selection_title.text = "SHENLONG DRAGON EGG"
-	_selection_status.text = "LOCKED"
+	_selection_title.text = I18n.t(&"ui.selection.shenlong_egg")
+	_selection_status.text = I18n.t(&"ui.selection.locked")
 	_selection_status.add_theme_color_override(&"font_color", ThemeFactory.GOLD)
 	_selection_health.visible = false
 	_selection_health_label.visible = false
 	if not carrier.is_empty():
 		var carrier_team := int(carrier.get("team", RtsSimulation.TEAM_NEUTRAL))
-		_selection_status.text = "YOUR CARRIER" if carrier_team == RtsSimulation.TEAM_PLAYER else "RIVAL CARRIER"
+		_selection_status.text = I18n.t(&"ui.selection.your_carrier") if carrier_team == RtsSimulation.TEAM_PLAYER else I18n.t(&"ui.selection.rival_carrier")
 		_selection_status.add_theme_color_override(&"font_color", ThemeFactory.JADE if carrier_team == RtsSimulation.TEAM_PLAYER else ThemeFactory.DANGER)
-		_selection_order.text = "RETURNING TO A STRONGHOLD"
-		_selection_meta.text = "INTERCEPTABLE OBJECTIVE"
-		_selection_detail.text = "Defeat the carrier to drop the egg and make it claimable again."
+		_selection_order.text = I18n.t(&"ui.selection.egg_returning")
+		_selection_meta.text = I18n.t(&"ui.selection.interceptable")
+		_selection_detail.text = I18n.t(&"ui.selection.egg_carrier_detail")
 	elif bool(entity_state.get("claimable", false)):
-		_selection_status.text = "CLAIMABLE"
+		_selection_status.text = I18n.t(&"ui.selection.claimable")
 		_selection_status.add_theme_color_override(&"font_color", ThemeFactory.JADE)
-		_selection_order.text = "AWAITING AN EMPTY-HANDED WORKER"
-		_selection_meta.text = "CENTRAL MYTHIC OBJECTIVE"
-		_selection_detail.text = "Select a Worker and right-click the egg, then escort it home to hatch Shenlong."
+		_selection_order.text = I18n.t(&"ui.selection.egg_awaiting_worker")
+		_selection_meta.text = I18n.t(&"ui.selection.central_objective")
+		_selection_detail.text = I18n.t(&"ui.selection.egg_claim_detail")
 	else:
-		_selection_order.text = "GUARDED BY SHENLONG"
-		_selection_meta.text = "CENTRAL MYTHIC OBJECTIVE"
-		_selection_detail.text = "Defeat the neutral Shenlong to unlock this egg for every player."
+		_selection_order.text = I18n.t(&"ui.selection.egg_guarded")
+		_selection_meta.text = I18n.t(&"ui.selection.central_objective")
+		_selection_detail.text = I18n.t(&"ui.selection.egg_guard_detail")
 
 
 func _update_owned_selection(entity_state: Dictionary, rebuild_selection_stacks: bool) -> void:
@@ -1396,41 +1436,42 @@ func _update_owned_selection(entity_state: Dictionary, rebuild_selection_stacks:
 	var stats := FactionCatalog.stats(kind, faction)
 	var completion := float(entity_state.get("complete", 1.0))
 	var team := int(entity_state.get("team", RtsSimulation.TEAM_NEUTRAL))
-	var category_label := "STRUCTURE" if entity_state.get("category") == &"structure" else "UNIT"
-	var affiliation := "NEUTRAL"
+	var category_label := I18n.t(&"ui.selection.category_structure") if entity_state.get("category") == &"structure" else I18n.t(&"ui.selection.category_unit")
+	var affiliation := I18n.t(&"ui.selection.neutral")
 	var status_color := ThemeFactory.GOLD
 	if team == RtsSimulation.TEAM_PLAYER:
-		affiliation = "YOUR"
+		affiliation = I18n.t(&"ui.selection.your")
 		status_color = ThemeFactory.JADE
 	elif team > RtsSimulation.TEAM_PLAYER:
-		affiliation = "ENEMY"
+		affiliation = I18n.t(&"ui.selection.enemy")
 		status_color = ThemeFactory.DANGER
-	_selection_title.text = String(stats["name"]).to_upper()
+	var entity_name := I18n.t(FactionCatalog.entity_text_key(kind))
+	_selection_title.text = entity_name.to_upper()
 	if kind == &"stronghold":
-		_selection_title.text += " LVL %d" % int(entity_state.get("stronghold_level", RtsSimulation.STRONGHOLD_INITIAL_LEVEL))
-	_selection_status.text = "%s %s" % [affiliation, category_label] if team != RtsSimulation.TEAM_PLAYER else category_label
+		_selection_title.text = I18n.t(&"ui.selection.stronghold_level", {"stronghold": entity_name.to_upper(), "level": int(entity_state.get("stronghold_level", RtsSimulation.STRONGHOLD_INITIAL_LEVEL))})
+	_selection_status.text = I18n.t(&"ui.selection.affiliated_category", {"affiliation": affiliation, "category": category_label}) if team != RtsSimulation.TEAM_PLAYER else category_label
 	_selection_status.add_theme_color_override(&"font_color", status_color)
 	if completion < 1.0:
-		_set_selection_progress(completion, 1.0, "CONSTRUCTION %d%%" % int(completion * 100.0), ThemeFactory.GOLD)
+		_set_selection_progress(completion, 1.0, I18n.t(&"ui.selection.constructing", {"percent": int(completion * 100.0)}), ThemeFactory.GOLD)
 	else:
-		_set_selection_progress(float(entity_state["hp"]), float(entity_state["max_hp"]), "%d / %d HP" % [int(entity_state["hp"]), int(entity_state["max_hp"])], status_color)
+		_set_selection_progress(float(entity_state["hp"]), float(entity_state["max_hp"]), I18n.t(&"ui.selection.health", {"current": int(entity_state["hp"]), "maximum": int(entity_state["max_hp"])}), status_color)
 	_selection_order.text = _order_label(entity_state).to_upper()
 	if entity_state.get("category") == &"structure":
 		var queue := entity_state.get("queue", []) as Array
-		_selection_meta.text = "QUEUE %d · RALLY %s" % [queue.size(), _cell_label(entity_state.get("rally_cell", Vector2i.ZERO) as Vector2i)]
+		_selection_meta.text = I18n.t(&"ui.selection.queue_meta", {"count": queue.size(), "rally": _cell_label(entity_state.get("rally_cell", Vector2i.ZERO) as Vector2i)})
 		if kind == &"sentry_tower" and completion >= 1.0:
 			var occupants := entity_state.get("garrisoned_unit_ids", []) as Array
-			_selection_order.text = "MANNED" if not occupants.is_empty() else "AWAITING GARRISON"
-			_selection_meta.text = "GARRISON %d/%d · DOUBLE OCCUPANT RANGE" % [occupants.size(), int(entity_state.get("garrison_capacity", 1))]
-			_selection_detail.text = "Right-click with a Hunter or Mystic to garrison. Click the occupant below to deploy them at the tower base."
+			_selection_order.text = I18n.t(&"ui.selection.manned") if not occupants.is_empty() else I18n.t(&"ui.selection.awaiting_garrison")
+			_selection_meta.text = I18n.t(&"ui.selection.garrison_meta", {"count": occupants.size(), "capacity": int(entity_state.get("garrison_capacity", 1))})
+			_selection_detail.text = I18n.t(&"ui.selection.tower_detail")
 			if team == RtsSimulation.TEAM_PLAYER and not occupants.is_empty() and rebuild_selection_stacks:
 				_selection_stacks.visible = true
 				for raw_id in occupants:
 					var occupant := simulation.entity(int(raw_id))
 					if occupant.is_empty():
 						continue
-					var occupant_name := String(FactionCatalog.stats(occupant["kind"] as StringName, occupant["faction"] as StringName)["name"])
-					var button := ThemeFactory.button("%s  ·  UNGARRISON" % occupant_name.to_upper(), "Deploy this unit at the tower base")
+					var occupant_name := I18n.t(FactionCatalog.entity_text_key(occupant["kind"] as StringName))
+					var button := ThemeFactory.button(I18n.t(&"ui.selection.ungarrison", {"unit": occupant_name.to_upper()}), I18n.t(&"ui.selection.deploy_tooltip"))
 					button.name = "GarrisonUnitButton"
 					button.custom_minimum_size = Vector2(190.0, 30.0)
 					button.add_theme_font_size_override(&"font_size", 9)
@@ -1444,50 +1485,52 @@ func _update_owned_selection(entity_state: Dictionary, rebuild_selection_stacks:
 			var harvest_yield := simulation.structure_food_yield(int(entity_state["id"]))
 			if kind == &"rice_farm":
 				var farmer_id := simulation.farm_worker_id(int(entity_state["id"]))
-				var farm_state := "PASSIVE"
+				var farm_state := I18n.t(&"ui.selection.farm_passive")
 				if farmer_id >= 0:
-					farm_state = "STAFFED" if simulation.is_farm_staffed(int(entity_state["id"])) else "WORKER EN ROUTE"
+					farm_state = I18n.t(&"ui.selection.farm_staffed") if simulation.is_farm_staffed(int(entity_state["id"])) else I18n.t(&"ui.selection.farm_worker_en_route")
 				_selection_order.text = farm_state
-				_selection_meta.text = "FARMER %d/1 · %.1f FOOD/S" % [1 if farmer_id >= 0 else 0, float(harvest_yield) / interval]
-				_selection_detail.text = "+%d Food every %.0fs · next harvest in %.1fs · right-click with an empty Worker to staff" % [harvest_yield, interval, next_harvest]
+				_selection_meta.text = I18n.t(&"ui.selection.farmer_meta", {"count": 1 if farmer_id >= 0 else 0, "rate": "%.1f" % (float(harvest_yield) / interval)})
+				_selection_detail.text = I18n.t(&"ui.selection.farm_staffed_detail", {"yield": harvest_yield, "interval": "%.0f" % interval, "next": "%.1f" % next_harvest})
 			else:
-				_selection_detail.text = "+%d passive Food every %.0fs · next harvest in %.1fs · Hunters earn one-time wildlife bounties" % [harvest_yield, interval, next_harvest]
+				_selection_detail.text = I18n.t(&"ui.selection.farm_passive_detail", {"yield": harvest_yield, "interval": "%.0f" % interval, "next": "%.1f" % next_harvest})
 		elif not queue.is_empty():
 			var item := queue[0] as Dictionary
-			_selection_detail.text = "Training %s · %.1fs remaining" % [String(item.get("kind", &"unit")).capitalize(), float(item.get("remaining", 0.0))]
+			var training_kind := item.get("kind", &"worker") as StringName
+			_selection_detail.text = I18n.t(&"ui.selection.training", {"unit": I18n.t(FactionCatalog.entity_text_key(training_kind)), "seconds": "%.1f" % float(item.get("remaining", 0.0))})
 		else:
-			_selection_detail.text = String(stats["role"])
+			_selection_detail.text = I18n.t(FactionCatalog.entity_text_key(kind, &"role"))
 	else:
 		var command_queue := entity_state.get("command_queue", []) as Array
 		if kind == &"worker" and bool(entity_state.get("carrying_egg", false)):
-			_selection_meta.text = "CARRYING THE DRAGON EGG"
+			_selection_meta.text = I18n.t(&"ui.selection.carrying_egg")
 		elif kind == &"worker" and float(entity_state.get("cargo_amount", 0.0)) > 0.0:
-			_selection_meta.text = "CARRYING %d/%d %s" % [int(entity_state["cargo_amount"]), int(RtsSimulation.CARGO_CAPACITY), String(entity_state.get("cargo_kind", &"")).to_upper()]
+			var cargo_kind := entity_state.get("cargo_kind", &"jade") as StringName
+			_selection_meta.text = I18n.t(&"ui.selection.carrying_resource", {"amount": int(entity_state["cargo_amount"]), "capacity": int(RtsSimulation.CARGO_CAPACITY), "resource": I18n.t(StringName("value.%s" % cargo_kind)).to_upper()})
 		else:
-			_selection_meta.text = "DAMAGE %d · RANGE %.1f · QUEUED %d" % [int(stats.get("damage", 0)), float(stats.get("range", 0.0)), command_queue.size()]
-		_selection_detail.text = String(stats["role"])
+			_selection_meta.text = I18n.t(&"ui.selection.damage_meta", {"damage": int(stats.get("damage", 0)), "range": "%.1f" % float(stats.get("range", 0.0)), "queued": command_queue.size()})
+		_selection_detail.text = I18n.t(FactionCatalog.entity_text_key(kind, &"role"))
 
 
 func _order_label(entity_state: Dictionary) -> String:
 	var order := entity_state.get("order", &"idle") as StringName
 	match order:
-		&"move": return "Moving"
-		&"attack_move": return "Attack-moving"
-		&"attack": return "Attacking"
+		&"move": return I18n.t(&"ui.selection.order_move")
+		&"attack_move": return I18n.t(&"ui.selection.order_attack_move")
+		&"attack": return I18n.t(&"ui.selection.order_attack")
 		&"gather":
 			var source := simulation.entity(int(entity_state.get("gather_source_id", -1)))
-			return "Gathering %s" % String(source.get("resource_kind", &"resources")).capitalize()
-		&"farm": return "Working farm"
-		&"return": return "Returning cargo"
-		&"claim_egg": return "Claiming Dragon Egg"
-		&"return_egg": return "Returning Dragon Egg"
-		&"repair": return "Repairing"
-		&"garrison": return "Entering tower"
-		&"garrisoned": return "Garrisoned"
-		&"patrol": return "Patrolling"
-		&"construct": return "Constructing"
-		&"constructing": return "Constructing"
-		_: return String(order).replace("_", " ").capitalize()
+			var resource_kind := source.get("resource_kind", &"jade") as StringName
+			return I18n.t(&"ui.selection.order_gather", {"resource": I18n.t(StringName("value.%s" % resource_kind))})
+		&"farm": return I18n.t(&"ui.selection.order_farm")
+		&"return": return I18n.t(&"ui.selection.order_return_cargo")
+		&"claim_egg": return I18n.t(&"ui.selection.order_claim_egg")
+		&"return_egg": return I18n.t(&"ui.selection.order_return_egg")
+		&"repair": return I18n.t(&"ui.selection.order_repair")
+		&"garrison": return I18n.t(&"ui.selection.order_enter_tower")
+		&"garrisoned": return I18n.t(&"ui.selection.order_garrisoned")
+		&"patrol": return I18n.t(&"ui.selection.order_patrol")
+		&"construct", &"constructing": return I18n.t(&"ui.selection.order_construct")
+		_: return I18n.t(&"ui.selection.order_idle")
 
 
 func _set_selection_progress(current: float, maximum: float, label_text: String, color: Color) -> void:
@@ -1551,8 +1594,9 @@ func _update_production_queue() -> void:
 		tile.set_meta(&"queue_index", int(item["queue_index"]))
 		tile.set_meta(&"order_id", int(item["order_id"]))
 		tile.icon = load(FactionCatalog.entity_art_path(selected_faction, kind)) as Texture2D
-		tile.text = "%s\n%.1fs" % [String(kind).replace("_", " ").capitalize(), float(item["remaining"])]
-		tile.tooltip_text = "Cancel this %s for a full refund" % String(kind).replace("_", " ").capitalize()
+		var unit_name := I18n.t(FactionCatalog.entity_text_key(kind))
+		tile.text = I18n.t(&"ui.production.item", {"unit": unit_name, "seconds": "%.1f" % float(item["remaining"])})
+		tile.tooltip_text = I18n.t(&"ui.production.cancel_tooltip", {"unit": unit_name})
 	_queue_panel.visible = not queue_items.is_empty()
 
 
@@ -1595,25 +1639,25 @@ func _update_commands() -> void:
 	for button_id in build_commands:
 		var structure_kind := build_commands[button_id] as StringName
 		if has_worker and simulation.is_kind_available(RtsSimulation.TEAM_PLAYER, structure_kind):
-			_show_cost_command(button_id, structure_kind, "Build")
+			_show_cost_command(button_id, structure_kind, I18n.t(&"ui.command.build"))
 	if not structure.is_empty() and float(structure.get("complete", 0.0)) >= 1.0:
 		match structure.get("kind"):
 			&"stronghold":
-				_show_cost_command(&"worker", &"worker", "Train", true)
+				_show_cost_command(&"worker", &"worker", I18n.t(&"ui.command.train"), true)
 				_show_stronghold_upgrade_command(structure)
 			&"war_camp":
-				_show_cost_command(&"vanguard", &"vanguard", "Train", true)
-				_show_cost_command(&"mystic", &"mystic", "Train", true)
+				_show_cost_command(&"vanguard", &"vanguard", I18n.t(&"ui.command.train"), true)
+				_show_cost_command(&"mystic", &"mystic", I18n.t(&"ui.command.train"), true)
 			&"hunters_lodge":
 				if simulation.is_kind_available(RtsSimulation.TEAM_PLAYER, &"hunter"):
-					_show_cost_command(&"hunter", &"hunter", "Train", true)
-			&"yaoguai_den": _show_cost_command(&"jadeclaw", &"jadeclaw", "Call", true)
-	_set_simple_command(&"move", has_units, "Choose a movement destination")
-	_set_simple_command(&"attack_move", has_military, "Move while engaging hostile targets · F")
-	_set_simple_command(&"patrol", has_military, "Patrol repeatedly between the current position and a destination · T")
-	_set_simple_command(&"repair", has_worker, "Repair a damaged allied structure · 15 health per 1 Lumber · R")
-	_set_simple_command(&"stop", has_units, "Cancel current and queued orders · X")
-	_set_simple_command(&"rally", not structure.is_empty(), "Set the selected producer's rally destination")
+					_show_cost_command(&"hunter", &"hunter", I18n.t(&"ui.command.train"), true)
+			&"yaoguai_den": _show_cost_command(&"jadeclaw", &"jadeclaw", I18n.t(&"ui.command.call"), true)
+	_set_simple_command(&"move", has_units, I18n.t(&"ui.command.simple_move"))
+	_set_simple_command(&"attack_move", has_military, I18n.t(&"ui.command.simple_attack_move"))
+	_set_simple_command(&"patrol", has_military, I18n.t(&"ui.command.simple_patrol"))
+	_set_simple_command(&"repair", has_worker, I18n.t(&"ui.command.simple_repair"))
+	_set_simple_command(&"stop", has_units, I18n.t(&"ui.command.simple_stop"))
+	_set_simple_command(&"rally", not structure.is_empty(), I18n.t(&"ui.command.simple_rally"))
 	if not structure.is_empty() and simulation.can_demolish_structure(
 		RtsSimulation.TEAM_PLAYER,
 		selected_structure_id,
@@ -1624,9 +1668,9 @@ func _update_commands() -> void:
 	cancel_button.set_meta(COMMAND_VISIBLE_META, not production_queue.is_empty())
 	cancel_button.disabled = production_queue.is_empty()
 	if not production_queue.is_empty():
-		cancel_button.set_command_title("CANCEL LAST")
-		cancel_button.set_cost_markup("REFUND")
-		cancel_button.tooltip_text = "Refund the newest queued unit and release its reserved population"
+		cancel_button.set_command_title(I18n.t(&"ui.command.cancel_last"))
+		cancel_button.set_cost_markup(I18n.t(&"ui.command.cancel_refund"))
+		cancel_button.tooltip_text = I18n.t(&"ui.command.refund_cancel")
 	for raw_button in _command_buttons.values():
 		var command_button := raw_button as HudCommandButton
 		command_button.visible = bool(command_button.get_meta(COMMAND_VISIBLE_META, false))
@@ -1647,14 +1691,18 @@ func _show_cost_command(button_id: StringName, kind: StringName, verb: String, c
 	button.set_meta(COMMAND_VISIBLE_META, true)
 	button.disabled = not simulation.can_afford_kind(RtsSimulation.TEAM_PLAYER, kind) or (check_population and not simulation.has_population_for(RtsSimulation.TEAM_PLAYER, kind))
 	button.set_cost_markup(_cost_markup(stats))
-	var tooltip := "%s %s · %s" % [verb, stats["name"], _long_cost(stats)]
+	var tooltip := I18n.t(&"ui.command.tooltip", {
+		"verb": verb,
+		"entity": I18n.t(FactionCatalog.entity_text_key(kind)),
+		"cost": _long_cost(stats),
+	})
 	if free_recovery_worker:
-		tooltip += "\nRecovery worker: free because you have no Workers left"
+		tooltip += "\n" + I18n.t(&"ui.command.recovery_worker")
 	if not button.hotkey_text.is_empty():
-		tooltip += "\nHotkey: %s" % button.hotkey_text
+		tooltip += "\n" + I18n.t(&"ui.command.hotkey", {"hotkey": button.hotkey_text})
 	var unavailable := _unavailable_reason(stats, check_population)
 	if not unavailable.is_empty():
-		tooltip += "\nUnavailable: %s" % unavailable
+		tooltip += "\n" + I18n.t(&"ui.command.unavailable", {"reason": unavailable})
 	button.tooltip_text = tooltip
 
 
@@ -1665,16 +1713,16 @@ func _show_stronghold_upgrade_command(stronghold: Dictionary) -> void:
 	var cost := simulation.stronghold_upgrade_cost(stronghold_id)
 	button.set_meta(COMMAND_VISIBLE_META, true)
 	if cost.is_empty():
-		button.set_command_title("MAX LEVEL")
+		button.set_command_title(I18n.t(&"ui.command.max_level"))
 		button.set_cost_markup("")
 		button.disabled = true
-		button.tooltip_text = "Stronghold Lvl %d is the maximum level · population cap %d" % [
-			current_level,
-			int(simulation.players[RtsSimulation.TEAM_PLAYER]["population_cap"]),
-		]
+		button.tooltip_text = I18n.t(&"ui.command.stronghold_max_tooltip", {
+			"level": current_level,
+			"population": int(simulation.players[RtsSimulation.TEAM_PLAYER]["population_cap"]),
+		})
 		return
 	var next_level := current_level + 1
-	button.set_command_title("UPGRADE LVL %d" % next_level)
+	button.set_command_title(I18n.t(&"ui.command.upgrade", {"level": next_level}))
 	button.set_cost_markup(_cost_markup(cost))
 	button.disabled = not simulation.can_upgrade_stronghold(
 		RtsSimulation.TEAM_PLAYER,
@@ -1684,14 +1732,14 @@ func _show_stronghold_upgrade_command(stronghold: Dictionary) -> void:
 		int(simulation.players[RtsSimulation.TEAM_PLAYER]["population_cap"])
 		+ RtsSimulation.STRONGHOLD_POPULATION_PER_UPGRADE
 	)
-	var tooltip := "Upgrade to Stronghold Lvl %d · %s · population cap rises to %d" % [
-		next_level,
-		_long_cost(cost),
-		next_population_cap,
-	]
+	var tooltip := I18n.t(&"ui.command.upgrade_tooltip", {
+		"level": next_level,
+		"cost": _long_cost(cost),
+		"population": next_population_cap,
+	})
 	var unavailable := _unavailable_reason(cost, false)
 	if not unavailable.is_empty():
-		tooltip += "\nUnavailable: %s" % unavailable
+		tooltip += "\n" + I18n.t(&"ui.command.unavailable", {"reason": unavailable})
 	button.tooltip_text = tooltip
 
 
@@ -1699,10 +1747,10 @@ func _show_demolish_command(structure_id: int) -> void:
 	var button := _command_buttons[&"demolish"] as HudCommandButton
 	var refund := simulation.demolition_refund(structure_id)
 	button.set_meta(COMMAND_VISIBLE_META, true)
-	button.set_command_title("DEMOLISH")
+	button.set_command_title(I18n.t(&"ui.command.demolish"))
 	button.set_cost_markup(_cost_markup(refund))
 	button.disabled = false
-	button.tooltip_text = "Instantly destroy this building and refund 50%% of its build cost · %s" % _long_cost(refund)
+	button.tooltip_text = I18n.t(&"ui.command.demolish_tooltip", {"refund": _long_cost(refund)})
 
 
 func _set_simple_command(button_id: StringName, visible: bool, tooltip: String) -> void:
@@ -1716,34 +1764,34 @@ func _set_simple_command(button_id: StringName, visible: bool, tooltip: String) 
 func _cost_markup(stats: Dictionary) -> String:
 	var parts: Array[String] = []
 	for definition in [
-		["jade_cost", "J", "6fd2aa"],
-		["lumber_cost", "L", "d0a25c"],
-		["essence_cost", "E", "a974e6"],
-		["food_cost", "F", "e8c56a"],
+		["jade_cost", &"ui.command.cost_jade_short", "6fd2aa"],
+		["lumber_cost", &"ui.command.cost_lumber_short", "d0a25c"],
+		["essence_cost", &"ui.command.cost_essence_short", "a974e6"],
+		["food_cost", &"ui.command.cost_food_short", "e8c56a"],
 	]:
 		var amount := int(stats.get(definition[0], 0))
 		if amount > 0:
-			parts.append("[color=#%s]%d%s[/color]" % [definition[2], amount, definition[1]])
-	return "  ".join(parts) if not parts.is_empty() else "FREE"
+			parts.append("[color=#%s]%s[/color]" % [definition[2], I18n.t(definition[1] as StringName, {"amount": amount})])
+	return "  ".join(parts) if not parts.is_empty() else I18n.t(&"ui.command.free")
 
 
 func _unavailable_reason(stats: Dictionary, check_population: bool) -> String:
 	var player := simulation.players[RtsSimulation.TEAM_PLAYER]
 	var missing: Array[String] = []
 	for definition in [
-		["jade_cost", "jade", "Jade"],
-		["lumber_cost", "lumber", "Lumber"],
-		["essence_cost", "essence", "Essence"],
-		["food_cost", "food", "Food"],
+		["jade_cost", "jade", &"value.jade"],
+		["lumber_cost", "lumber", &"value.lumber"],
+		["essence_cost", "essence", &"value.essence"],
+		["food_cost", "food", &"value.food"],
 	]:
 		var shortfall := int(stats.get(definition[0], 0)) - int(player.get(definition[1], 0))
 		if shortfall > 0:
-			missing.append("need %d more %s" % [shortfall, definition[2]])
+			missing.append(I18n.t(&"ui.command.missing_resource", {"amount": shortfall, "resource": I18n.t(definition[2] as StringName)}))
 	if check_population:
 		var population_cost := int(stats.get("population", 0))
 		var room := int(player["population_cap"]) - int(player["population"])
 		if population_cost > room:
-			missing.append("need %d population space" % (population_cost - room))
+			missing.append(I18n.t(&"ui.command.missing_population", {"amount": population_cost - room}))
 	return ", ".join(missing)
 
 
@@ -1764,13 +1812,14 @@ func _update_armed_command_styles() -> void:
 	for button_id in active:
 		var button := _command_buttons[button_id] as HudCommandButton
 		var is_active := bool(active[button_id])
+		var armed_suffix := I18n.t(ARMED_TOOLTIP_SUFFIX_KEY)
 		button.set_pressed_no_signal(is_active)
-		button.tooltip_text = button.tooltip_text.trim_suffix(ARMED_TOOLTIP_SUFFIX)
+		button.tooltip_text = button.tooltip_text.trim_suffix(armed_suffix)
 		if is_active:
 			var armed_style := ThemeFactory.command_button_style(ThemeFactory.BUTTON_SURFACE_ACTIVE, ThemeFactory.JADE, 2)
 			button.add_theme_stylebox_override(&"normal", armed_style)
 			button.add_theme_stylebox_override(&"pressed", armed_style)
-			button.tooltip_text += ARMED_TOOLTIP_SUFFIX
+			button.tooltip_text += armed_suffix
 		else:
 			button.add_theme_stylebox_override(&"normal", ThemeFactory.command_button_style(ThemeFactory.BUTTON_SURFACE, ThemeFactory.BUTTON_BORDER))
 			button.add_theme_stylebox_override(&"pressed", ThemeFactory.command_button_style(ThemeFactory.GOLD, Color("ffe8a0"), 2))
@@ -1779,29 +1828,29 @@ func _update_armed_command_styles() -> void:
 func _short_cost(stats: Dictionary) -> String:
 	var parts: Array[String] = []
 	for definition in [
-		["jade_cost", "J"],
-		["lumber_cost", "L"],
-		["essence_cost", "E"],
-		["food_cost", "F"],
+		["jade_cost", &"ui.command.cost_jade_short"],
+		["lumber_cost", &"ui.command.cost_lumber_short"],
+		["essence_cost", &"ui.command.cost_essence_short"],
+		["food_cost", &"ui.command.cost_food_short"],
 	]:
 		var amount := int(stats.get(definition[0], 0))
 		if amount > 0:
-			parts.append("%d%s" % [amount, definition[1]])
-	return " · ".join(parts) if not parts.is_empty() else "FREE"
+			parts.append(I18n.t(definition[1] as StringName, {"amount": amount}))
+	return " · ".join(parts) if not parts.is_empty() else I18n.t(&"ui.command.free")
 
 
 func _long_cost(stats: Dictionary) -> String:
 	var parts: Array[String] = []
 	for definition in [
-		["jade_cost", "Jade"],
-		["lumber_cost", "Lumber"],
-		["essence_cost", "Essence"],
-		["food_cost", "Food"],
+		["jade_cost", &"ui.command.cost_jade_long"],
+		["lumber_cost", &"ui.command.cost_lumber_long"],
+		["essence_cost", &"ui.command.cost_essence_long"],
+		["food_cost", &"ui.command.cost_food_long"],
 	]:
 		var amount := int(stats.get(definition[0], 0))
 		if amount > 0:
-			parts.append("%d %s" % [amount, definition[1]])
-	return " · ".join(parts) if not parts.is_empty() else "Free"
+			parts.append(I18n.t(definition[1] as StringName, {"amount": amount}))
+	return " · ".join(parts) if not parts.is_empty() else I18n.t(&"ui.command.free")
 
 
 func _command_build(structure_kind: StringName) -> void:
@@ -1812,11 +1861,11 @@ func _command_build(structure_kind: StringName) -> void:
 func _command_stop() -> void:
 	var units := battlefield.selected_commandable_units()
 	if units.is_empty():
-		_show_feedback("Select units before issuing Stop.", true)
+		_show_feedback(I18n.t(&"feedback.stop_needs_units"), true)
 		return
 	simulation.command_stop(RtsSimulation.TEAM_PLAYER, units)
 	audio_director.play_ui(&"ui_cancel")
-	_show_feedback("Selected units halted.", false)
+	_show_feedback(I18n.t(&"feedback.units_halted"), false)
 
 
 func _first_selected_production_kind() -> StringName:
@@ -1834,60 +1883,55 @@ func _first_selected_production_kind() -> StringName:
 func _command_train(kind: StringName) -> void:
 	var structure_id := battlefield.primary_selected_structure()
 	if structure_id < 0:
-		_show_feedback("Select the correct production structure.", true)
+		_show_feedback(I18n.t(&"feedback.training_needs_structure"), true)
 		return
 	if simulation.command_train(RtsSimulation.TEAM_PLAYER, structure_id, kind):
 		audio_director.play_ui(&"ui_confirm")
-		_show_feedback("%s added to the training queue." % String(kind).capitalize(), false)
+		_show_feedback(I18n.t(&"feedback.training_queued", {"unit": I18n.t(FactionCatalog.entity_text_key(kind))}), false)
 	else:
-		_show_feedback("Insufficient resources, Food, population, or production capacity.", true)
+		_show_feedback(I18n.t(&"feedback.training_failed"), true)
 
 
 func _command_upgrade_stronghold() -> void:
 	var stronghold_id := battlefield.primary_selected_structure()
 	if stronghold_id < 0:
-		_show_feedback("Select your Stronghold before upgrading it.", true)
+		_show_feedback(I18n.t(&"feedback.upgrade_needs_stronghold"), true)
 		return
 	if simulation.command_upgrade_stronghold(RtsSimulation.TEAM_PLAYER, stronghold_id):
 		var stronghold := simulation.entity(stronghold_id)
 		audio_director.play_ui(&"ui_confirm")
 		_show_feedback(
-			"Stronghold upgraded to Lvl %d. Population cap increased to %d." % [
-				int(stronghold.get("stronghold_level", RtsSimulation.STRONGHOLD_INITIAL_LEVEL)),
-				int(simulation.players[RtsSimulation.TEAM_PLAYER]["population_cap"]),
-			],
+			I18n.t(&"feedback.upgrade_success", {
+				"level": int(stronghold.get("stronghold_level", RtsSimulation.STRONGHOLD_INITIAL_LEVEL)),
+				"population": int(simulation.players[RtsSimulation.TEAM_PLAYER]["population_cap"]),
+			}),
 			false,
 		)
 	else:
 		var cost := simulation.stronghold_upgrade_cost(stronghold_id)
 		if cost.is_empty():
-			_show_feedback("The Stronghold is already at maximum level.", true)
+			_show_feedback(I18n.t(&"feedback.upgrade_maximum"), true)
 		else:
-			_show_feedback("Insufficient resources for the Stronghold upgrade.", true)
+			_show_feedback(I18n.t(&"feedback.upgrade_failed"), true)
 	_update_hud()
 
 
 func _command_demolish() -> void:
 	var structure_id := battlefield.primary_selected_structure()
 	if structure_id < 0:
-		_show_feedback("Select one of your buildings before demolishing it.", true)
+		_show_feedback(I18n.t(&"feedback.demolish_needs_building"), true)
 		return
 	var structure := simulation.entity(structure_id)
-	var building_name := String(
-		FactionCatalog.stats(
-			structure.get("kind", &"war_camp") as StringName,
-			structure.get("faction", selected_faction) as StringName,
-		).get("name", "Building")
-	)
+	var building_name := I18n.t(FactionCatalog.entity_text_key(structure.get("kind", &"war_camp") as StringName))
 	var refund := simulation.command_demolish(RtsSimulation.TEAM_PLAYER, structure_id)
 	if refund.is_empty():
-		_show_feedback("That building cannot be demolished.", true)
+		_show_feedback(I18n.t(&"feedback.demolish_failed"), true)
 		_update_hud()
 		return
 	battlefield.select_entities([])
 	audio_director.play_ui(&"ui_cancel")
 	_show_feedback(
-		"%s demolished · 50%% refund: %s." % [building_name, _long_cost(refund)],
+		I18n.t(&"feedback.demolished", {"building": building_name, "refund": _long_cost(refund)}),
 		false,
 	)
 	_update_hud()
@@ -1896,7 +1940,7 @@ func _command_demolish() -> void:
 func _command_cancel_training() -> void:
 	var structure_id := battlefield.primary_selected_structure()
 	if structure_id < 0:
-		_show_feedback("Select a production structure with a queued unit.", true)
+		_show_feedback(I18n.t(&"feedback.training_queue_needs_structure"), true)
 		return
 	_cancel_training_order(structure_id)
 
@@ -1913,43 +1957,48 @@ func _cancel_training_order(
 		expected_order_id,
 	)
 	if cancelled.is_empty():
-		_show_feedback("That unit is no longer in the production queue.", true)
+		_show_feedback(I18n.t(&"feedback.training_queue_missing"), true)
 		_update_hud()
 		return
 	audio_director.play_ui(&"ui_cancel")
 	var costs := cancelled.get("costs", {}) as Dictionary
 	var refund_parts: Array[String] = []
 	for definition in [
-		["jade", "J"],
-		["lumber", "L"],
-		["essence", "E"],
-		["food", "F"],
+		["jade", &"ui.command.cost_jade_short"],
+		["lumber", &"ui.command.cost_lumber_short"],
+		["essence", &"ui.command.cost_essence_short"],
+		["food", &"ui.command.cost_food_short"],
 	]:
 		var amount := int(costs.get(definition[0], 0))
 		if amount > 0:
-			refund_parts.append("%d%s" % [amount, definition[1]])
-	var refund_text := " · ".join(refund_parts) if not refund_parts.is_empty() else "no resources (free unit)"
+			refund_parts.append(I18n.t(definition[1] as StringName, {"amount": amount}))
+	var refund_text := " · ".join(refund_parts) if not refund_parts.is_empty() else I18n.t(&"ui.command.free")
 	_show_feedback(
-		"Cancelled %s · full refund: %s." % [
-			String(cancelled.get("kind", &"unit")).capitalize(),
-			refund_text,
-		],
+		I18n.t(&"feedback.cancelled_training", {
+			"unit": I18n.t(FactionCatalog.entity_text_key(cancelled.get("kind", &"worker") as StringName)),
+			"refund": refund_text,
+		}),
 		false,
 	)
 	_update_hud()
 
 
-func _on_battle_notice(message: String, team: int) -> void:
-	if team == RtsSimulation.TEAM_PLAYER or message.begins_with("A rival"):
-		_show_feedback(message, false)
-	elif message.contains("Dragon Egg") or message.contains("Shenlong"):
-		_show_feedback("A rival is contesting the Shenlong objective.", false)
-	elif message.contains("cleared"):
-		_show_feedback("The rival cleared a Yaoguai Den and can now capture it.", false)
-	elif message.contains("Food"):
-		_show_feedback("The rival completed a wildlife hunt.", false)
-	else:
-		_show_feedback("The rival claimed a Jadeclaw bounty.", false)
+func _on_battle_notice(key: StringName, placeholder_values: Dictionary, team: int) -> void:
+	var values := placeholder_values.duplicate()
+	if key == &"notice.wildlife_hunted":
+		var wildlife_kind := values.get("kind", &"deer") as StringName
+		values.erase("kind")
+		values["wildlife"] = I18n.t(FactionCatalog.entity_text_key(wildlife_kind))
+	if team == RtsSimulation.TEAM_PLAYER or key == &"notice.ai_invasion":
+		_show_feedback(I18n.t(key, values), false)
+		return
+	match key:
+		&"notice.den_captured": _show_feedback(I18n.t(&"notice.rival_den_captured"), false)
+		&"notice.den_cleared": _show_feedback(I18n.t(&"notice.rival_den_cleared"), false)
+		&"notice.wildlife_hunted": _show_feedback(I18n.t(&"notice.rival_wildlife_hunted"), false)
+		&"notice.jadeclaw_hunted": _show_feedback(I18n.t(&"notice.rival_jadeclaw_hunted"), false)
+		&"notice.egg_claimed", &"notice.egg_hatched", &"notice.shenlong_fallen":
+			_show_feedback(I18n.t(&"notice.rival_shenlong"), false)
 
 
 func _show_feedback(message: String, is_error: bool = false) -> void:
@@ -1996,7 +2045,7 @@ func _set_paused(next_paused: bool) -> void:
 		_pause_button,
 		HUD_UTILITY_ICON_TEXTURES[&"resume" if paused else &"pause"],
 	)
-	_pause_button.tooltip_text = "Resume the realm" if paused else "Pause the realm"
+	_pause_button.tooltip_text = I18n.t(&"ui.pause.resume_tooltip") if paused else I18n.t(&"ui.hud.pause")
 	if battlefield != null:
 		battlefield.set_process(not paused)
 	if paused:
@@ -2005,7 +2054,7 @@ func _set_paused(next_paused: bool) -> void:
 		_pause_overlay.visible = false
 	audio_director.set_music_state(&"paused" if paused else STATE_MATCH)
 	audio_director.play_ui(&"ui_cancel" if paused else &"ui_confirm")
-	_show_feedback("The realm is paused." if paused else "The realm resumes.", false)
+	_show_feedback(I18n.t(&"feedback.pause_on") if paused else I18n.t(&"feedback.pause_off"), false)
 
 
 func _show_pause_menu() -> void:
@@ -2039,7 +2088,7 @@ func _toggle_fog_of_war() -> void:
 		return
 	battlefield.set_fog_enabled(not battlefield.fog_enabled)
 	audio_director.play_ui(&"ui_confirm")
-	_show_feedback("Fog of war enabled." if battlefield.fog_enabled else "Fog of war disabled.", false)
+	_show_feedback(I18n.t(&"feedback.fog_enabled") if battlefield.fog_enabled else I18n.t(&"feedback.fog_disabled"), false)
 
 
 func _toggle_audio() -> void:
@@ -2091,13 +2140,17 @@ func _apply_effect_settings() -> void:
 
 func _update_effect_controls() -> void:
 	if _settings_effect_intensity_button != null:
-		_settings_effect_intensity_button.text = "EFFECTS: %s" % String(effect_intensity).to_upper()
+		_settings_effect_intensity_button.text = I18n.t(&"ui.pause.effects", {"value": _setting_value(effect_intensity)})
 	if _settings_reduced_motion_button != null:
-		_settings_reduced_motion_button.text = "REDUCED MOTION: %s" % ("ON" if reduced_motion else "OFF")
+		_settings_reduced_motion_button.text = I18n.t(&"ui.pause.reduced_motion", {"value": I18n.t(&"value.on") if reduced_motion else I18n.t(&"value.off")})
 	if _settings_camera_impulse_button != null:
-		_settings_camera_impulse_button.text = "CAMERA IMPULSE: %s" % String(camera_impulse).to_upper()
+		_settings_camera_impulse_button.text = I18n.t(&"ui.pause.camera_impulse", {"value": _setting_value(camera_impulse)})
 	if _settings_damage_numbers_button != null:
-		_settings_damage_numbers_button.text = "DAMAGE VALUES: %s" % String(damage_numbers).to_upper()
+		_settings_damage_numbers_button.text = I18n.t(&"ui.pause.damage_values", {"value": _setting_value(damage_numbers)})
+
+
+func _setting_value(value: StringName) -> String:
+	return I18n.t(StringName("value.%s" % value))
 
 
 func _update_audio_controls() -> void:
@@ -2107,10 +2160,10 @@ func _update_audio_controls() -> void:
 			HUD_UTILITY_ICON_TEXTURES[&"audio_muted" if audio_director.muted else &"audio_on"],
 		)
 	if _settings_audio_button != null:
-		_settings_audio_button.text = "AUDIO: OFF" if audio_director.muted else "AUDIO: ON"
+		_settings_audio_button.text = I18n.t(&"ui.pause.audio_off") if audio_director.muted else I18n.t(&"ui.pause.audio_on")
 		_settings_audio_button.tooltip_text = (
-			"Enable music and sound effects" if audio_director.muted
-			else "Mute music and sound effects"
+			I18n.t(&"ui.pause.audio_tooltip_disabled") if audio_director.muted
+			else I18n.t(&"ui.pause.audio_tooltip_enabled")
 		)
 
 
@@ -2149,11 +2202,11 @@ func _on_match_ended(result: StringName) -> void:
 	column.alignment = BoxContainer.ALIGNMENT_CENTER
 	column.add_theme_constant_override(&"separation", 13)
 	panel.add_child(column)
-	var title := ThemeFactory.label("VICTORY" if result == &"victory" else "DEFEAT", 30, accent)
+	var title := ThemeFactory.label(I18n.t(&"ui.result.victory") if result == &"victory" else I18n.t(&"ui.result.defeat"), 30, accent)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(title)
 	var detail := ThemeFactory.label(
-		"All three rival Strongholds have fallen." if result == &"victory" else "Your Stronghold has fallen. The remaining mandates endure.",
+		I18n.t(&"ui.result.victory_detail") if result == &"victory" else I18n.t(&"ui.result.defeat_detail"),
 		17,
 		ThemeFactory.PARCHMENT,
 	)
@@ -2161,24 +2214,24 @@ func _on_match_ended(result: StringName) -> void:
 	column.add_child(detail)
 	var elapsed_seconds := int(simulation.elapsed_time)
 	var elapsed_minutes := floori(simulation.elapsed_time / 60.0)
-	var time_label := ThemeFactory.label("Skirmish time: %02d:%02d" % [elapsed_minutes, elapsed_seconds % 60], 15, ThemeFactory.MUTED)
+	var time_label := ThemeFactory.label(I18n.t(&"ui.result.skirmish_time", {"time": "%02d:%02d" % [elapsed_minutes, elapsed_seconds % 60]}), 15, ThemeFactory.MUTED)
 	time_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(time_label)
-	var result_score := ThemeFactory.label("SCORE: %d" % final_score, 23, ThemeFactory.GOLD)
+	var result_score := ThemeFactory.label(I18n.t(&"ui.hud.score", {"score": final_score}), 23, ThemeFactory.GOLD)
 	result_score.name = "ResultScore"
 	result_score.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(result_score)
-	var rematch := ThemeFactory.button("REMATCH")
+	var rematch := ThemeFactory.button(I18n.t(&"ui.result.rematch"))
 	_connect_button(rematch, func() -> void: _start_match(selected_faction))
 	column.add_child(rematch)
-	_result_leaderboard_button = ThemeFactory.button("LEADERBOARD", "View local and global rankings")
+	_result_leaderboard_button = ThemeFactory.button(I18n.t(&"ui.leaderboard"), I18n.t(&"ui.leaderboard_tooltip"))
 	_result_leaderboard_button.name = "ResultLeaderboardButton"
 	_connect_button(_result_leaderboard_button, func() -> void: _open_leaderboard(_result_leaderboard_button))
 	column.add_child(_result_leaderboard_button)
-	var choose := ThemeFactory.button("CHOOSE ANOTHER FACTION")
+	var choose := ThemeFactory.button(I18n.t(&"ui.result.choose_faction"))
 	_connect_button(choose, _show_faction_select)
 	column.add_child(choose)
-	var title_button := ThemeFactory.button("RETURN TO TITLE")
+	var title_button := ThemeFactory.button(I18n.t(&"ui.result.return_title"))
 	_connect_button(title_button, _show_title, &"ui_cancel")
 	column.add_child(title_button)
 	rematch.grab_focus()

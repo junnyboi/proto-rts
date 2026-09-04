@@ -2,6 +2,7 @@ class_name ThemeFactory
 extends RefCounted
 
 const HUD_UTILITY_ICON_LIGHTEN_SHADER := preload("res://scripts/ui/hud_utility_icon_lighten.gdshader")
+const CJK_FONT: FontFile = preload("res://assets/fonts/NotoSansCJKsc-Regular.otf")
 const INK := Color("0b1719")
 const INK_DEEP := Color("071012")
 const INK_SOFT := Color("14282a")
@@ -27,6 +28,11 @@ const BUTTON_BORDER_DISABLED := Color("4f6562")
 
 static func create() -> Theme:
 	var theme := Theme.new()
+	var ui_font := FontVariation.new()
+	ui_font.base_font = CJK_FONT
+	ui_font.fallbacks = [ThemeDB.fallback_font]
+	ui_font.resource_name = "Mandate of Myth Latin and Simplified Chinese UI font"
+	theme.default_font = ui_font
 	theme.set_default_font_size(17)
 	theme.set_color(&"font_color", &"Label", PARCHMENT)
 	theme.set_font_size(&"font_size", &"Label", 17)

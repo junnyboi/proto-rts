@@ -37,7 +37,7 @@ func _ready() -> void:
 func configure(store: LeaderboardStore) -> void:
 	_store = store
 	if callsign_edit != null:
-		callsign_edit.text = _store.callsign()
+		callsign_edit.text = _display_callsign(_store.callsign())
 		_refresh_rows()
 
 
@@ -48,7 +48,7 @@ func open(return_focus: Control = null) -> void:
 	move_to_front()
 	visible = true
 	if _store != null:
-		callsign_edit.text = _store.callsign()
+		callsign_edit.text = _display_callsign(_store.callsign())
 	_update_tab_styles()
 	_refresh_rows()
 	local_tab.call_deferred("grab_focus")
@@ -77,15 +77,15 @@ func set_global_state(next_state: StringName, next_entries: Array, next_personal
 func set_callsign_sync_state(sync_state: StringName) -> void:
 	match sync_state:
 		&"syncing":
-			status_label.text = "NAME SAVED LOCALLY · SYNCING GLOBAL PROFILE…"
+			status_label.text = I18n.t(&"leaderboard.status_name_syncing")
 		&"online":
-			status_label.text = "NAME SAVED AND SYNCED."
+			status_label.text = I18n.t(&"leaderboard.status_name_synced")
 		&"offline":
-			status_label.text = "NAME SAVED LOCALLY · GLOBAL SERVICE OFFLINE."
+			status_label.text = I18n.t(&"leaderboard.status_name_offline")
 		&"error":
-			status_label.text = "NAME SAVED LOCALLY · GLOBAL SYNC WAS REJECTED."
+			status_label.text = I18n.t(&"leaderboard.status_name_rejected")
 		_:
-			status_label.text = "NAME SAVED LOCALLY."
+			status_label.text = I18n.t(&"leaderboard.status_name_local")
 
 
 func _build_interface() -> void:
@@ -111,30 +111,30 @@ func _build_interface() -> void:
 	column.add_theme_constant_override(&"separation", 8)
 	panel.add_child(column)
 
-	var title := ThemeFactory.label("HALL OF MANDATES", 30, ThemeFactory.GOLD)
+	var title := ThemeFactory.label(I18n.t(&"leaderboard.title"), 30, ThemeFactory.GOLD)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(title)
 
-	var subtitle := ThemeFactory.label("Your strongest campaigns, preserved across the realm.", 14, ThemeFactory.MUTED)
+	var subtitle := ThemeFactory.label(I18n.t(&"leaderboard.subtitle"), 14, ThemeFactory.MUTED)
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(subtitle)
 
 	var identity_row := HBoxContainer.new()
 	identity_row.add_theme_constant_override(&"separation", 10)
 	column.add_child(identity_row)
-	var identity_label := ThemeFactory.label("NAME", 14, ThemeFactory.JADE)
+	var identity_label := ThemeFactory.label(I18n.t(&"leaderboard.name"), 14, ThemeFactory.JADE)
 	identity_label.custom_minimum_size.x = 84.0
 	identity_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	identity_row.add_child(identity_label)
 	callsign_edit = LineEdit.new()
 	callsign_edit.name = "CallsignEdit"
-	callsign_edit.placeholder_text = "Forgotten One - XXX"
+	callsign_edit.placeholder_text = I18n.t(&"leaderboard.name_placeholder")
 	callsign_edit.max_length = LeaderboardStore.MAX_CALLSIGN_LENGTH
 	callsign_edit.custom_minimum_size = Vector2(260.0, 38.0)
 	callsign_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	callsign_edit.text_submitted.connect(func(_text: String) -> void: _save_callsign())
 	identity_row.add_child(callsign_edit)
-	var save_button := ThemeFactory.button("SAVE")
+	var save_button := ThemeFactory.button(I18n.t(&"leaderboard.save"))
 	save_button.name = "SaveCallsignButton"
 	save_button.custom_minimum_size.x = 110.0
 	save_button.pressed.connect(_save_callsign)
@@ -151,14 +151,14 @@ func _build_interface() -> void:
 	tab_row.add_theme_constant_override(&"separation", 10)
 	column.add_child(tab_row)
 	var tab_group := ButtonGroup.new()
-	local_tab = ThemeFactory.button("LOCAL")
+	local_tab = ThemeFactory.button(I18n.t(&"leaderboard.local"))
 	local_tab.name = "LocalTab"
 	local_tab.custom_minimum_size = Vector2(180.0, 40.0)
 	local_tab.toggle_mode = true
 	local_tab.button_group = tab_group
 	local_tab.pressed.connect(func() -> void: _select_mode(MODE_LOCAL))
 	tab_row.add_child(local_tab)
-	global_tab = ThemeFactory.button("GLOBAL")
+	global_tab = ThemeFactory.button(I18n.t(&"leaderboard.global"))
 	global_tab.name = "GlobalTab"
 	global_tab.custom_minimum_size = Vector2(180.0, 40.0)
 	global_tab.toggle_mode = true
@@ -192,12 +192,12 @@ func _build_interface() -> void:
 	action_row.alignment = BoxContainer.ALIGNMENT_END
 	action_row.add_theme_constant_override(&"separation", 10)
 	column.add_child(action_row)
-	refresh_button = ThemeFactory.button("REFRESH")
+	refresh_button = ThemeFactory.button(I18n.t(&"leaderboard.refresh"))
 	refresh_button.name = "RefreshLeaderboardButton"
 	refresh_button.custom_minimum_size.x = 150.0
 	refresh_button.pressed.connect(_refresh_pressed)
 	action_row.add_child(refresh_button)
-	close_button = ThemeFactory.button("CLOSE")
+	close_button = ThemeFactory.button(I18n.t(&"leaderboard.close"))
 	close_button.name = "CloseLeaderboardButton"
 	close_button.custom_minimum_size.x = 150.0
 	close_button.pressed.connect(close_dialog)
@@ -227,13 +227,23 @@ func _refresh_pressed() -> void:
 func _save_callsign() -> void:
 	if _store == null:
 		return
-	var validation_error := _store.set_callsign(callsign_edit.text)
+	var stored_callsign := _store.callsign()
+	var is_unchanged_placeholder := (
+		stored_callsign.begins_with(LeaderboardStore.PLACEHOLDER_NAME_PREFIX)
+		and callsign_edit.text == _display_callsign(stored_callsign)
+	)
+	var validation_error := "" if is_unchanged_placeholder else _store.set_callsign(callsign_edit.text)
 	if not validation_error.is_empty():
-		status_label.text = validation_error.to_upper()
+		var values := {}
+		if validation_error == "leaderboard.validation_too_short":
+			values["minimum"] = LeaderboardStore.MIN_CALLSIGN_LENGTH
+		elif validation_error == "leaderboard.validation_too_long":
+			values["maximum"] = LeaderboardStore.MAX_CALLSIGN_LENGTH
+		status_label.text = I18n.t(StringName(validation_error), values).to_upper()
 		callsign_edit.grab_focus()
 		return
-	callsign_edit.text = _store.callsign()
-	status_label.text = "NAME SAVED LOCALLY."
+	callsign_edit.text = _display_callsign(_store.callsign())
+	status_label.text = I18n.t(&"leaderboard.status_name_local")
 	_refresh_rows(false)
 	callsign_saved.emit()
 
@@ -245,29 +255,29 @@ func _refresh_rows(update_status: bool = true) -> void:
 	var global_format := false
 	if mode == MODE_LOCAL:
 		display_rows = _store.local_leaderboard(DISPLAY_LIMIT)
-		column_header.text = " RANK   NAME                         SCORE       RESULT       FACTION                         TIME"
+		column_header.text = I18n.t(&"leaderboard.column_local")
 		if update_status:
-			status_label.text = "LOCAL HISTORY · %d OF %d RUNS SHOWN" % [display_rows.size(), LeaderboardStore.MAX_HISTORY]
+			status_label.text = I18n.t(&"leaderboard.status_local_history", {"shown": display_rows.size(), "maximum": LeaderboardStore.MAX_HISTORY})
 	else:
-		column_header.text = " RANK   NAME                         SCORE       RECORD       FACTION                         TIME"
+		column_header.text = I18n.t(&"leaderboard.column_global")
 		if _global_state == &"online":
 			display_rows = _global_entries.duplicate(true)
 			global_format = true
 			if _personal_rank.is_empty():
-				status_label.text = "GLOBAL RANKINGS ONLINE"
+				status_label.text = I18n.t(&"leaderboard.status_global_online")
 			else:
-				status_label.text = "GLOBAL RANK #%d · BEST SCORE %s" % [int(_personal_rank["rank"]), _format_number(int(_personal_rank["score"]))]
+				status_label.text = I18n.t(&"leaderboard.status_global_rank", {"rank": int(_personal_rank["rank"]), "score": _format_number(int(_personal_rank["score"]))})
 		else:
 			display_rows = _store.local_leaderboard(DISPLAY_LIMIT)
 			match _global_state:
 				&"syncing":
-					status_label.text = "CONTACTING GLOBAL RANKINGS · SHOWING LOCAL HISTORY"
+					status_label.text = I18n.t(&"leaderboard.status_contacting")
 				&"error":
-					status_label.text = "GLOBAL RESPONSE INVALID · SHOWING LOCAL HISTORY"
+					status_label.text = I18n.t(&"leaderboard.status_global_invalid")
 				&"offline":
-					status_label.text = "GLOBAL SERVICE OFFLINE · SHOWING LOCAL HISTORY"
+					status_label.text = I18n.t(&"leaderboard.status_global_offline")
 				_:
-					status_label.text = "GLOBAL RANKINGS REQUIRE THE WEB HOST · SHOWING LOCAL HISTORY"
+					status_label.text = I18n.t(&"leaderboard.status_web_required")
 	for index in range(row_labels.size()):
 		var label := row_labels[index]
 		if index >= display_rows.size():
@@ -281,9 +291,9 @@ func _refresh_rows(update_status: bool = true) -> void:
 
 func _format_row(row: Dictionary, global_format: bool) -> String:
 	var rank := int(row.get("rank", 0))
-	var row_callsign := String(row.get("callsign", "UNKNOWN")).to_upper().left(20)
+	var row_callsign := _display_callsign(String(row.get("callsign", I18n.t(&"leaderboard.unknown")))).to_upper().left(20)
 	var score := _format_number(int(row.get("score", 0)))
-	var record := "%d WINS" % int(row.get("victories", 0)) if global_format else String(row.get("result", "defeat")).to_upper()
+	var record := I18n.t(&"leaderboard.wins", {"count": int(row.get("victories", 0))}) if global_format else I18n.t(&"leaderboard.result_victory") if row.get("result", "defeat") == "victory" else I18n.t(&"leaderboard.result_defeat")
 	var faction := _faction_name(String(row.get("faction", "unknown"))).to_upper()
 	var elapsed := "—" if global_format else _format_duration(int(row.get("elapsed_seconds", 0)))
 	return "#%-5d %-28s %10s   %-11s  %-30s %7s" % [rank, row_callsign, score, record, faction, elapsed]
@@ -292,8 +302,18 @@ func _format_row(row: Dictionary, global_format: bool) -> String:
 func _faction_name(faction: String) -> String:
 	var faction_id := StringName(faction)
 	if faction_id not in FactionCatalog.ORDER:
-		return "Unknown"
-	return String(FactionCatalog.definition(faction_id).get("name", faction))
+		return I18n.t(&"value.unknown")
+	return I18n.t(FactionCatalog.faction_text_key(faction_id, &"name"))
+
+
+func _display_callsign(value: String) -> String:
+	if value == "UNKNOWN" or value.is_empty():
+		return I18n.t(&"leaderboard.unknown")
+	if value.begins_with(LeaderboardStore.PLACEHOLDER_NAME_PREFIX):
+		return I18n.t(&"leaderboard.forgotten_one", {
+			"suffix": value.trim_prefix(LeaderboardStore.PLACEHOLDER_NAME_PREFIX),
+		})
+	return value
 
 
 func _format_duration(total_seconds: int) -> String:

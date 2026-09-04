@@ -46,11 +46,11 @@ func callsign() -> String:
 func validate_callsign(value: String) -> String:
 	var candidate := value.strip_edges()
 	if candidate.length() < MIN_CALLSIGN_LENGTH:
-		return "Name must be at least %d characters." % MIN_CALLSIGN_LENGTH
+		return "leaderboard.validation_too_short"
 	if candidate.length() > MAX_CALLSIGN_LENGTH:
-		return "Name must be at most %d characters." % MAX_CALLSIGN_LENGTH
+		return "leaderboard.validation_too_long"
 	if _callsign_pattern.search(candidate) == null:
-		return "Use letters, numbers, spaces, hyphens, or underscores only."
+		return "leaderboard.validation_charset"
 	return ""
 
 

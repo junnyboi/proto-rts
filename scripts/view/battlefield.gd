@@ -532,11 +532,11 @@ func _handle_left_press(screen_position: Vector2, append: bool = false) -> void:
 		if not move_units.is_empty() and MapCatalog.in_bounds(move_cell):
 			simulation.command_move(RtsSimulation.TEAM_PLAYER, move_units, move_cell, false, append or _armed_append)
 			_effect_director.emit_click(Vector2(move_cell), &"queued" if append or _armed_append else &"move", PLAYER_COLOR, append or _armed_append)
-			feedback.emit("Move queued." if append or _armed_append else "Move order issued.", false)
+			feedback.emit(I18n.t(&"battlefield.move_queued") if append or _armed_append else I18n.t(&"battlefield.move_issued"), false)
 			audio_cue.emit(&"order_move")
 		else:
 			_effect_director.emit_invalid(screen_to_map_position(screen_position))
-			feedback.emit("Choose a valid move destination.", true)
+			feedback.emit(I18n.t(&"battlefield.move_destination_invalid"), true)
 		return
 	if rally_armed:
 		var rally_cell := screen_to_cell(screen_position)
@@ -544,11 +544,11 @@ func _handle_left_press(screen_position: Vector2, append: bool = false) -> void:
 		if rally_structure >= 0 and MapCatalog.in_bounds(rally_cell):
 			simulation.set_rally(RtsSimulation.TEAM_PLAYER, rally_structure, rally_cell)
 			_effect_director.emit_click(Vector2(rally_cell), &"rally", Color("f0d278"))
-			feedback.emit("Rally point updated.", false)
+			feedback.emit(I18n.t(&"battlefield.rally_updated"), false)
 			audio_cue.emit(&"order_move")
 		else:
 			_effect_director.emit_invalid(screen_to_map_position(screen_position))
-			feedback.emit("Choose a valid rally destination.", true)
+			feedback.emit(I18n.t(&"battlefield.rally_destination_invalid"), true)
 		return
 	if repair_armed:
 		var repair_target_id := command_target_at_screen(screen_position, false)
@@ -560,11 +560,11 @@ func _handle_left_press(screen_position: Vector2, append: bool = false) -> void:
 			append or _armed_append,
 		):
 			_effect_director.emit_click(screen_to_map_position(screen_position), &"queued" if append or _armed_append else &"repair", Color("e4c66d"), append or _armed_append)
-			feedback.emit("Repair order queued." if append or _armed_append else "Repair order issued.", false)
+			feedback.emit(I18n.t(&"battlefield.repair_order_queued") if append or _armed_append else I18n.t(&"battlefield.repair_issued"), false)
 			audio_cue.emit(&"order_work")
 		else:
 			_effect_director.emit_invalid(screen_to_map_position(screen_position))
-			feedback.emit("Choose a damaged allied structure to repair.", true)
+			feedback.emit(I18n.t(&"battlefield.repair_invalid_target"), true)
 		return
 	if attack_move_armed:
 		var cell := screen_to_cell(screen_position)
@@ -572,7 +572,7 @@ func _handle_left_press(screen_position: Vector2, append: bool = false) -> void:
 		if not units.is_empty() and MapCatalog.in_bounds(cell):
 			simulation.command_move(RtsSimulation.TEAM_PLAYER, units, cell, true, append or _armed_append)
 			_effect_director.emit_click(Vector2(cell), &"queued" if append or _armed_append else &"attack", ENEMY_COLOR, append or _armed_append)
-			feedback.emit("Attack-move queued." if append or _armed_append else "Attack-move order issued.", false)
+			feedback.emit(I18n.t(&"battlefield.attack_move_queued") if append or _armed_append else I18n.t(&"battlefield.attack_move_issued"), false)
 			audio_cue.emit(&"order_attack")
 		return
 	if patrol_armed:
@@ -584,11 +584,11 @@ func _handle_left_press(screen_position: Vector2, append: bool = false) -> void:
 			append or _armed_append,
 		):
 			_effect_director.emit_click(Vector2(patrol_cell), &"queued" if append or _armed_append else &"patrol", Color("79c9ee"), append or _armed_append)
-			feedback.emit("Patrol queued." if append or _armed_append else "Patrol route established.", false)
+			feedback.emit(I18n.t(&"battlefield.patrol_queued") if append or _armed_append else I18n.t(&"battlefield.patrol_established"), false)
 			audio_cue.emit(&"order_move")
 		else:
 			_effect_director.emit_invalid(screen_to_map_position(screen_position))
-			feedback.emit("Choose a valid patrol destination.", true)
+			feedback.emit(I18n.t(&"battlefield.patrol_destination_invalid"), true)
 		return
 	_selection_pressed = true
 	_selection_dragging = false
@@ -636,9 +636,7 @@ func _handle_left_release(screen_position: Vector2) -> void:
 
 
 func _commit_structure_placement() -> void:
-	var faction := simulation.players[RtsSimulation.TEAM_PLAYER]["faction"] as StringName
-	var stats := FactionCatalog.stats(placement_kind, faction)
-	var structure_name := String(stats.get("name", "Structure"))
+	var structure_name := I18n.t(FactionCatalog.entity_text_key(placement_kind))
 	if placement_kind == &"wall":
 		var wall_ids := simulation.command_build_wall_line(
 			RtsSimulation.TEAM_PLAYER,
@@ -649,10 +647,10 @@ func _commit_structure_placement() -> void:
 		)
 		if wall_ids.is_empty():
 			_effect_director.emit_invalid(Vector2(_placement_start_cell))
-			feedback.emit("That snapped wall line is blocked or unaffordable.", true)
+			feedback.emit(I18n.t(&"battlefield.build_wall_blocked"), true)
 		else:
 			_effect_director.emit_click(Vector2(_placement_start_cell), &"build", PLAYER_COLOR)
-			feedback.emit("%d Wood Wall foundations placed." % wall_ids.size(), false)
+			feedback.emit(I18n.t(&"battlefield.build_wall_success", {"count": wall_ids.size()}), false)
 			audio_cue.emit(&"order_work")
 		return
 	if simulation.command_build(
@@ -663,11 +661,11 @@ func _commit_structure_placement() -> void:
 		placement_orientation,
 	):
 		_effect_director.emit_click(Vector2(_placement_start_cell), &"build", PLAYER_COLOR)
-		feedback.emit("%s foundation placed." % structure_name, false)
+		feedback.emit(I18n.t(&"battlefield.build_success", {"structure": structure_name}), false)
 		audio_cue.emit(&"order_work")
 	else:
 		_effect_director.emit_invalid(Vector2(_placement_start_cell))
-		feedback.emit("That site cannot host a %s." % structure_name, true)
+		feedback.emit(I18n.t(&"battlefield.build_site_invalid", {"structure": structure_name}), true)
 
 
 func _handle_right_click(screen_position: Vector2, append: bool = false) -> void:
@@ -693,45 +691,45 @@ func _handle_right_click(screen_position: Vector2, append: bool = false) -> void
 		):
 			var ranged_units := _selected_garrison_units()
 			if ranged_units.is_empty():
-				feedback.emit("Select a Hunter or Mystic to garrison this tower.", true)
+				feedback.emit(I18n.t(&"battlefield.garrison_needs_unit"), true)
 			elif simulation.command_garrison(
 				RtsSimulation.TEAM_PLAYER,
 				ranged_units,
 				target_id,
 				append,
 			):
-				feedback.emit("Tower garrison queued." if append else "Unit sent to the Sentry Tower.", false)
+				feedback.emit(I18n.t(&"battlefield.garrison_queued") if append else I18n.t(&"battlefield.garrison_sent"), false)
 				audio_cue.emit(&"order_move")
 			else:
-				feedback.emit("This tower is already occupied.", true)
+				feedback.emit(I18n.t(&"battlefield.garrison_full"), true)
 			return
 		if target.get("kind") == &"shenlong_egg":
 			var egg_workers := _selected_of_kind(&"worker")
 			if egg_workers.is_empty():
-				feedback.emit("Select an empty-handed Worker to claim the Dragon Egg.", true)
+				feedback.emit(I18n.t(&"battlefield.egg_claim_needs_worker"), true)
 			elif simulation.command_claim_egg(RtsSimulation.TEAM_PLAYER, egg_workers, target_id, append):
-				feedback.emit("Dragon Egg claim queued." if append else "Worker sent to claim the Dragon Egg.", false)
+				feedback.emit(I18n.t(&"battlefield.egg_claim_queued") if append else I18n.t(&"battlefield.egg_claim_sent"), false)
 				audio_cue.emit(&"order_work")
 			else:
-				feedback.emit("The Dragon Egg is locked, carried, or the Worker has cargo.", true)
+				feedback.emit(I18n.t(&"battlefield.egg_claim_invalid"), true)
 			return
 		if target.get("category") == &"wildlife":
 			var hunters := _selected_of_kind(&"hunter")
 			if hunters.is_empty():
-				feedback.emit("Only Hunters can hunt wildlife.", true)
+				feedback.emit(I18n.t(&"battlefield.hunt_needs_hunter"), true)
 			else:
 				simulation.command_attack(RtsSimulation.TEAM_PLAYER, hunters, target_id, append)
-				feedback.emit("Hunt queued." if append else "Hunters pursuing %s." % _display_name(target), false)
+				feedback.emit(I18n.t(&"battlefield.hunt_queued") if append else I18n.t(&"battlefield.hunt_pursuing", {"wildlife": _display_name(target)}), false)
 				audio_cue.emit(&"order_attack")
 			return
 		if target.get("kind") == &"yaoguai_den" and not commandable_units.is_empty():
 			simulation.command_move(RtsSimulation.TEAM_PLAYER, commandable_units, target["cell"] as Vector2i, true, append)
-			feedback.emit("Den hunt queued." if append else "Hunt the guardians, then hold the Den's capture ring.", false)
+			feedback.emit(I18n.t(&"battlefield.den_hunt_queued") if append else I18n.t(&"battlefield.den_hunt"), false)
 			audio_cue.emit(&"order_attack")
 			return
 		if not commandable_units.is_empty() and simulation.are_hostile(simulation.entity(commandable_units[0]), target):
 			simulation.command_attack(RtsSimulation.TEAM_PLAYER, commandable_units, target_id, append)
-			feedback.emit("Focus-fire queued." if append else "Focus-fire order issued.", false)
+			feedback.emit(I18n.t(&"battlefield.focus_fire_queued") if append else I18n.t(&"battlefield.focus_fire_issued"), false)
 			audio_cue.emit(&"order_attack")
 			return
 		var construction_workers := _selected_of_kind(&"worker")
@@ -747,7 +745,7 @@ func _handle_right_click(screen_position: Vector2, append: bool = false) -> void
 				append,
 			)
 		):
-			feedback.emit("Construction queued." if append else "Workers assigned to construction.", false)
+			feedback.emit(I18n.t(&"battlefield.construction_queued") if append else I18n.t(&"battlefield.construction_assigned"), false)
 			return
 		var farm_workers := _selected_of_kind(&"worker")
 		if (
@@ -763,12 +761,12 @@ func _handle_right_click(screen_position: Vector2, append: bool = false) -> void
 				target_id,
 				append,
 			):
-				feedback.emit("Farm work queued." if append else "Worker assigned to the Rice Farm.", false)
+				feedback.emit(I18n.t(&"battlefield.farm_queued") if append else I18n.t(&"battlefield.farm_assigned"), false)
 				audio_cue.emit(&"order_work")
 			elif simulation.farm_worker_id(target_id) >= 0:
-				feedback.emit("This Rice Farm already has its maximum of one Worker.", true)
+				feedback.emit(I18n.t(&"battlefield.farm_full"), true)
 			else:
-				feedback.emit("Assign an empty-handed Worker to this Rice Farm.", true)
+				feedback.emit(I18n.t(&"battlefield.farm_needs_worker"), true)
 			return
 		if target.get("kind") == &"stronghold":
 			var workers := _selected_of_kind(&"worker")
@@ -777,7 +775,7 @@ func _handle_right_click(screen_position: Vector2, append: bool = false) -> void
 				if bool(simulation.entity(worker_id).get("carrying_egg", false)):
 					egg_carriers.append(worker_id)
 			if not egg_carriers.is_empty() and simulation.command_return_egg(RtsSimulation.TEAM_PLAYER, egg_carriers, target_id, append):
-				feedback.emit("Dragon Egg return queued." if append else "Dragon Egg carrier returning to the Stronghold.", false)
+				feedback.emit(I18n.t(&"battlefield.egg_return_queued") if append else I18n.t(&"battlefield.egg_returning"), false)
 				audio_cue.emit(&"order_work")
 				return
 			var carrying_workers: Array[int] = []
@@ -788,14 +786,14 @@ func _handle_right_click(screen_position: Vector2, append: bool = false) -> void
 				var deposited_workers := simulation.command_deposit(RtsSimulation.TEAM_PLAYER, carrying_workers, target_id, append)
 				audio_cue.emit(&"order_work")
 				if append:
-					feedback.emit("Resource return queued.", false)
+					feedback.emit(I18n.t(&"battlefield.resource_return_queued"), false)
 					return
 				if deposited_workers == carrying_workers.size():
-					feedback.emit("Workers deposited all carried resources.", false)
+					feedback.emit(I18n.t(&"battlefield.resource_deposited_all"), false)
 				elif deposited_workers > 0:
-					feedback.emit("Nearby workers deposited; the rest are returning cargo.", false)
+					feedback.emit(I18n.t(&"battlefield.resource_deposited_nearby"), false)
 				else:
-					feedback.emit("Workers returning cargo to the Stronghold.", false)
+					feedback.emit(I18n.t(&"battlefield.resource_returning"), false)
 				return
 		var repair_workers := _selected_of_kind(&"worker")
 		if (
@@ -805,7 +803,7 @@ func _handle_right_click(screen_position: Vector2, append: bool = false) -> void
 			and float(target.get("hp", 0.0)) < float(target.get("max_hp", 0.0))
 			and simulation.command_repair(RtsSimulation.TEAM_PLAYER, repair_workers, target_id, append)
 		):
-			feedback.emit("Repair queued." if append else "Workers assigned to repairs.", false)
+			feedback.emit(I18n.t(&"battlefield.repair_queued") if append else I18n.t(&"battlefield.repair_assigned"), false)
 			audio_cue.emit(&"order_work")
 			return
 		if target.get("category") == &"resource":
@@ -814,23 +812,23 @@ func _handle_right_click(screen_position: Vector2, append: bool = false) -> void
 				simulation.command_gather(RtsSimulation.TEAM_PLAYER, workers, target_id, append)
 				audio_cue.emit(&"order_work")
 				feedback.emit(
-					"%s gathering queued." % _display_name(target) if append
-					else "Workers assigned to %s." % _display_name(target),
+					I18n.t(&"battlefield.gather_queued", {"resource": _display_name(target)}) if append
+					else I18n.t(&"battlefield.gather_assigned", {"resource": _display_name(target)}),
 					false,
 				)
 				return
 	var cell := screen_to_cell(screen_position)
 	if not MapCatalog.in_bounds(cell):
 		_effect_director.emit_invalid(screen_to_map_position(screen_position))
-		feedback.emit("That destination is beyond the map boundary.", true)
+		feedback.emit(I18n.t(&"battlefield.destination_outside_map"), true)
 		return
 	if selected_structure >= 0 and selected_commandable_units().is_empty():
 		if simulation.set_rally(RtsSimulation.TEAM_PLAYER, selected_structure, cell):
-			feedback.emit("Rally point updated.", false)
+			feedback.emit(I18n.t(&"battlefield.rally_updated"), false)
 			audio_cue.emit(&"order_move")
 	else:
 		if simulation.command_move(RtsSimulation.TEAM_PLAYER, selected_commandable_units(), cell, false, append):
-			feedback.emit("Move queued." if append else "Move order issued.", false)
+			feedback.emit(I18n.t(&"battlefield.move_queued") if append else I18n.t(&"battlefield.move_issued"), false)
 			audio_cue.emit(&"order_move")
 
 
@@ -914,9 +912,9 @@ func assign_control_group(index: int, append: bool = false) -> void:
 	control_groups[index] = members
 	audio_cue.emit(&"ui_confirm")
 	feedback.emit(
-		"Group %d updated · %d selected." % [index, members.size()]
+		I18n.t(&"battlefield.control_group_updated", {"group": index, "count": members.size()})
 		if append
-		else "Group %d assigned · %d selected." % [index, members.size()],
+		else I18n.t(&"battlefield.control_group_assigned", {"group": index, "count": members.size()}),
 		false,
 	)
 
@@ -929,7 +927,7 @@ func recall_control_group(index: int, additive: bool = false) -> void:
 	if members.is_empty():
 		if not additive:
 			select_entities([])
-		feedback.emit("Control group %d is empty." % index, true)
+		feedback.emit(I18n.t(&"battlefield.control_group_empty", {"group": index}), true)
 		return
 	var next_selection: Array[int] = []
 	if additive:
@@ -983,82 +981,82 @@ func begin_attack_move(append: bool = false) -> void:
 	if attack_move_armed:
 		cancel_modes()
 		audio_cue.emit(&"ui_cancel")
-		feedback.emit("Attack-move cancelled.", false)
+		feedback.emit(I18n.t(&"battlefield.attack_move_cancelled"), false)
 		return
 	if selected_commandable_units().is_empty():
-		feedback.emit("Select units before issuing attack-move.", true)
+		feedback.emit(I18n.t(&"battlefield.select_attack_move_units"), true)
 		return
 	cancel_modes()
 	attack_move_armed = true
 	_armed_append = append
 	_refresh_cursor()
 	audio_cue.emit(&"ui_confirm")
-	feedback.emit("Queued attack-move: choose a destination." if append else "Attack-move armed: choose a destination.", false)
+	feedback.emit(I18n.t(&"battlefield.attack_move_queued_choose") if append else I18n.t(&"battlefield.attack_move_armed"), false)
 
 
 func begin_move(append: bool = false) -> void:
 	if move_armed:
 		cancel_modes()
 		audio_cue.emit(&"ui_cancel")
-		feedback.emit("Move command cancelled.", false)
+		feedback.emit(I18n.t(&"battlefield.move_cancelled"), false)
 		return
 	if selected_commandable_units().is_empty():
-		feedback.emit("Select units before issuing a move.", true)
+		feedback.emit(I18n.t(&"battlefield.move_requires_units"), true)
 		return
 	cancel_modes()
 	move_armed = true
 	_armed_append = append
 	audio_cue.emit(&"ui_confirm")
-	feedback.emit("Queued move: choose a destination." if append else "Move armed: choose a destination.", false)
+	feedback.emit(I18n.t(&"battlefield.move_queued_choose") if append else I18n.t(&"battlefield.move_armed"), false)
 
 
 func begin_patrol(append: bool = false) -> void:
 	if patrol_armed:
 		cancel_modes()
 		audio_cue.emit(&"ui_cancel")
-		feedback.emit("Patrol cancelled.", false)
+		feedback.emit(I18n.t(&"battlefield.patrol_cancelled"), false)
 		return
 	if selected_military_units().is_empty():
-		feedback.emit("Select military units before setting a patrol.", true)
+		feedback.emit(I18n.t(&"battlefield.patrol_requires_units"), true)
 		return
 	cancel_modes()
 	patrol_armed = true
 	_armed_append = append
 	_refresh_cursor()
 	audio_cue.emit(&"ui_confirm")
-	feedback.emit("Queued patrol: choose a destination." if append else "Patrol armed: choose a destination.", false)
+	feedback.emit(I18n.t(&"battlefield.patrol_queued_choose") if append else I18n.t(&"battlefield.patrol_armed"), false)
 
 
 func begin_repair(append: bool = false) -> void:
 	if repair_armed:
 		cancel_modes()
 		audio_cue.emit(&"ui_cancel")
-		feedback.emit("Repair command cancelled.", false)
+		feedback.emit(I18n.t(&"battlefield.repair_cancelled"), false)
 		return
 	if _selected_of_kind(&"worker").is_empty():
-		feedback.emit("Select workers before issuing a repair order.", true)
+		feedback.emit(I18n.t(&"battlefield.repair_requires_workers"), true)
 		return
 	cancel_modes()
 	repair_armed = true
 	_armed_append = append
 	_refresh_cursor()
 	audio_cue.emit(&"ui_confirm")
-	feedback.emit("Queued repair: choose a structure." if append else "Repair armed: choose a damaged allied structure.", false)
+	feedback.emit(I18n.t(&"battlefield.repair_queued_choose") if append else I18n.t(&"battlefield.repair_armed"), false)
 
 
 func begin_rally() -> void:
 	if rally_armed:
 		cancel_modes()
 		audio_cue.emit(&"ui_cancel")
-		feedback.emit("Rally command cancelled.", false)
+		feedback.emit(I18n.t(&"battlefield.rally_cancelled"), false)
 		return
 	if primary_selected_structure() < 0:
-		feedback.emit("Select an allied production structure before setting a rally point.", true)
+		feedback.emit(I18n.t(&"battlefield.rally_requires_structure"), true)
 		return
 	cancel_modes()
 	rally_armed = true
 	audio_cue.emit(&"ui_confirm")
-	feedback.emit("Rally point armed: choose a destination.", false)
+	feedback.emit(I18n.t(&"battlefield.rally_armed"), false)
 
 
 func begin_war_camp_placement() -> void:
@@ -1069,17 +1067,17 @@ func begin_structure_placement(structure_kind: StringName) -> void:
 	if placement_worker_id >= 0 and placement_kind == structure_kind:
 		cancel_modes()
 		audio_cue.emit(&"ui_cancel")
-		feedback.emit("%s placement cancelled." % String(structure_kind).replace("_", " ").capitalize(), false)
+		feedback.emit(I18n.t(&"battlefield.build_placement_cancelled", {"structure": I18n.t(FactionCatalog.entity_text_key(structure_kind))}), false)
 		return
 	var workers := _selected_of_kind(&"worker")
 	if workers.is_empty():
-		feedback.emit("Select a worker before choosing a build command.", true)
+		feedback.emit(I18n.t(&"battlefield.build_needs_worker"), true)
 		return
 	if structure_kind not in RtsSimulation.BUILDABLE_STRUCTURE_KINDS:
-		feedback.emit("That structure is not available for construction.", true)
+		feedback.emit(I18n.t(&"battlefield.build_structure_unavailable"), true)
 		return
 	if not simulation.is_kind_available(RtsSimulation.TEAM_PLAYER, structure_kind):
-		feedback.emit("Your faction cannot construct that food building.", true)
+		feedback.emit(I18n.t(&"battlefield.build_food_unavailable"), true)
 		return
 	cancel_modes()
 	placement_worker_id = workers[0]
@@ -1087,18 +1085,17 @@ func begin_structure_placement(structure_kind: StringName) -> void:
 	placement_orientation = &"y"
 	_refresh_cursor()
 	audio_cue.emit(&"ui_confirm")
-	var faction := simulation.players[RtsSimulation.TEAM_PLAYER]["faction"] as StringName
-	var structure_name := String(FactionCatalog.stats(structure_kind, faction)["name"])
-	var placement_instruction := (
-		"Drag a straight snapped line for the %s." % structure_name
+	var structure_name := I18n.t(FactionCatalog.entity_text_key(structure_kind))
+	var placement_key := (
+		&"battlefield.build_instruction_wall"
 		if structure_kind == &"wall"
-		else "Drag to orient and place the %s." % structure_name
+		else &"battlefield.build_instruction_gate"
 		if structure_kind == &"gate"
-		else "Choose a clear walkable-land footprint for the %s." % structure_name
+		else &"battlefield.build_instruction_fortification"
 		if structure_kind in RtsSimulation.FORTIFICATION_STRUCTURE_KINDS
-		else "Choose a clear meadow footprint for the %s." % structure_name
+		else &"battlefield.build_instruction_meadow"
 	)
-	feedback.emit("%s Press R to rotate 90 degrees." % placement_instruction, false)
+	feedback.emit(I18n.t(placement_key, {"structure": structure_name}), false)
 
 
 func rotate_structure_placement() -> bool:
@@ -1107,9 +1104,8 @@ func rotate_structure_placement() -> bool:
 	placement_orientation = &"x" if placement_orientation == &"y" else &"y"
 	_refresh_cursor()
 	queue_redraw()
-	var faction := simulation.players[RtsSimulation.TEAM_PLAYER]["faction"] as StringName
-	var structure_name := String(FactionCatalog.stats(placement_kind, faction)["name"])
-	feedback.emit("%s rotated 90 degrees." % structure_name, false)
+	var structure_name := I18n.t(FactionCatalog.entity_text_key(placement_kind))
+	feedback.emit(I18n.t(&"battlefield.build_rotated", {"structure": structure_name}), false)
 	audio_cue.emit(&"ui_confirm")
 	return true
 
@@ -4297,9 +4293,9 @@ func _display_name(entity_state: Dictionary) -> String:
 	if entity_state.get("category") == &"resource":
 		match entity_state.get("resource_kind"):
 			&"jade":
-				return "Jade outcrop"
+				return I18n.t(&"resource.jade.name")
 			&"lumber":
-				return "Lumber tree"
+				return I18n.t(&"resource.lumber.name")
 			_:
-				return "Essence shrine"
-	return String(FactionCatalog.stats(entity_state["kind"] as StringName, entity_state["faction"] as StringName)["name"])
+				return I18n.t(&"resource.essence.name")
+	return I18n.t(FactionCatalog.entity_text_key(entity_state["kind"] as StringName))

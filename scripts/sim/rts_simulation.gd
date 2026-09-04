@@ -3,7 +3,7 @@ extends RefCounted
 
 signal match_ended(result: StringName)
 signal state_changed
-signal battle_notice(message: String, team: int)
+signal battle_notice(key: StringName, placeholder_values: Dictionary, team: int)
 
 const TEAM_PLAYER := 0
 const TEAM_ENEMY := 1
@@ -1611,7 +1611,7 @@ func demolition_refund(structure_id: int) -> Dictionary:
 		structure["kind"] as StringName,
 		structure["faction"] as StringName,
 	)
-	var refund := {"name": stats.get("name", "Building")}
+	var refund := {}
 	for cost_key in ["jade_cost", "lumber_cost", "essence_cost", "food_cost"]:
 		refund[cost_key] = floori(float(stats.get(cost_key, 0)) * DEMOLITION_REFUND_RATE)
 	return refund
@@ -2324,9 +2324,9 @@ func _complete_cave_capture(cave: Dictionary, team: int) -> void:
 		{"team": team, "category": &"structure", "kind": &"yaoguai_den"},
 	)
 	if team == TEAM_PLAYER:
-		battle_notice.emit("Yaoguai Den captured. Jadeclaw production unlocked.", team)
+		battle_notice.emit(&"notice.den_captured", {}, team)
 	else:
-		battle_notice.emit("The rival has captured a Yaoguai Den.", team)
+		battle_notice.emit(&"notice.den_captured", {}, team)
 
 
 func _cancel_structure_queue(structure: Dictionary, team: int) -> void:
@@ -2512,7 +2512,7 @@ func _advance_claim_egg(worker: Dictionary) -> void:
 	worker["target_id"] = int(stronghold["id"])
 	_set_path(worker, stronghold["cell"] as Vector2i)
 	_add_event(&"egg_claimed", _entity_center(worker), Color("c9ffe5"), {"team": int(worker["team"]), "kind": &"shenlong_egg"})
-	battle_notice.emit("Dragon Egg claimed — escort the Worker home!", int(worker["team"]))
+	battle_notice.emit(&"notice.egg_claimed", {}, int(worker["team"]))
 
 
 func _advance_return_egg(worker: Dictionary) -> void:
@@ -2578,7 +2578,7 @@ func _hatch_shenlong(worker: Dictionary, egg: Dictionary, stronghold: Dictionary
 	worker["carried_egg_id"] = -1
 	var dragon_id := _spawn_unit(team, &"shenlong", spawn_cell)
 	_add_event(&"shenlong_hatched", Vector2(spawn_cell), _team_color(team), {"team": team, "kind": &"shenlong", "entity_id": dragon_id})
-	battle_notice.emit("The Dragon Egg has hatched. Shenlong now answers your mandate!", team)
+	battle_notice.emit(&"notice.egg_hatched", {}, team)
 
 
 func _retarget_after_tree_depletion(worker: Dictionary, resource: Dictionary) -> bool:
@@ -2629,7 +2629,7 @@ func _advance_repair(worker: Dictionary, delta: float) -> void:
 	if int(players[team]["lumber"]) < REPAIR_LUMBER_COST:
 		worker["repair_timer"] = minf(float(worker["repair_timer"]), REPAIR_CYCLE)
 		if float(worker["repair_notice_cooldown"]) <= 0.0:
-			battle_notice.emit("Repairs paused: gather more Lumber.", team)
+			battle_notice.emit(&"notice.repair_paused", {}, team)
 			worker["repair_notice_cooldown"] = REPAIR_NOTICE_SECONDS
 		return
 	players[team]["lumber"] = int(players[team]["lumber"]) - REPAIR_LUMBER_COST
@@ -3352,7 +3352,7 @@ func _unlock_shenlong_egg(killer_team: int) -> void:
 		return
 	egg["claimable"] = true
 	_add_event(&"shenlong_defeated", _entity_center(egg), Color("b7ffd8"), {"team": killer_team, "kind": &"shenlong_egg"})
-	battle_notice.emit("Shenlong has fallen. The Dragon Egg can now be claimed by a Worker!", killer_team)
+	battle_notice.emit(&"notice.shenlong_fallen", {}, killer_team)
 
 
 func _resolve_stronghold_elimination(eliminated_team: int) -> void:
@@ -3367,7 +3367,7 @@ func _resolve_stronghold_elimination(eliminated_team: int) -> void:
 	if remaining <= 0:
 		_finish_match(&"victory")
 	else:
-		battle_notice.emit("A rival Stronghold has fallen. %d rivals remain." % remaining, TEAM_PLAYER)
+		battle_notice.emit(&"notice.rivals_remaining", {"count": remaining}, TEAM_PLAYER)
 
 
 func _finish_match(result: StringName) -> void:
@@ -3417,7 +3417,7 @@ func _award_guardian_bounty(team: int, guardian: Dictionary) -> void:
 	for resource_kind in MONSTER_BOUNTY:
 		_grant_resource_income(team, StringName(resource_kind), int(MONSTER_BOUNTY[resource_kind]))
 	_add_event(&"bounty", _entity_center(guardian), Color("e4c66d"), {"team": team, "kind": &"jadeclaw"})
-	battle_notice.emit("Jadeclaw hunted: +45 Jade · +30 Lumber · +25 Essence.", team)
+	battle_notice.emit(&"notice.jadeclaw_hunted", {}, team)
 	var cave := entity(int(guardian.get("home_cave_id", -1)))
 	if cave.is_empty() or cave_guardian_count(int(cave["id"])) > 0:
 		return
@@ -3429,7 +3429,7 @@ func _award_guardian_bounty(team: int, guardian: Dictionary) -> void:
 		Color("e4c66d"),
 		{"team": team, "category": &"structure", "kind": &"yaoguai_den"},
 	)
-	battle_notice.emit("Yaoguai Den cleared. Hold its ring for 6 seconds to capture it.", team)
+	battle_notice.emit(&"notice.den_cleared", {}, team)
 
 
 func _award_wildlife_bounty(team: int, wildlife: Dictionary) -> void:
@@ -3446,8 +3446,11 @@ func _award_wildlife_bounty(team: int, wildlife: Dictionary) -> void:
 		Color("f1c96b"),
 		{"team": team, "category": &"wildlife", "kind": wildlife["kind"]},
 	)
-	var stats := FactionCatalog.stats(wildlife["kind"] as StringName, &"neutral")
-	battle_notice.emit("%s hunted: +%d Food." % [String(stats["name"]), bounty], team)
+	battle_notice.emit(
+		&"notice.wildlife_hunted",
+		{"kind": wildlife["kind"], "bounty": bounty},
+		team,
+	)
 
 
 func _advance_path(entity_state: Dictionary, delta: float) -> void:
@@ -3782,7 +3785,8 @@ func _issue_ai_skill_test_invasion(team: int = TEAM_ENEMY) -> bool:
 		else:
 			_extra_ai_attack_timers[team] = AI_ASSAULT_INTERVAL
 		battle_notice.emit(
-			"A rival has committed its entire reserve army to an invasion!",
+			&"notice.ai_invasion",
+			{},
 			team,
 		)
 	return issued

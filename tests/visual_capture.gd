@@ -53,7 +53,7 @@ class FortificationFacingAudit:
 				)
 		for faction_index in range(FactionCatalog.ORDER.size()):
 			var faction := FactionCatalog.ORDER[faction_index]
-			var faction_name := String(FactionCatalog.DATA[faction]["name"])
+			var faction_name := I18n.t(FactionCatalog.faction_text_key(faction, &"name"))
 			var column_center := column_width * (float(faction_index) + 0.5)
 			if structure_kind == &"gate" and faction_index == 0:
 				column_center += 28.0
@@ -136,7 +136,7 @@ class FortificationFacingAudit:
 				)
 		for faction_index in range(FactionCatalog.ORDER.size()):
 			var faction := FactionCatalog.ORDER[faction_index]
-			var faction_name := String(FactionCatalog.DATA[faction]["name"])
+			var faction_name := I18n.t(FactionCatalog.faction_text_key(faction, &"name"))
 			var column_center := column_width * (float(faction_index) + 0.5)
 			draw_string(
 				font,
@@ -210,7 +210,7 @@ class FortificationFacingAudit:
 			draw_rect(panel_rect, Color("0b2224"), true)
 			draw_rect(panel_rect, Color("285b5a"), false, 1.0)
 			var faction := panel["faction"] as StringName
-			var faction_name := String(FactionCatalog.DATA[faction]["name"])
+			var faction_name := I18n.t(FactionCatalog.faction_text_key(faction, &"name"))
 			var walls := panel["walls"] as Array
 			var resolved_turn_count := 0
 			for raw_wall in walls:
@@ -297,7 +297,7 @@ class FortificationFacingAudit:
 			draw_string(
 				font,
 				Vector2(column_center - column_width * 0.5, 70.0),
-				String(FactionCatalog.DATA[faction]["name"]),
+				I18n.t(FactionCatalog.faction_text_key(faction, &"name")),
 				HORIZONTAL_ALIGNMENT_CENTER,
 				column_width,
 				18,
