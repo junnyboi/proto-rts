@@ -21,7 +21,7 @@ Do not describe a proposed capability as shipped. The current status is:
 | BGM and small SFX | **Implemented** | One looping score and 23 named SFX use a bounded audio director. |
 | Local leaderboard | **Implemented** | Versioned local profile/history with backup recovery. |
 | Hosted global leaderboard | **Adapter only** | The Web bridge exists, but this repository does not contain its host/backend. |
-| First-play tutorial with callouts | **Implemented** | Six event-driven steps, contextual input prompts/fallbacks, versioned completion, Skip, and explicit replay. |
+| First-play tutorial with callouts | **Implemented** | Five event-driven gameplay steps, contextual input prompts/fallbacks, versioned completion, Skip, and explicit replay. |
 | English/Simplified Chinese localization | **Implemented** | The title selector switches the session between `en-US` and `zh-CN`; keyed catalogs, strict placeholders, and a bundled CJK font cover runtime copy. |
 | Keyboard/mouse, gamepad, and touch | **Implemented** | One input router updates tutorial prompts; gamepad adds a virtual cursor and touch adds pan/pinch/tap plus a 48 px command dock. |
 | Responsive landscape/portrait shell | **Implemented** | Safe-area-aware breakpoints reflow faction cards, resource HUD, command deck, tutorial, modals, toast, and tweak access. |

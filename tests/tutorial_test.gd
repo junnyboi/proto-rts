@@ -30,7 +30,6 @@ func _run() -> void:
 		&"production_ordered",
 		&"objective_progressed",
 		&"pause_opened",
-		&"tweak_opened",
 	]:
 		_expect(director.notify_event(event_name), "tutorial rejected event %s" % event_name, failures)
 	_expect(director.is_completed() and not director.is_active(), "tutorial did not persist completion", failures)

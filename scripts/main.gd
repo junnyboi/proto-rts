@@ -684,8 +684,6 @@ func _open_tweak_panel() -> void:
 	_tweak_previous_settings_visible = _settings_menu != null and _settings_menu.visible
 	if state == STATE_MATCH and not paused:
 		_set_paused(true)
-	if tutorial_director != null:
-		tutorial_director.notify_event(&"tweak_opened")
 	_tweak_panel.open()
 
 

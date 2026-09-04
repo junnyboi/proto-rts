@@ -49,14 +49,6 @@ const STEPS: Array[Dictionary] = [
 		"completion_event": &"pause_opened",
 		"timeout_seconds": 45.0,
 	},
-	{
-		"id": &"tweaks",
-		"title_key": &"tutorial.tweaks.title",
-		"body_key": &"tutorial.tweaks.body",
-		"fallback_key": &"tutorial.tweaks.fallback",
-		"completion_event": &"tweak_opened",
-		"timeout_seconds": 45.0,
-	},
 ]
 
 var _save_path := SAVE_PATH
