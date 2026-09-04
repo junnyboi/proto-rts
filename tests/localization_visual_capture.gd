@@ -15,11 +15,19 @@ func _run() -> void:
 	var scene := load("res://scenes/main.tscn") as PackedScene
 	var game := scene.instantiate()
 	var save_path := "user://localization_visual_test.json"
+	var tweak_save_path := "user://localization_visual_tweak_test.json"
 	_cleanup(save_path)
+	_cleanup(tweak_save_path)
 	game.leaderboard_save_path = save_path
+	game.tweak_save_path = tweak_save_path
 	root.add_child(game)
 	await _settle(10)
 	await _capture("title-cn")
+	game.call("_open_tweak_panel")
+	await _settle(3)
+	await _capture("tweak-controls-cn")
+	game._tweak_panel.close_panel()
+	await _settle(3)
 
 	game.leaderboard_store.record_match(6840, &"victory", &"human", 502)
 	game.leaderboard_store.record_match(5210, &"defeat", &"beast", 417)
@@ -68,8 +76,9 @@ func _run() -> void:
 	await process_frame
 	I18n.set_locale(&"en-US")
 	_cleanup(save_path)
+	_cleanup(tweak_save_path)
 	if _failures.is_empty():
-		print("PASS localization_visual_capture: 7 Chinese UI states captured")
+		print("PASS localization_visual_capture: 8 Chinese UI states captured")
 		quit(0)
 		return
 	for failure: String in _failures:

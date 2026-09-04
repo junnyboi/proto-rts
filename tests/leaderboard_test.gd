@@ -73,21 +73,25 @@ func _verify_legacy_placeholder_migration(failures: Array[String]) -> void:
 
 
 func _verify_ranking(store: LeaderboardStore, failures: Array[String]) -> void:
+	store.record_match(1100, &"victory", &"human", 300, false, "tweaked:gameplay.score_multiplier")
 	store.record_match(1000, &"victory", &"human", 300)
 	store.record_match(400, &"defeat", &"beast", 100)
 	store.record_match(1000, &"defeat", &"celestial", 180)
 	var rows := store.local_leaderboard(10)
-	_expect(rows.size() == 3, "local leaderboard omitted completed matches", failures)
-	if rows.size() == 3:
-		_expect(int(rows[0]["score"]) == 1000 and int(rows[0]["elapsed_seconds"]) == 180, "equal scores were not ranked by faster completion", failures)
-		_expect(int(rows[1]["score"]) == 1000 and int(rows[1]["elapsed_seconds"]) == 300, "slower tied score did not rank second", failures)
-		_expect(int(rows[2]["score"]) == 400, "lower score did not rank last", failures)
-		_expect(int(rows[0]["rank"]) == 1 and int(rows[2]["rank"]) == 3, "local rank numbers were not assigned", failures)
+	_expect(rows.size() == 4, "local leaderboard omitted completed matches", failures)
+	if rows.size() == 4:
+		_expect(int(rows[0]["score"]) == 1100 and not bool(rows[0]["rank_eligible"]), "unranked local result was hidden or mislabeled", failures)
+		_expect(int(rows[1]["score"]) == 1000 and int(rows[1]["elapsed_seconds"]) == 180, "equal scores were not ranked by faster completion", failures)
+		_expect(int(rows[2]["score"]) == 1000 and int(rows[2]["elapsed_seconds"]) == 300, "slower tied score did not rank third", failures)
+		_expect(int(rows[3]["score"]) == 400, "lower score did not rank last", failures)
+		_expect(int(rows[0]["rank"]) == 1 and int(rows[3]["rank"]) == 4, "local rank numbers were not assigned", failures)
 		_expect(String(rows[0]["callsign"]) == "JADE GENERAL", "local rows did not use the current callsign", failures)
 	var public_profile := store.public_profile("test-revision")
 	_expect(not public_profile.has("run_history"), "public profile leaked local match history", failures)
 	_expect(not public_profile.has("runHistory"), "public profile leaked local match history", failures)
-	_expect(int(public_profile.get("bestScore", 0)) == 1000, "public profile did not expose the lifetime best score", failures)
+	_expect(int(store.snapshot().get("best_score", 0)) == 1100, "local profile did not retain the unranked personal best", failures)
+	_expect(int(store.snapshot().get("best_ranked_score", 0)) == 1000, "ranked aggregate accepted a tweaked result", failures)
+	_expect(int(public_profile.get("bestScore", 0)) == 1000, "public profile exposed an unranked tweaked score", failures)
 
 
 func _verify_history_bound(store: LeaderboardStore, failures: Array[String]) -> void:
@@ -96,8 +100,9 @@ func _verify_history_bound(store: LeaderboardStore, failures: Array[String]) -> 
 	var profile := store.snapshot()
 	var history := profile.get("run_history", []) as Array
 	_expect(history.size() == LeaderboardStore.MAX_HISTORY, "local run history exceeded its retention limit", failures)
-	_expect(int(profile.get("total_matches", 0)) == LeaderboardStore.MAX_HISTORY + 8, "lifetime match count was truncated with run history", failures)
-	_expect(int(profile.get("best_score", 0)) == 1000, "history trimming changed the lifetime best score", failures)
+	_expect(int(profile.get("total_matches", 0)) == LeaderboardStore.MAX_HISTORY + 9, "lifetime match count was truncated with run history", failures)
+	_expect(int(profile.get("best_score", 0)) == 1100, "history trimming changed the lifetime best score", failures)
+	_expect(int(profile.get("best_ranked_score", 0)) == 1000, "history trimming changed the ranked best score", failures)
 
 
 func _verify_persistence_and_recovery(store: LeaderboardStore, save_path: String, failures: Array[String]) -> void:

@@ -294,6 +294,8 @@ func _format_row(row: Dictionary, global_format: bool) -> String:
 	var row_callsign := _display_callsign(String(row.get("callsign", I18n.t(&"leaderboard.unknown")))).to_upper().left(20)
 	var score := _format_number(int(row.get("score", 0)))
 	var record := I18n.t(&"leaderboard.wins", {"count": int(row.get("victories", 0))}) if global_format else I18n.t(&"leaderboard.result_victory") if row.get("result", "defeat") == "victory" else I18n.t(&"leaderboard.result_defeat")
+	if not global_format and not bool(row.get("rank_eligible", true)):
+		record = I18n.t(&"leaderboard.result_unranked", {"result": record})
 	var faction := _faction_name(String(row.get("faction", "unknown"))).to_upper()
 	var elapsed := "—" if global_format else _format_duration(int(row.get("elapsed_seconds", 0)))
 	return "#%-5d %-28s %10s   %-11s  %-30s %7s" % [rank, row_callsign, score, record, faction, elapsed]

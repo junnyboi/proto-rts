@@ -68,7 +68,14 @@ func set_callsign(value: String) -> String:
 	return ""
 
 
-func record_match(score: int, result: StringName, faction: StringName, elapsed_seconds: int) -> Dictionary:
+func record_match(
+	score: int,
+	result: StringName,
+	faction: StringName,
+	elapsed_seconds: int,
+	rank_eligible: bool = true,
+	run_configuration_marker: String = "baseline",
+) -> Dictionary:
 	var clean_score := clampi(score, 0, MAX_SCORE)
 	var clean_result := result if result in [&"victory", &"defeat"] else &"defeat"
 	var clean_faction := faction if faction in FactionCatalog.ORDER else &"unknown"
@@ -82,6 +89,8 @@ func record_match(score: int, result: StringName, faction: StringName, elapsed_s
 		"faction": String(clean_faction),
 		"elapsed_seconds": maxi(0, elapsed_seconds),
 		"finished_unix_time": now,
+		"rank_eligible": rank_eligible,
+		"run_configuration_marker": run_configuration_marker.left(512),
 	}
 	var history := _profile.get("run_history", []) as Array
 	history.append(entry)
@@ -92,6 +101,8 @@ func record_match(score: int, result: StringName, faction: StringName, elapsed_s
 	if clean_result == &"victory":
 		_profile["victories"] = maxi(0, int(_profile.get("victories", 0))) + 1
 	_profile["best_score"] = maxi(int(_profile.get("best_score", 0)), clean_score)
+	if rank_eligible:
+		_profile["best_ranked_score"] = maxi(int(_profile.get("best_ranked_score", 0)), clean_score)
 	_profile["last_faction"] = String(clean_faction)
 	_profile["updated_unix_time"] = now
 	_save_profile()
@@ -117,7 +128,7 @@ func public_profile(source_revision: String = "") -> Dictionary:
 	return {
 		"anonymousProfileId": String(_profile.get("anonymous_profile_id", "")),
 		"callsign": callsign(),
-		"bestScore": maxi(0, int(_profile.get("best_score", 0))),
+		"bestScore": maxi(0, int(_profile.get("best_ranked_score", 0))),
 		"totalMatches": maxi(0, int(_profile.get("total_matches", 0))),
 		"victories": maxi(0, int(_profile.get("victories", 0))),
 		"lastFaction": String(_profile.get("last_faction", "unknown")),
@@ -135,6 +146,7 @@ func _fresh_profile() -> Dictionary:
 		"total_matches": 0,
 		"victories": 0,
 		"best_score": 0,
+		"best_ranked_score": 0,
 		"last_faction": "unknown",
 		"run_history": [],
 		"updated_unix_time": int(Time.get_unix_time_from_system()),
@@ -181,12 +193,17 @@ func _sanitize_profile(raw: Dictionary) -> Dictionary:
 	while history.size() > MAX_HISTORY:
 		history.pop_front()
 	var history_best := 0
+	var history_ranked_best := 0
 	var history_victories := 0
 	for entry in history:
 		history_best = maxi(history_best, int(entry["score"]))
+		if bool(entry["rank_eligible"]):
+			history_ranked_best = maxi(history_ranked_best, int(entry["score"]))
 		if entry["result"] == "victory":
 			history_victories += 1
 	var total_matches := maxi(history.size(), clampi(int(raw.get("total_matches", history.size())), 0, MAX_SCORE))
+	var legacy_ranked_best := int(raw.get("best_score", history_ranked_best))
+	var saved_ranked_best := int(raw.get("best_ranked_score", legacy_ranked_best))
 	return {
 		"schema_version": SCHEMA_VERSION,
 		"anonymous_profile_id": anonymous_profile_id,
@@ -194,6 +211,7 @@ func _sanitize_profile(raw: Dictionary) -> Dictionary:
 		"total_matches": total_matches,
 		"victories": clampi(maxi(history_victories, int(raw.get("victories", history_victories))), 0, total_matches),
 		"best_score": maxi(history_best, clampi(int(raw.get("best_score", history_best)), 0, MAX_SCORE)),
+		"best_ranked_score": maxi(history_ranked_best, clampi(saved_ranked_best, 0, MAX_SCORE)),
 		"last_faction": _sanitize_faction(String(raw.get("last_faction", "unknown"))),
 		"run_history": history,
 		"updated_unix_time": maxi(0, int(raw.get("updated_unix_time", 0))),
@@ -215,6 +233,8 @@ func _sanitize_entry(raw: Dictionary) -> Dictionary:
 		"faction": _sanitize_faction(String(raw.get("faction", "unknown"))),
 		"elapsed_seconds": maxi(0, int(raw.get("elapsed_seconds", 0))),
 		"finished_unix_time": maxi(0, int(raw.get("finished_unix_time", 0))),
+		"rank_eligible": bool(raw.get("rank_eligible", true)),
+		"run_configuration_marker": String(raw.get("run_configuration_marker", "baseline")).left(512),
 	}
 
 

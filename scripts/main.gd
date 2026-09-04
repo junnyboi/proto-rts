@@ -11,6 +11,9 @@ const HUD_COMMAND_BUTTON := preload("res://scripts/ui/hud_command_button.gd")
 const LEADERBOARD_STORE_SCRIPT := preload("res://scripts/services/leaderboard_store.gd")
 const LEADERBOARD_BRIDGE_SCRIPT := preload("res://scripts/services/leaderboard_bridge.gd")
 const LEADERBOARD_DIALOG_SCRIPT := preload("res://scripts/ui/leaderboard_dialog.gd")
+const TWEAK_CATALOG := preload("res://config/tweaks/catalog.gd")
+const TWEAK_SERVICE_SCRIPT := preload("res://scripts/tuning/tweak_service.gd")
+const TWEAK_PANEL_SCRIPT := preload("res://scripts/ui/tweak_panel.gd")
 const PERSISTENT_COMMAND_IDS: Array[StringName] = [
 	&"build",
 	&"build_farm",
@@ -109,13 +112,30 @@ var audio_director: AudioDirector
 var leaderboard_store: LeaderboardStore
 var leaderboard_bridge: LeaderboardBridge
 var leaderboard_save_path: String = LeaderboardStore.SAVE_PATH
+var tweak_service: TweakService
+var tweak_save_path: String = TweakService.SAVE_PATH
 var effect_intensity: StringName = &"full"
 var reduced_motion := false
 var camera_impulse: StringName = &"major"
 var damage_numbers: StringName = &"contextual"
+var _tweak_layer: Control
+var _tweak_button: Button
+var _tweak_panel: TweakPanel
+var _filter_overlay: ColorRect
+var _tweak_previous_focus: Control
+var _tweak_previous_paused := false
+var _tweak_previous_pause_visible := false
+var _tweak_previous_settings_visible := false
+var _tweak_button_pressing := false
 
 
 func _ready() -> void:
+	tweak_service = TWEAK_SERVICE_SCRIPT.new() as TweakService
+	tweak_service.name = "TweakService"
+	add_child(tweak_service)
+	tweak_service.setup(tweak_save_path)
+	tweak_service.values_changed.connect(_on_tweak_values_changed)
+	tweak_service.run_integrity_changed.connect(_on_tweak_integrity_changed)
 	leaderboard_store = LEADERBOARD_STORE_SCRIPT.new() as LeaderboardStore
 	leaderboard_store.name = "LeaderboardStore"
 	add_child(leaderboard_store)
@@ -129,6 +149,7 @@ func _ready() -> void:
 	audio_director = AudioDirector.new()
 	audio_director.name = "AudioDirector"
 	add_child(audio_director)
+	audio_director.apply_tweak_values(tweak_service.active_values())
 	var game_window := get_window()
 	game_window.mouse_entered.connect(CursorSystem.resume)
 	game_window.mouse_exited.connect(CursorSystem.suspend)
@@ -143,7 +164,7 @@ func _exit_tree() -> void:
 func _process(delta: float) -> void:
 	if state == STATE_MATCH and simulation != null:
 		if not paused:
-			simulation.advance(delta)
+			simulation.advance(delta * float(tweak_service.active_value(&"gameplay.time_scale")))
 		_hud_timer -= delta
 		if _hud_timer <= 0.0:
 			_hud_timer = 0.1
@@ -184,6 +205,11 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	if not key.pressed or key.echo:
 		return
 	audio_director.ensure_bgm()
+	if _tweak_panel != null and _tweak_panel.visible:
+		if key.keycode == KEY_ESCAPE:
+			_tweak_panel.close_panel()
+			get_viewport().set_input_as_handled()
+		return
 	if _leaderboard_dialog != null and _leaderboard_dialog.visible:
 		if key.keycode == KEY_ESCAPE:
 			audio_director.play_ui(&"ui_cancel")
@@ -258,9 +284,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 				battlefield.begin_repair(key.shift_pressed)
 			_update_armed_command_styles()
 		KEY_X:
-			simulation.command_stop(RtsSimulation.TEAM_PLAYER, battlefield.selected_commandable_units())
-			audio_director.play_ui(&"ui_cancel")
-			_show_feedback(I18n.t(&"feedback.units_halted"), false)
+			_command_stop()
 
 
 func _control_group_index(key: InputEventKey) -> int:
@@ -328,6 +352,12 @@ func _clear_screen() -> void:
 	_leaderboard_button = null
 	_result_leaderboard_button = null
 	_locale_buttons.clear()
+	_tweak_layer = null
+	_tweak_button = null
+	_tweak_panel = null
+	_filter_overlay = null
+	_tweak_previous_focus = null
+	_tweak_button_pressing = false
 
 
 func _make_screen() -> Control:
@@ -339,6 +369,157 @@ func _make_screen() -> Control:
 	add_child(result)
 	_screen = result
 	return result
+
+
+func _build_tweak_access(root: Control) -> void:
+	_filter_overlay = ColorRect.new()
+	_filter_overlay.name = "FullScreenTweakFilter"
+	_filter_overlay.z_index = 150
+	_filter_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_filter_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.add_child(_filter_overlay)
+
+	_tweak_layer = Control.new()
+	_tweak_layer.name = "TweakAccessLayer"
+	_tweak_layer.z_index = 200
+	_tweak_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_tweak_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.add_child(_tweak_layer)
+	_tweak_button = ThemeFactory.button(I18n.t(&"tweak.button"), I18n.t(&"tweak.button_tooltip"))
+	_tweak_button.name = "TweakControlsButton"
+	_tweak_button.accessibility_name = I18n.t(&"tweak.button_accessible")
+	_tweak_button.mouse_filter = Control.MOUSE_FILTER_STOP
+	_tweak_button.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	var bottom_inset := 256.0 if state in [STATE_MATCH, STATE_RESULT] else 18.0
+	_tweak_button.offset_left = -212.0
+	_tweak_button.offset_top = -bottom_inset - 46.0
+	_tweak_button.offset_right = -18.0
+	_tweak_button.offset_bottom = -bottom_inset
+	_tweak_button.modulate.a = 0.5
+	_tweak_button.mouse_entered.connect(_update_tweak_button_opacity)
+	_tweak_button.mouse_exited.connect(_update_tweak_button_opacity)
+	_tweak_button.focus_entered.connect(_update_tweak_button_opacity)
+	_tweak_button.focus_exited.connect(_update_tweak_button_opacity)
+	_tweak_button.button_down.connect(func() -> void:
+		_tweak_button_pressing = true
+		_update_tweak_button_opacity()
+	)
+	_tweak_button.button_up.connect(func() -> void:
+		_tweak_button_pressing = false
+		_update_tweak_button_opacity()
+	)
+	_tweak_button.pressed.connect(_open_tweak_panel)
+	_tweak_layer.add_child(_tweak_button)
+
+	_tweak_panel = TWEAK_PANEL_SCRIPT.new() as TweakPanel
+	root.add_child(_tweak_panel)
+	_tweak_panel.configure(tweak_service)
+	_tweak_panel.value_requested.connect(_on_tweak_value_requested)
+	_tweak_panel.reset_requested.connect(_on_tweak_reset_requested)
+	_tweak_panel.reset_all_requested.connect(_on_tweak_reset_all_requested)
+	_tweak_panel.close_requested.connect(_on_tweak_panel_closed)
+	_on_tweak_values_changed()
+
+
+func _update_tweak_button_opacity() -> void:
+	if _tweak_button == null:
+		return
+	_tweak_button.modulate.a = 1.0 if (
+		_tweak_button_pressing or _tweak_button.has_focus() or _tweak_button.is_hovered()
+	) else 0.5
+
+
+func _open_tweak_panel() -> void:
+	if _tweak_panel == null or _tweak_panel.visible:
+		return
+	_tweak_previous_focus = get_viewport().gui_get_focus_owner()
+	_tweak_previous_paused = paused
+	_tweak_previous_pause_visible = _pause_menu != null and _pause_menu.visible
+	_tweak_previous_settings_visible = _settings_menu != null and _settings_menu.visible
+	if state == STATE_MATCH and not paused:
+		_set_paused(true)
+	_tweak_panel.open()
+
+
+func _on_tweak_panel_closed() -> void:
+	if state == STATE_MATCH:
+		if _tweak_previous_paused:
+			paused = true
+			if _pause_overlay != null:
+				_pause_overlay.visible = true
+				_pause_menu.visible = _tweak_previous_pause_visible
+				_settings_menu.visible = _tweak_previous_settings_visible
+		else:
+			_set_paused(false)
+	if is_instance_valid(_tweak_previous_focus) and _tweak_previous_focus.is_visible_in_tree():
+		_tweak_previous_focus.call_deferred("grab_focus")
+	_tweak_previous_focus = null
+
+
+func _on_tweak_value_requested(id: StringName, value: Variant) -> void:
+	if not tweak_service.set_requested(id, value):
+		audio_director.play_ui(&"ui_error")
+
+
+func _on_tweak_reset_requested(id: StringName) -> void:
+	tweak_service.reset_control(id)
+	audio_director.play_ui(&"ui_confirm")
+
+
+func _on_tweak_reset_all_requested() -> void:
+	tweak_service.reset_all()
+	audio_director.play_ui(&"ui_confirm")
+
+
+func _on_tweak_values_changed() -> void:
+	if tweak_service == null:
+		return
+	var values := tweak_service.active_values()
+	reduced_motion = bool(values.get(&"ui.reduced_motion", false))
+	if audio_director != null:
+		audio_director.apply_tweak_values(values)
+	if simulation != null:
+		simulation.set_tweak_values(values)
+	if battlefield != null:
+		battlefield.configure_effects(effect_intensity, reduced_motion, damage_numbers, camera_impulse)
+		battlefield.set_tweak_zoom_multiplier(float(values.get(&"environment.camera.zoom", 1.0)))
+		battlefield.set_fog_enabled(bool(values.get(&"environment.fog.enabled", battlefield.fog_enabled)))
+	var hud_scale := float(values.get(&"ui.hud.scale", 1.0))
+	var hud_opacity := float(values.get(&"ui.hud.opacity", 100.0)) / 100.0
+	for node_name: String in ["TopBar", "CommandDeck", "Objective", "AlertToast"]:
+		var hud_node := _screen.get_node_or_null(node_name) as Control if _screen != null else null
+		if hud_node != null:
+			hud_node.pivot_offset = hud_node.size * 0.5
+			hud_node.scale = Vector2.ONE * hud_scale
+			hud_node.modulate.a = hud_opacity
+	if _filter_overlay != null:
+		var filter_enabled := bool(values.get(&"environment.filter.enabled", false))
+		var filter_intensity := float(values.get(&"environment.filter.intensity", 18.0)) / 100.0
+		_filter_overlay.color = Color(0.03, 0.22, 0.16, filter_intensity)
+		_filter_overlay.visible = filter_enabled and filter_intensity > 0.0
+	if _tweak_panel != null:
+		_tweak_panel.refresh()
+	_apply_effect_settings()
+	_update_audio_controls()
+
+
+func _on_tweak_integrity_changed(_eligible: bool, _marker: String) -> void:
+	if _tweak_panel != null:
+		_tweak_panel.refresh()
+
+
+func _apply_tweak_boundary(mode: StringName) -> void:
+	if tweak_service == null:
+		return
+	tweak_service.apply_boundary(mode)
+	if simulation != null:
+		simulation.set_tweak_values(tweak_service.active_values())
+
+
+func _on_battlefield_audio_cue(cue: StringName) -> void:
+	if cue in [&"order_move", &"order_attack", &"order_work"]:
+		_apply_tweak_boundary(TWEAK_CATALOG.NEXT_ACTION)
+	audio_director.play_cue(cue)
 
 
 func _add_title_background(root: Control, darkness: float = 0.38) -> void:
@@ -358,6 +539,8 @@ func _add_title_background(root: Control, darkness: float = 0.38) -> void:
 
 
 func _show_title() -> void:
+	if tweak_service != null:
+		tweak_service.end_run()
 	state = STATE_TITLE
 	paused = false
 	simulation = null
@@ -390,6 +573,7 @@ func _show_title() -> void:
 	content.add_child(_leaderboard_button)
 	_build_locale_selector(content)
 	_build_leaderboard_dialog(root)
+	_build_tweak_access(root)
 	play.grab_focus()
 
 
@@ -430,6 +614,8 @@ func _select_locale(locale_id: StringName) -> void:
 
 
 func _show_faction_select() -> void:
+	if tweak_service != null:
+		tweak_service.end_run()
 	state = STATE_FACTION
 	audio_director.set_music_state(STATE_FACTION)
 	var root := _make_screen()
@@ -468,6 +654,7 @@ func _show_faction_select() -> void:
 	controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	controls.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	root.add_child(controls)
+	_build_tweak_access(root)
 
 
 func _make_faction_card(faction_id: StringName) -> PanelContainer:
@@ -515,9 +702,12 @@ func _start_match(faction_id: StringName) -> void:
 	state = STATE_MATCH
 	paused = false
 	_match_score_recorded = false
+	tweak_service.begin_run()
 	audio_director.set_music_state(STATE_MATCH)
 	audio_director.ensure_bgm()
 	simulation = RtsSimulation.new()
+	simulation.tweak_boundary_reached.connect(_apply_tweak_boundary)
+	simulation.set_tweak_values(tweak_service.active_values())
 	simulation.setup(faction_id)
 	simulation.match_ended.connect(_on_match_ended)
 	simulation.battle_notice.connect(_on_battle_notice)
@@ -530,7 +720,7 @@ func _start_match(faction_id: StringName) -> void:
 	battlefield.configure_effects(effect_intensity, reduced_motion, damage_numbers, camera_impulse)
 	battlefield.selection_changed.connect(_on_selection_changed)
 	battlefield.feedback.connect(_show_feedback)
-	battlefield.audio_cue.connect(audio_director.play_cue)
+	battlefield.audio_cue.connect(_on_battlefield_audio_cue)
 	battlefield.simulation_event.connect(audio_director.handle_simulation_event)
 	root.add_child(battlefield)
 
@@ -538,6 +728,7 @@ func _start_match(faction_id: StringName) -> void:
 	_build_bottom_hud(root)
 	_build_help_panel(root)
 	_build_leaderboard_dialog(root)
+	_build_tweak_access(root)
 	_update_hud()
 	_show_feedback(I18n.t(&"feedback.match_intro"), false)
 
@@ -1863,7 +2054,8 @@ func _command_stop() -> void:
 	if units.is_empty():
 		_show_feedback(I18n.t(&"feedback.stop_needs_units"), true)
 		return
-	simulation.command_stop(RtsSimulation.TEAM_PLAYER, units)
+	if simulation.command_stop(RtsSimulation.TEAM_PLAYER, units):
+		_apply_tweak_boundary(TWEAK_CATALOG.NEXT_ACTION)
 	audio_director.play_ui(&"ui_cancel")
 	_show_feedback(I18n.t(&"feedback.units_halted"), false)
 
@@ -1886,6 +2078,7 @@ func _command_train(kind: StringName) -> void:
 		_show_feedback(I18n.t(&"feedback.training_needs_structure"), true)
 		return
 	if simulation.command_train(RtsSimulation.TEAM_PLAYER, structure_id, kind):
+		_apply_tweak_boundary(TWEAK_CATALOG.NEXT_ACTION)
 		audio_director.play_ui(&"ui_confirm")
 		_show_feedback(I18n.t(&"feedback.training_queued", {"unit": I18n.t(FactionCatalog.entity_text_key(kind))}), false)
 	else:
@@ -1898,6 +2091,7 @@ func _command_upgrade_stronghold() -> void:
 		_show_feedback(I18n.t(&"feedback.upgrade_needs_stronghold"), true)
 		return
 	if simulation.command_upgrade_stronghold(RtsSimulation.TEAM_PLAYER, stronghold_id):
+		_apply_tweak_boundary(TWEAK_CATALOG.NEXT_ACTION)
 		var stronghold := simulation.entity(stronghold_id)
 		audio_director.play_ui(&"ui_confirm")
 		_show_feedback(
@@ -1928,6 +2122,7 @@ func _command_demolish() -> void:
 		_show_feedback(I18n.t(&"feedback.demolish_failed"), true)
 		_update_hud()
 		return
+	_apply_tweak_boundary(TWEAK_CATALOG.NEXT_ACTION)
 	battlefield.select_entities([])
 	audio_director.play_ui(&"ui_cancel")
 	_show_feedback(
@@ -1960,6 +2155,7 @@ func _cancel_training_order(
 		_show_feedback(I18n.t(&"feedback.training_queue_missing"), true)
 		_update_hud()
 		return
+	_apply_tweak_boundary(TWEAK_CATALOG.NEXT_ACTION)
 	audio_director.play_ui(&"ui_cancel")
 	var costs := cancelled.get("costs", {}) as Dictionary
 	var refund_parts: Array[String] = []
@@ -2080,19 +2276,21 @@ func _show_settings_menu() -> void:
 func _resign_match() -> void:
 	if simulation == null:
 		return
-	simulation.command_resign(RtsSimulation.TEAM_PLAYER)
+	if simulation.command_resign(RtsSimulation.TEAM_PLAYER):
+		_apply_tweak_boundary(TWEAK_CATALOG.NEXT_ACTION)
 
 
 func _toggle_fog_of_war() -> void:
 	if battlefield == null:
 		return
-	battlefield.set_fog_enabled(not battlefield.fog_enabled)
+	tweak_service.set_requested(&"environment.fog.enabled", not battlefield.fog_enabled)
 	audio_director.play_ui(&"ui_confirm")
 	_show_feedback(I18n.t(&"feedback.fog_enabled") if battlefield.fog_enabled else I18n.t(&"feedback.fog_disabled"), false)
 
 
 func _toggle_audio() -> void:
-	var is_muted := audio_director.toggle_muted()
+	var is_muted := not bool(tweak_service.requested_value(&"audio.master.muted"))
+	tweak_service.set_requested(&"audio.master.muted", is_muted)
 	_update_audio_controls()
 	if not is_muted:
 		audio_director.play_ui(&"ui_confirm")
@@ -2104,8 +2302,7 @@ func _cycle_effect_intensity() -> void:
 
 
 func _toggle_reduced_motion() -> void:
-	reduced_motion = not reduced_motion
-	_apply_effect_settings()
+	tweak_service.set_requested(&"ui.reduced_motion", not reduced_motion)
 
 
 func _cycle_camera_impulse() -> void:
@@ -2177,8 +2374,11 @@ func _on_match_ended(result: StringName) -> void:
 		result,
 		selected_faction,
 		int(simulation.elapsed_time),
+		tweak_service.run_is_rank_eligible(),
+		tweak_service.run_configuration_marker(),
 	)
-	leaderboard_bridge.submit_current()
+	if tweak_service.run_is_rank_eligible():
+		leaderboard_bridge.submit_current()
 	paused = true
 	state = STATE_RESULT
 	if _pause_overlay != null:
@@ -2234,6 +2434,13 @@ func _on_match_ended(result: StringName) -> void:
 	var title_button := ThemeFactory.button(I18n.t(&"ui.result.return_title"))
 	_connect_button(title_button, _show_title, &"ui_cancel")
 	column.add_child(title_button)
+	if _tweak_layer != null:
+		var bottom_inset := 256.0
+		_tweak_button.offset_top = -bottom_inset - 46.0
+		_tweak_button.offset_bottom = -bottom_inset
+		_tweak_layer.move_to_front()
+	if _tweak_panel != null:
+		_tweak_panel.move_to_front()
 	rematch.grab_focus()
 
 

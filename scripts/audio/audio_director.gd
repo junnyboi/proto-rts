@@ -124,11 +124,27 @@ func set_music_state(next_state: StringName) -> void:
 
 
 func toggle_muted() -> bool:
-	muted = not muted
+	set_muted(not muted)
+	return muted
+
+
+func set_muted(value: bool) -> void:
+	muted = value
 	_apply_bus_mutes()
 	if not muted:
 		ensure_bgm()
-	return muted
+
+
+func apply_tweak_values(values: Dictionary) -> void:
+	set_muted(bool(values.get(&"audio.master.muted", muted)))
+	_set_bus_volume(&"Music", float(values.get(&"audio.music.volume_db", 10.0)))
+	_set_bus_volume(&"SFX", float(values.get(&"audio.sfx.volume_db", 5.0)))
+
+
+func _set_bus_volume(bus_name: StringName, volume_db: float) -> void:
+	var index := AudioServer.get_bus_index(bus_name)
+	if index >= 0:
+		AudioServer.set_bus_volume_db(index, clampf(volume_db, -80.0, 24.0))
 
 
 func _apply_bus_mutes() -> void:

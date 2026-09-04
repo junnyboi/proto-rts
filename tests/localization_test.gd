@@ -4,6 +4,7 @@ const PRODUCTION_SOURCES := [
 	"res://scripts/main.gd",
 	"res://scripts/ui/hud_command_button.gd",
 	"res://scripts/ui/leaderboard_dialog.gd",
+	"res://scripts/ui/tweak_panel.gd",
 	"res://scripts/view/battlefield.gd",
 	"res://scripts/view/battlefield_minimap.gd",
 ]
@@ -76,6 +77,11 @@ func _run() -> void:
 			var key := FactionCatalog.entity_text_key(kind, field)
 			_expect(catalog_lookup.has(key), "entity display key is missing: %s" % key, failures)
 			_expect(not stats.has(String(field)), "entity catalog retained localized prose in '%s'" % field, failures)
+	for descriptor: Dictionary in TweakCatalog.descriptors():
+		_expect(catalog_lookup.has(descriptor["label_key"]), "tweak label key is missing: %s" % descriptor["label_key"], failures)
+		_expect(catalog_lookup.has(descriptor["description_key"]), "tweak description key is missing: %s" % descriptor["description_key"], failures)
+		if descriptor.has("unit_key"):
+			_expect(catalog_lookup.has(descriptor["unit_key"]), "tweak unit key is missing: %s" % descriptor["unit_key"], failures)
 
 	_audit_player_copy_literals(failures)
 	await _verify_title_toggle(failures)

@@ -715,11 +715,19 @@ func _run() -> void:
 	var scene := load("res://scenes/main.tscn") as PackedScene
 	var game := scene.instantiate()
 	var leaderboard_save_path := "user://visual_leaderboard_test.json"
+	var tweak_save_path := "user://visual_tweak_test.json"
 	_cleanup_leaderboard(leaderboard_save_path)
+	_cleanup_leaderboard(tweak_save_path)
 	game.leaderboard_save_path = leaderboard_save_path
+	game.tweak_save_path = tweak_save_path
 	root.add_child(game)
 	await _settle()
 	_capture("title")
+	game.call("_open_tweak_panel")
+	await _settle(2)
+	_capture("tweak-controls")
+	game._tweak_panel.close_panel()
+	await _settle(2)
 	game.leaderboard_store.set_callsign("JADE GENERAL")
 	game.leaderboard_store.record_match(6840, &"victory", &"human", 502)
 	game.leaderboard_store.record_match(5210, &"defeat", &"beast", 417)
@@ -1146,7 +1154,8 @@ func _run() -> void:
 	game.free()
 	await process_frame
 	_cleanup_leaderboard(leaderboard_save_path)
-	print("PASS visual_capture: title, title/result leaderboards, faction-select, skirmish, worker cargo icons, pause, settings, four game-juice proof states, Stronghold upgrade effects, enemy inspection, caves, production queue, armed command, multi-selection, food economy, all-race wall, corner, polygon, gate, and gate-wall corner audits, fortifications, four-faction tower garrisons, wildlife hunt and regeneration fade, command visualization, Shenlong objective, egg carrier, map overview, and result")
+	_cleanup_leaderboard(tweak_save_path)
+	print("PASS visual_capture: title, tweak controls, title/result leaderboards, faction-select, skirmish, worker cargo icons, pause, settings, four game-juice proof states, Stronghold upgrade effects, enemy inspection, caves, production queue, armed command, multi-selection, food economy, all-race wall, corner, polygon, gate, and gate-wall corner audits, fortifications, four-faction tower garrisons, wildlife hunt and regeneration fade, command visualization, Shenlong objective, egg carrier, map overview, and result")
 	quit(0)
 
 

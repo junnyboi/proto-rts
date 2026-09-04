@@ -172,6 +172,7 @@ var control_groups: Dictionary = {}
 
 var camera_scale := 0.93
 var camera_offset := Vector2.ZERO
+var _tweak_zoom_multiplier := 1.0
 var _camera_initialized := false
 var _camera_pan_velocity := Vector2.ZERO
 var _middle_dragging := false
@@ -278,6 +279,15 @@ func center_on_cell(cell: Vector2i) -> void:
 
 func center_on_player_stronghold() -> void:
 	center_on_cell(MapCatalog.PLAYER_STRONGHOLD)
+
+
+func set_tweak_zoom_multiplier(value: float) -> void:
+	var next_multiplier := clampf(value, 0.75, 1.25)
+	if is_equal_approx(next_multiplier, _tweak_zoom_multiplier):
+		return
+	var ratio := next_multiplier / _tweak_zoom_multiplier
+	_tweak_zoom_multiplier = next_multiplier
+	_zoom_at(size * 0.5, ratio)
 
 
 func zoom_by(factor: float) -> void:

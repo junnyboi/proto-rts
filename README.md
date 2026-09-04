@@ -23,7 +23,8 @@ Do not describe a proposed capability as shipped. The current status is:
 | Hosted global leaderboard | **Adapter only** | The Web bridge exists, but this repository does not contain its host/backend. |
 | First-play tutorial with callouts | **Not implemented** | The objective tracker and initial toast are guidance, not a tutorial state machine. |
 | English/Simplified Chinese localization | **Implemented** | The title selector switches the session between `en-US` and `zh-CN`; keyed catalogs, strict placeholders, and a bundled CJK font cover runtime copy. |
-| Durable gameplay/settings configuration | **Not implemented** | Current effect/audio settings survive screen rebuilds only for the current app session. |
+| Runtime tweak controls | **Implemented** | A catalog-driven panel exposes 20 validated controls across UI, Gameplay, Audio, Player, Enemies, and Environment with live/deferred application boundaries and sticky run-integrity taint. |
+| Durable gameplay/settings configuration | **Implemented locally** | Valid non-default tweak deltas persist in versioned `user://` JSON; host/sandbox synchronization remains absent. |
 | Config synchronization back to a sandbox/host | **Not implemented** | Add a validated versioned host bridge; a Web export cannot write directly to the sandbox. |
 | Player-selectable difficulty | **Not implemented** | AI pacing is currently controlled by simulation constants. |
 
@@ -404,33 +405,46 @@ English (`en-US`) and Simplified Chinese (`zh-CN`) ship as strict JSON key-value
 
 The simulation retains stable IDs and emits semantic `battle_notice(key, placeholder_values, team)` events; it never owns translated prose. `FactionCatalog` likewise stores `name_key`, `role_key`, and other display-key fields rather than locale-specific text. New player-facing copy must enter both catalogs and be rendered through `I18n.t(...)`—do not place localized prose in simulation state or persisted records.
 
-The title-screen EN/CN selector applies for the current app session. It intentionally has no durable preferences storage yet. `ThemeFactory` installs the bundled Noto Sans CJK SC font for Latin, punctuation, and Simplified Chinese coverage. Keep its copyright notice with the font. `tests/localization_test.gd` checks catalog/key/placeholder parity, literal call-site keys, raw-copy regressions, title switching, and catalog-wide font coverage; `tests/localization_visual_capture.gd` produces seven Chinese UI states for manual layout review.[15]
+The title-screen EN/CN selector applies for the current app session. It intentionally has no durable locale preference yet. `ThemeFactory` installs the bundled Noto Sans CJK SC font for Latin, punctuation, and Simplified Chinese coverage. Keep its copyright notice with the font. `tests/localization_test.gd` checks catalog/key/placeholder parity, literal call-site keys, tweak descriptor keys, raw-copy regressions, title switching, and catalog-wide font coverage; `tests/localization_visual_capture.gd` produces eight Chinese UI states, including the generated tweak panel, for manual layout review.[15]
 
 Do not bake language text into generated images. Key art, portraits, icons, cursors, and command indicators must remain language-neutral.
 
-### Settings, accessibility, and synchronization
+### Runtime tweak controls, accessibility, and synchronization
 
-Defaults are audio on, effects Full, Reduced Motion Off, camera impulse Major, and damage values Contextual. These are root-session values and are reapplied to new matches; they disappear when the application exits. Fog is Battlefield-local, defaults on per match, and resets on rematch. There is no preferences file, import/export, or configuration bridge.
+The localized **Tweak Controls** launcher is present on title, faction selection, gameplay, pause, and result routes. It is anchored above the match command deck, rests at exactly `0.5` opacity, reaches `1.0` on hover/focus/press, and opens a searchable, category-filtered, scrollable panel generated from `config/tweaks/catalog.gd`. Opening it during a match pauses through `main.gd` and closing it restores the exact prior pause submenu and focus owner.
 
-Current accessibility consists of keyboard-focusable controls, visible focus styling, tooltips, and Reduced Motion propagation. There is no modal focus trap, text/UI scaling, rebinding UI, high-contrast mode, screen-reader integration, or notification history. Do not claim those capabilities without implementation and tests.
+`TweakService` validates every request, distinguishes requested from active values, saves only non-default deltas to versioned `user://mandate_of_myth_tweaks.json`, and provides per-row Reset plus Reset All. Values cross one of four honest boundaries: `LIVE`, `NEXT_ACTION` (shown as Next Order), `NEXT_SPAWN`, or `NEXT_RUN`. Applying a non-default Gameplay or Score Affecting value permanently marks that run unranked; resetting later does not erase the run marker. Cosmetic-only changes remain eligible. Unranked results remain visible in local history and are never submitted through the global bridge.
 
-For an agent-facing balance/debug panel, add a typed allowlisted `TuningConfig` with defaults and min/max validation. Persist preferences through a separate versioned `ConfigFile` or JSON file under `user://`; never place them in the leaderboard profile. Provide Import/Export JSON for reproducible tuning.
+The shipped control surface is:
+
+| Category | Controls | Boundary and integrity |
+| --- | --- | --- |
+| UI | HUD scale `1.0×`; HUD opacity `100%`; Reduced Motion Off | Live, Cosmetic |
+| Gameplay | Simulation speed `1.0×`; starting resources `1.0×`; construction duration `1.0×`; score `1.0×` | Live / Next Run / Next Order / Next Run; Gameplay or Score Affecting |
+| Audio | Mute Off; Music `10 dB`; SFX `5 dB` | Live, Cosmetic |
+| Player | New-unit speed `1.0×`; attack damage `1.0×`; new-unit health `1.0×` | Next Spawn / Next Order / Next Spawn; Gameplay |
+| Enemies | New-unit health `1.0×`; new-unit speed `1.0×`; AI interval `1.4 s` | Next Spawn / Next Spawn / Next Run; Gameplay |
+| Environment | Camera zoom `1.0×`; Fog On; jade filter Off at `18%` | Live; camera/filter Cosmetic, Fog Gameplay |
+
+The existing settings menu remains as a compact presentation shortcut for audio mute, effect density, Reduced Motion, camera impulse, and floating values. Mute, Reduced Motion, and Fog now share the authoritative tweak values rather than maintaining duplicate settings state. Import/Export JSON and host/sandbox synchronization are not implemented.
+
+Current accessibility consists of keyboard-focusable controls, visible focus styling, localized tooltips/accessibility names, HUD scale/opacity, responsive scrolling, and Reduced Motion propagation. There is no complete modal focus trap, input rebinding UI, high-contrast mode, screen-reader verification, touch-control layer, or notification history. Do not claim those capabilities without implementation and tests.
 
 A browser export cannot write directly to the Manus sandbox. A future sync mechanism needs a separately implemented host/backend adapter with a versioned envelope, allowlisted keys/ranges, unknown-field and secret rejection, local/host precedence, conflict handling, offline behavior, and explicit user intent before transmitting preferences. Keep it outside simulation and hide developer controls in production. The shipped leaderboard bridge is **not** a config-sync implementation.
 
 ## 10. Leaderboard and persistence
 
-`LeaderboardStore` writes `user://mandate_of_myth_leaderboard.json` with schema version 1. Persisted aggregates are `total_matches`, `victories`, `best_score`, and `last_faction`; a run row stores ID, match number, score, result, faction, elapsed seconds, and completion time. The newest 30 rows are retained independently of lifetime aggregates. Simulation score breakdown and per-match resource/kill/build/capture/repair statistics are not persisted.[9]
+`LeaderboardStore` writes `user://mandate_of_myth_leaderboard.json` with schema version 1. Persisted aggregates are `total_matches`, `victories`, `best_score`, `best_ranked_score`, and `last_faction`; a run row stores ID, match number, score, result, faction, elapsed seconds, completion time, ranking eligibility, and a bounded run-configuration marker. The local personal best includes every run, while the separate ranked best excludes gameplay-tweaked runs and is the only score exposed to the optional global bridge. The newest 30 rows are retained independently of lifetime aggregates. Simulation score breakdown and per-match resource/kill/build/capture/repair statistics are not persisted.[9]
 
 The profile ID must be 32 lowercase hexadecimal characters. Callsigns are trimmed 3–20-character ASCII letters, numbers, spaces, hyphens, or underscores. Invalid schema, profile ID, or callsign invalidates the whole file; invalid run rows are dropped. Scores clamp to 0–9,000,000,000. The store rotates a backup, restores a valid `.bak` after primary corruption, and creates a fresh profile only when neither validates. Local rank is score descending, then elapsed time ascending, completion time ascending, and run ID.
 
-At fresh match start the shell resets an exactly-once latch. The first `match_ended` records the human final score, outcome, selected faction, and `int(elapsed_time)`, then attempts optional aggregate submission. Duplicate end notifications are ignored.
+At fresh match start the shell resets an exactly-once latch. The first `match_ended` records the human final score, outcome, selected faction, `int(elapsed_time)`, ranking eligibility, and the run-configuration marker. It attempts optional aggregate submission only for eligible runs. Duplicate end notifications are ignored.
 
 ### Same-origin Web bridge
 
 The shipped bridge is strictly a Web `window.parent.postMessage` adapter—not a backend or config-sync fallback. Requests use `{channel: mandate-of-myth-leaderboard, version: 1, type: list|submit|update_callsign, requestId, payload}` and target `window.location.origin`. Responses are accepted only from `window.parent` at that same origin with matching channel, version, pending request ID, and boolean `ok`. List and submit time out after four seconds. Returned rows are untrusted, capped at 20, and sanitized.
 
-Native mode is `native_local`. Web states are `offline`, `syncing`, `online`, and `error`; the Global tab displays local history in every non-online state, not only after timeout. Match completion automatically attempts one aggregate submission containing anonymous ID, callsign, best score, totals, last faction, source revision, and update time—never `run_history`. Callsign save submits only anonymous ID and callsign. There is currently no consent gate.
+Native mode is `native_local`. Web states are `offline`, `syncing`, `online`, and `error`; the Global tab displays local history in every non-online state, not only after timeout. Eligible match completion automatically attempts one aggregate submission containing anonymous ID, callsign, best eligible score, totals, last faction, source revision, and update time—never `run_history`; gameplay-tweaked runs skip submission and cannot contaminate a later eligible aggregate. Callsign save submits only anonymous ID and callsign. There is currently no consent gate.
 
 `sourceRevision` comes only from `application/config/version` and is truncated to 80 characters; the checked-in project does not define it, so current submissions report `development`. A production host must add explicit opt-in, authentication/identity policy, anti-cheat, server-side validation and rate limits, retention/deletion handling, retry policy, and deterministic build provenance. Client-submitted scores are never authoritative.[13]
 
@@ -459,7 +473,7 @@ Use the **smallest relevant gate**. Documentation-only changes need reference ch
 cd /home/ubuntu/proto-rts
 export GODOT_BIN=/path/to/Godot_v4.7.2
 
-# Registered 19-suite regression and performance gate:
+# Registered 21-suite regression and performance gate:
 GODOT_BIN="$GODOT_BIN" tools/run_tests.sh
 
 # UI/render/art work: native capture generators:

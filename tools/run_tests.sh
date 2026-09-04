@@ -58,6 +58,8 @@ for test_script in \
 	  tests/cursor_test.gd \
 	  tests/localization_test.gd \
 	  tests/leaderboard_test.gd \
+	  tests/tweak_service_test.gd \
+	  tests/tweak_ui_test.gd \
 	  tests/hud_test.gd \
 	  tests/interaction_test.gd \
   tests/command_system_test.gd \

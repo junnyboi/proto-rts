@@ -4,6 +4,7 @@ extends RefCounted
 signal match_ended(result: StringName)
 signal state_changed
 signal battle_notice(key: StringName, placeholder_values: Dictionary, team: int)
+signal tweak_boundary_reached(mode: StringName)
 
 const TEAM_PLAYER := 0
 const TEAM_ENEMY := 1
@@ -177,6 +178,15 @@ var _extra_ai_skill_tests: Dictionary = {}
 var _line_of_sight_blockers: Dictionary = {}
 var _visible_cells_by_team: Array[Dictionary] = []
 var _explored_cells_by_team: Array[Dictionary] = []
+var _tweak_values: Dictionary = {}
+
+
+func set_tweak_values(values: Dictionary) -> void:
+	_tweak_values = values.duplicate(true)
+
+
+func tweak_value(id: StringName, fallback: Variant) -> Variant:
+	return _tweak_values.get(id, fallback)
 
 
 func setup(player_faction: StringName, enable_ai: bool = true) -> void:
@@ -278,12 +288,13 @@ func _tick(delta: float) -> void:
 
 
 func _player_state(faction: StringName, is_ai: bool) -> Dictionary:
+	var starting_multiplier := 1.0 if is_ai else float(tweak_value(&"gameplay.resource.starting_multiplier", 1.0))
 	return {
 		"faction": faction,
-		"jade": 320,
-		"lumber": 30,
-		"essence": 160,
-		"food": 160,
+		"jade": roundi(320.0 * starting_multiplier),
+		"lumber": roundi(30.0 * starting_multiplier),
+		"essence": roundi(160.0 * starting_multiplier),
+		"food": roundi(160.0 * starting_multiplier),
 		"population": 0,
 		"population_cap": POPULATION_CAP,
 		"is_ai": is_ai,
@@ -336,6 +347,8 @@ func lifetime_stats(team: int) -> Dictionary:
 func _award_score(team: int, category: StringName, points: int) -> void:
 	if not _is_valid_team(team) or points <= 0:
 		return
+	if team == TEAM_PLAYER:
+		points = maxi(1, roundi(float(points) * float(tweak_value(&"gameplay.score.multiplier", 1.0))))
 	players[team]["score"] = team_score(team) + points
 	var breakdown := players[team]["score_breakdown"] as Dictionary
 	var category_key := String(category)
@@ -435,8 +448,18 @@ func _record_combat_score(killer_team: int, target: Dictionary) -> void:
 
 
 func _spawn_unit(team: int, kind: StringName, cell: Vector2i, home_cave_id: int = -1) -> int:
+	tweak_boundary_reached.emit(&"NEXT_SPAWN")
 	var faction := &"neutral" if team == TEAM_NEUTRAL else players[team]["faction"] as StringName
 	var stats := FactionCatalog.stats(kind, faction)
+	var health_multiplier := 1.0
+	var speed_multiplier := 1.0
+	if team == TEAM_PLAYER:
+		health_multiplier = float(tweak_value(&"player.health.multiplier", 1.0))
+		speed_multiplier = float(tweak_value(&"player.move.speed_multiplier", 1.0))
+	elif team >= TEAM_ENEMY:
+		health_multiplier = float(tweak_value(&"enemies.health.multiplier", 1.0))
+		speed_multiplier = float(tweak_value(&"enemies.speed.multiplier", 1.0))
+	var maximum_health := float(stats["max_hp"]) * health_multiplier
 	var entity_state := {
 		"id": _next_entity_id,
 		"team": team,
@@ -446,11 +469,11 @@ func _spawn_unit(team: int, kind: StringName, cell: Vector2i, home_cave_id: int 
 		"position": Vector2(cell),
 		"cell": cell,
 		"footprint": Vector2i.ONE,
-		"hp": float(stats["max_hp"]),
-		"max_hp": float(stats["max_hp"]),
+		"hp": maximum_health,
+		"max_hp": maximum_health,
 		"alive": true,
 		"complete": 1.0,
-		"speed": float(stats["speed"]),
+		"speed": float(stats["speed"]) * speed_multiplier,
 		"damage": float(stats["damage"]),
 		"range": float(stats["range"]),
 		"attack_period": float(stats["attack_period"]),
@@ -2135,7 +2158,12 @@ func _advance_construction(delta: float) -> void:
 				_set_path(worker, target["cell"] as Vector2i)
 			continue
 		worker["path"] = []
-		var progress := minf(1.0, float(target["complete"]) + delta / 8.0)
+		var duration_multiplier := (
+			float(tweak_value(&"gameplay.build.duration_multiplier", 1.0))
+			if int(worker.get("team", TEAM_NEUTRAL)) == TEAM_PLAYER
+			else 1.0
+		)
+		var progress := minf(1.0, float(target["complete"]) + delta / (8.0 * duration_multiplier))
 		target["complete"] = progress
 		target["hp"] = maxf(float(target["hp"]), float(target["max_hp"]) * progress)
 		if progress >= 1.0:
@@ -3244,6 +3272,8 @@ func _apply_attack(attacker: Dictionary, target: Dictionary) -> void:
 		return
 	attacker["attack_cooldown"] = float(attacker["attack_period"])
 	var damage := float(attacker["damage"])
+	if int(attacker.get("team", TEAM_NEUTRAL)) == TEAM_PLAYER:
+		damage *= float(tweak_value(&"player.attack.damage_multiplier", 1.0))
 	if attacker.get("kind") == &"hunter" and target.get("category") == &"wildlife":
 		damage *= HUNTER_WILDLIFE_DAMAGE_MULTIPLIER
 	target["hp"] = float(target["hp"]) - damage
@@ -3595,7 +3625,7 @@ func _advance_ai(delta: float) -> void:
 			_set_ai_skill_test_launched(team, _issue_ai_skill_test_invasion(team))
 	if _ai_strategy_timer > 0.0:
 		return
-	_ai_strategy_timer = 1.4
+	_ai_strategy_timer = float(tweak_value(&"enemies.ai.decision_interval", 1.4))
 	for team in range(TEAM_ENEMY, players.size()):
 		if bool(players[team].get("is_ai", false)) and not bool(players[team].get("eliminated", false)):
 			_advance_ai_team(team)
