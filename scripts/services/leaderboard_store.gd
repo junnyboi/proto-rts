@@ -102,7 +102,12 @@ func record_match(
 		_profile["victories"] = maxi(0, int(_profile.get("victories", 0))) + 1
 	_profile["best_score"] = maxi(int(_profile.get("best_score", 0)), clean_score)
 	if rank_eligible:
+		_profile["ranked_total_matches"] = maxi(0, int(_profile.get("ranked_total_matches", 0))) + 1
+		if clean_result == &"victory":
+			_profile["ranked_victories"] = maxi(0, int(_profile.get("ranked_victories", 0))) + 1
 		_profile["best_ranked_score"] = maxi(int(_profile.get("best_ranked_score", 0)), clean_score)
+		_profile["last_ranked_faction"] = String(clean_faction)
+		_profile["ranked_updated_unix_time"] = now
 	_profile["last_faction"] = String(clean_faction)
 	_profile["updated_unix_time"] = now
 	_save_profile()
@@ -129,11 +134,11 @@ func public_profile(source_revision: String = "") -> Dictionary:
 		"anonymousProfileId": String(_profile.get("anonymous_profile_id", "")),
 		"callsign": callsign(),
 		"bestScore": maxi(0, int(_profile.get("best_ranked_score", 0))),
-		"totalMatches": maxi(0, int(_profile.get("total_matches", 0))),
-		"victories": maxi(0, int(_profile.get("victories", 0))),
-		"lastFaction": String(_profile.get("last_faction", "unknown")),
+		"totalMatches": maxi(0, int(_profile.get("ranked_total_matches", 0))),
+		"victories": maxi(0, int(_profile.get("ranked_victories", 0))),
+		"lastFaction": String(_profile.get("last_ranked_faction", "unknown")),
 		"sourceRevision": source_revision.left(80),
-		"updatedUnixTime": maxi(0, int(_profile.get("updated_unix_time", 0))),
+		"updatedUnixTime": maxi(0, int(_profile.get("ranked_updated_unix_time", 0))),
 	}
 
 
@@ -146,10 +151,14 @@ func _fresh_profile() -> Dictionary:
 		"total_matches": 0,
 		"victories": 0,
 		"best_score": 0,
+		"ranked_total_matches": 0,
+		"ranked_victories": 0,
 		"best_ranked_score": 0,
 		"last_faction": "unknown",
+		"last_ranked_faction": "unknown",
 		"run_history": [],
 		"updated_unix_time": int(Time.get_unix_time_from_system()),
+		"ranked_updated_unix_time": 0,
 	}
 
 
@@ -194,16 +203,31 @@ func _sanitize_profile(raw: Dictionary) -> Dictionary:
 		history.pop_front()
 	var history_best := 0
 	var history_ranked_best := 0
+	var history_ranked_matches := 0
+	var history_ranked_victories := 0
+	var history_last_ranked_faction := "unknown"
 	var history_victories := 0
 	for entry in history:
 		history_best = maxi(history_best, int(entry["score"]))
 		if bool(entry["rank_eligible"]):
 			history_ranked_best = maxi(history_ranked_best, int(entry["score"]))
+			history_ranked_matches += 1
+			history_last_ranked_faction = String(entry["faction"])
+			if entry["result"] == "victory":
+				history_ranked_victories += 1
 		if entry["result"] == "victory":
 			history_victories += 1
 	var total_matches := maxi(history.size(), clampi(int(raw.get("total_matches", history.size())), 0, MAX_SCORE))
+	var rank_aware_profile := raw.has("best_ranked_score")
+	var legacy_ranked_total := history_ranked_matches if rank_aware_profile else total_matches
+	var ranked_total_matches := maxi(
+		history_ranked_matches,
+		clampi(int(raw.get("ranked_total_matches", legacy_ranked_total)), 0, total_matches),
+	)
+	var legacy_ranked_victories := history_ranked_victories if rank_aware_profile else int(raw.get("victories", history_ranked_victories))
 	var legacy_ranked_best := int(raw.get("best_score", history_ranked_best))
 	var saved_ranked_best := int(raw.get("best_ranked_score", legacy_ranked_best))
+	var legacy_last_ranked_faction := history_last_ranked_faction if rank_aware_profile else String(raw.get("last_faction", "unknown"))
 	return {
 		"schema_version": SCHEMA_VERSION,
 		"anonymous_profile_id": anonymous_profile_id,
@@ -211,10 +235,14 @@ func _sanitize_profile(raw: Dictionary) -> Dictionary:
 		"total_matches": total_matches,
 		"victories": clampi(maxi(history_victories, int(raw.get("victories", history_victories))), 0, total_matches),
 		"best_score": maxi(history_best, clampi(int(raw.get("best_score", history_best)), 0, MAX_SCORE)),
+		"ranked_total_matches": ranked_total_matches,
+		"ranked_victories": clampi(maxi(history_ranked_victories, int(raw.get("ranked_victories", legacy_ranked_victories))), 0, ranked_total_matches),
 		"best_ranked_score": maxi(history_ranked_best, clampi(saved_ranked_best, 0, MAX_SCORE)),
 		"last_faction": _sanitize_faction(String(raw.get("last_faction", "unknown"))),
+		"last_ranked_faction": _sanitize_faction(String(raw.get("last_ranked_faction", legacy_last_ranked_faction))),
 		"run_history": history,
 		"updated_unix_time": maxi(0, int(raw.get("updated_unix_time", 0))),
+		"ranked_updated_unix_time": maxi(0, int(raw.get("ranked_updated_unix_time", raw.get("updated_unix_time", 0) if not rank_aware_profile else 0))),
 	}
 
 

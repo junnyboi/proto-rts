@@ -73,10 +73,10 @@ func _verify_legacy_placeholder_migration(failures: Array[String]) -> void:
 
 
 func _verify_ranking(store: LeaderboardStore, failures: Array[String]) -> void:
-	store.record_match(1100, &"victory", &"human", 300, false, "tweaked:gameplay.score_multiplier")
 	store.record_match(1000, &"victory", &"human", 300)
 	store.record_match(400, &"defeat", &"beast", 100)
 	store.record_match(1000, &"defeat", &"celestial", 180)
+	store.record_match(1100, &"victory", &"human", 300, false, "tweaked:gameplay.score_multiplier")
 	var rows := store.local_leaderboard(10)
 	_expect(rows.size() == 4, "local leaderboard omitted completed matches", failures)
 	if rows.size() == 4:
@@ -92,6 +92,9 @@ func _verify_ranking(store: LeaderboardStore, failures: Array[String]) -> void:
 	_expect(int(store.snapshot().get("best_score", 0)) == 1100, "local profile did not retain the unranked personal best", failures)
 	_expect(int(store.snapshot().get("best_ranked_score", 0)) == 1000, "ranked aggregate accepted a tweaked result", failures)
 	_expect(int(public_profile.get("bestScore", 0)) == 1000, "public profile exposed an unranked tweaked score", failures)
+	_expect(int(public_profile.get("totalMatches", 0)) == 3, "public profile counted an unranked tweaked run", failures)
+	_expect(int(public_profile.get("victories", 0)) == 1, "public profile counted an unranked tweaked victory", failures)
+	_expect(String(public_profile.get("lastFaction", "")) == "celestial", "public profile exposed the faction from an unranked tweaked run", failures)
 
 
 func _verify_history_bound(store: LeaderboardStore, failures: Array[String]) -> void:
