@@ -1,6 +1,6 @@
 {
   "generator": "GPT Image 2",
-  "runtime_asset_count": 94,
+  "runtime_asset_count": 97,
   "assets": [
     {
       "path": "assets/runtime/ui/mandate_of_myth_title.webp",
@@ -10,6 +10,39 @@
       "mode": "RGB",
       "alpha_extrema": null,
       "sha256": "fb64ba2c54ab96858f3f2b40f397a9db198e5b41ade84148a91dd20ba0cd65ee"
+    },
+    {
+      "path": "assets/runtime/backgrounds/jade_meridian_backdrop.webp",
+      "source": "assets/source/backgrounds/jade_meridian_backdrop.png",
+      "width": 1600,
+      "height": 900,
+      "mode": "RGB",
+      "alpha_extrema": null,
+      "sha256": "72c102453b30c837c7703171045e0d1eb0a14f1d80eefba2ade19bc114b5b1e1"
+    },
+    {
+      "path": "assets/runtime/foregrounds/jade_meridian_foreground.png",
+      "source": "assets/source/foregrounds/jade_meridian_foreground.png",
+      "width": 1600,
+      "height": 900,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "a2cddc021b0e8ac31219bb604acc6ff3dde5cd5e7e72be85440d098c8fb9d466"
+    },
+    {
+      "path": "assets/runtime/ui/mandate_pause_frame.png",
+      "source": "assets/source/ui/mandate_pause_frame.png",
+      "width": 560,
+      "height": 660,
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "98e0c4929072055d4911c5696a03fa9c9c021268b60aa5eb6b35af3d4586d280"
     },
     {
       "path": "assets/runtime/ui/idle_worker_alert.png",

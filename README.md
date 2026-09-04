@@ -15,18 +15,22 @@ Do not describe a proposed capability as shipped. The current status is:
 | Complete game loop | **Implemented** | Title → faction selection → skirmish → result/rematch. |
 | Playable stages | **One implemented stage** | The Fourfold Mandate is the current skirmish. Use the stage guidance below to add a tutorial or second scenario. |
 | Start screen and faction selection | **Implemented** | Programmatically assembled in `scripts/main.gd`. |
-| Match HUD, minimap, objectives, pause, and settings | **Implemented** | Preserve the alignment and input rules in this guide. |
-| AI-generated background, foreground, characters, structures, UI, and cursors | **Implemented** | Runtime includes 94 processed visual assets derived from immutable source masters. |
+| Match HUD, minimap, objectives, pause, and settings | **Implemented** | Pause includes confirmed Restart and Return to Title routes; preserve the alignment and input rules in this guide. |
+| AI-generated background, foreground, characters, structures, UI, and cursors | **Implemented** | Runtime includes 97 processed visual assets derived from immutable source masters. |
 | Visual effects, particles, fog filter, and game juice | **Implemented** | Bounded presentation records; they never own gameplay truth. |
 | BGM and small SFX | **Implemented** | One looping score and 23 named SFX use a bounded audio director. |
 | Local leaderboard | **Implemented** | Versioned local profile/history with backup recovery. |
 | Hosted global leaderboard | **Adapter only** | The Web bridge exists, but this repository does not contain its host/backend. |
-| First-play tutorial with callouts | **Not implemented** | The objective tracker and initial toast are guidance, not a tutorial state machine. |
+| First-play tutorial with callouts | **Implemented** | Six event-driven steps, contextual input prompts/fallbacks, versioned completion, Skip, and explicit replay. |
 | English/Simplified Chinese localization | **Implemented** | The title selector switches the session between `en-US` and `zh-CN`; keyed catalogs, strict placeholders, and a bundled CJK font cover runtime copy. |
+| Keyboard/mouse, gamepad, and touch | **Implemented** | One input router updates tutorial prompts; gamepad adds a virtual cursor and touch adds pan/pinch/tap plus a 48 px command dock. |
+| Responsive landscape/portrait shell | **Implemented** | Safe-area-aware breakpoints reflow faction cards, resource HUD, command deck, tutorial, modals, toast, and tweak access. |
 | Runtime tweak controls | **Implemented** | A catalog-driven panel exposes 20 validated controls across UI, Gameplay, Audio, Player, Enemies, and Environment with live/deferred application boundaries and sticky run-integrity taint. |
 | Durable gameplay/settings configuration | **Implemented locally** | Valid non-default tweak deltas persist in versioned `user://` JSON; host/sandbox synchronization remains absent. |
 | Config synchronization back to a sandbox/host | **Not implemented** | Add a validated versioned host bridge; a Web export cannot write directly to the sandbox. |
 | Player-selectable difficulty | **Not implemented** | AI pacing is currently controlled by simulation constants. |
+
+Template identity is declared in `template.json` with a stable ID, `kind=game`, `game_genre=rts`, `status=ready`, and a static capability contract. `tools/validate_template.sh` assembles a clean source-free copy, validates the metadata, imports it with Godot 4.7.2, and boots the main route. Run this before publishing or consuming the repository as a scaffold.
 
 ## 2. Non-negotiable architecture
 
@@ -39,7 +43,8 @@ Do not describe a proposed capability as shipped. The current status is:
 | Game data | `scripts/data/faction_catalog.gd`, `scripts/data/map_catalog.gd` | Faction identity/stats/capabilities/asset paths and authored map/scenario content. |
 | Projection and view | `scripts/core/iso_projection.gd`, `scripts/view/` | Isometric conversion, camera, rendering, picking, fog presentation, minimap, and input translation. |
 | Game juice | `scripts/view/effects/` | Bounded view-only effects, local transforms, hit flashes, health easing, and regenerated-wildlife fade-in. |
-| UI system | `scripts/ui/` | Shared theme, command buttons, fallback icons, cursors, and leaderboard dialog. |
+| UI system | `scripts/ui/` | Shared theme, command buttons, fallback icons, cursors, tutorial/touch surfaces, responsive layout, and leaderboard dialog. |
+| Input and onboarding | `scripts/input/`, `scripts/tutorial/` | Detects keyboard/mouse, gamepad, and touch; owns versioned first-run tutorial presentation state without owning gameplay truth. |
 | Localization | `scripts/services/localization.gd`, `localization/` | Validates locale/key/placeholder parity and resolves presentation copy through `I18n.t(key, values)`. |
 | Audio | `scripts/audio/audio_director.gd`, `default_bus_layout.tres` | Persistent score, cue routing, cooldowns, priorities, pitch variance, fog filtering, and a bounded 16-voice pool. |
 | Persistence/services | `scripts/services/` | Local leaderboard profile/history and optional same-origin parent-window Web bridge. |
@@ -197,7 +202,7 @@ The only top-level states are `title`, `faction`, `match`, and `result`. Pause a
 | Title | Covered key art, title, Start Game, leaderboard, EN/CN selector | Start receives initial keyboard focus; changing locale rebuilds the title immediately and remains active for the session. |
 | Faction select | Four catalog-driven portrait cards, Back, control legend | First faction receives focus; callbacks keep the selected faction ID. |
 | Match HUD | Score/resources/population/dens/time, objectives, minimap, inspection/selection, production and 4 × 3 command grid | Read state from simulation; expose commands only for valid player-owned selections. |
-| Pause | Resume, Settings, Resign | Stops simulation and Battlefield input; Resume receives focus. |
+| Pause | Resume, Settings, Restart, Return to Title, Resign | Stops simulation and Battlefield input; Resume receives focus; destructive navigation requires confirmation. |
 | Settings | Audio, effect quality, reduced motion, camera impulse, damage values | Applies immediately to the active view; root-session values survive rematch. |
 | Leaderboard | Local/Global tabs, callsign, status, ten rows | Opens above title/result overlays and restores initiating focus on close. |
 | Result | Victory/defeat, rematch, leaderboard, faction select, title | Shell records once and blocks GUI input; external command callers must also stop. |
@@ -206,29 +211,31 @@ The HUD is reconciled from authoritative state every 0.1 seconds and immediately
 
 ### Reference geometry and command-card constraints
 
-The reference viewport is **1280 × 720** with `canvas_items` stretch. Major roots use anchors, but the layout has no reflow, breakpoint, scrolling, or UI-scale system.
+The reference viewport is **1280 × 720** with `canvas_items` stretch and `expand` aspect. `ResponsiveLayout` applies an 8 px fallback safe margin, honors valid platform safe areas, and switches to portrait layout below a 0.92 aspect ratio.
 
 | Region | Reference rule |
 | --- | --- |
 | Title action stack | Centered, approximately 520 × 292; primary/secondary actions approximately 340 px wide, with 92 px locale buttons. |
-| Faction cards | Centered 1180 × 500 row, 14 px separation; each card approximately 284 × 500. |
-| Top HUD | Full width; 8 px side and 6 px top inset; 50 px height; 40 × 34 pause/audio controls. |
-| Bottom HUD | Full width; 8 px side/bottom inset; 234 px height; 236 px minimap, flexible selection panel, 424 px command bay. |
+| Faction cards | Four-column scrollable grid in landscape; two columns in portrait; 14 px separation and approximately 500 px card height. |
+| Top HUD | Ten-column, 50 px landscape ribbon; three-column, 190 px portrait grid inside safe bounds. |
+| Bottom HUD | Three-column, 234 px landscape deck; one-column, 598 px portrait stack for minimap, selection, and command bays. |
 | Command grid | 4 × 3 slots; each approximately 98 × 66. Keep persistent command modes grouped and visibly armed. |
 | Objective tracker | Position approximately (10, 64); 326 × 154 expanded or 58 px collapsed. |
 | Toast | Centered above the bottom deck, approximately 440 × 38. |
-| Pause/settings | Centered approximately 420 × 380 and 460 × 560. |
+| Pause/settings | Safe-area-clamped generated frame with centered pause, settings, and confirmation panels. |
 | Leaderboard | Centered approximately 920 × 660; ten 31 px rows. |
 
 The 4 × 3 command card is **multiplexed**, not one-command-per-cell: production and build controls intentionally share slots, and visibility is computed independently. Mixed selections can therefore place multiple visible sibling controls in one slot, where draw/hit order matters. Define and test an explicit conflict policy before adding mixed-selection commands.
 
-Use `ThemeFactory` for shared colors, panels, buttons, progress bars, spacing, and modal styles. Test at 1280 × 720 and a narrow/short viewport. Add breakpoints, scrolling, or UI scale before claiming mobile-native support.
+Use `ThemeFactory` for shared colors, panels, buttons, progress bars, spacing, and modal styles. Test at 1280 × 720 and 720 × 1280; keep touch actions at least 48 px and re-run responsive/input coverage when changing container geometry.
 
 ### Input, selection, and focus invariants
 
 `Escape` cancels an armed command, then clears selection, then pauses. Armed Build, Move, Attack-Move, Patrol, Repair, and Rally modes persist after valid or rejected destinations until toggled or cancelled; a mode armed with Shift keeps append intent. `R` rotates active placement before it can arm Repair. While paused, gameplay input is consumed.
 
 `Space` is intercepted before focused HUD controls and queues the first available unit from the selected producer. `P` pauses/resumes; `Q/I/E/H` select all Workers/idle Workers/army/Stronghold; `F/T/R/X` arm Attack-Move/Patrol/Rotate-or-Repair/Stop. Digits `0–9` recall control groups; Ctrl/Command assigns, Ctrl/Command+Shift appends, Shift-recall merges selection, and a second unmodified recall within 450 ms centers the camera. `M` toggles audio outside an open leaderboard modal.
+
+Gamepad uses the left stick for camera pan and the right stick for a bounded virtual battlefield cursor. A selects or confirms an armed command, X issues contextual orders, Y selects the army, B cancels modes/selection or backs out of pause submenus, shoulder buttons zoom, and Start toggles pause. Touch uses one-finger tap for selection/armed commands, one-finger drag to pan, two-finger pinch to zoom, and a safe-area dock for Workers, Army, Move, Attack, contextual Order, and Cancel. All three methods submit the same Battlefield/simulation command surface.
 
 A click may inspect any rendered selectable entity, including rivals, neutrals, resources, wildlife, and objectives; command extraction still filters to player ownership. Selection de-duplicates and removes dead/garrisoned IDs. Drag starts at 6 screen pixels, tests projected anchors rather than sprite bounds, and selects only alive non-garrisoned player units. Shift-click toggles; Shift-drag adds without removing existing members.
 
@@ -277,7 +284,7 @@ Effect settings are `Full/Low`, Reduced Motion, `Off/Major/Full` camera impulse,
 
 ### Runtime asset inventory
 
-A complete same-shape reskin replaces **94 runtime visual outputs**. The repository currently has 103 source PNG masters because some retired alternatives and paintovers are retained outside the runtime catalog.[7]
+A complete same-shape reskin replaces **97 runtime visual outputs**. The repository currently has 106 source image masters because some retired alternatives and paintovers are retained outside the runtime catalog.[7]
 
 | Category | Count | Runtime outputs and generation rules |
 | --- | ---: | --- |
@@ -382,20 +389,18 @@ Candidate reels and source BGM are external inputs; a fresh clone cannot recreat
 
 ## 9. Tutorial, localization, tweaks, and config sync
 
-### Current tutorial status — not implemented
+### First-run tutorial
 
-The game has no tutorial model or callout subsystem. The objective tracker is a display-only live checklist for a completed Food producer, captured Den, allied Shenlong, and zero remaining rivals; collapsed mode shows the first unmet row. Its collapse state is session-only. The start toast is a single replaceable message. Neither is tutorial progression or victory authority.
-
-A real tutorial should use a separate versioned model:
+`TutorialDirector` is a separate versioned presentation model stored at `user://mandate_of_myth_tutorial.json`. It runs once by default, can be skipped, and can be explicitly replayed from the title. It observes shell/Battlefield outcomes only; it never mutates `RtsSimulation` or substitutes tutorial state for objective/victory truth.
 
 | Required part | Rule |
 | --- | --- |
-| Tutorial state | Stable tutorial ID, step ID, completed/skipped flag, schema version, and migration/reset behavior. |
-| Trigger | Observe simulation state or semantic events; never mutate game truth from a callout. |
-| Callout | Anchor to named HUD/world targets, avoid covering commands, support keyboard/controller dismissal, and remain legible at supported viewports. |
-| Progression | Teach select → move → gather → deposit → build → train → attack; stage-specific steps may add fog, hunting, caves, or egg escort. |
-| Persistence | Save first-play completion separately from leaderboard data. Offer replay and reset. |
-| Tests | Verify trigger order, skip/replay, persistence, pause behavior, missing-anchor fallback, and both locales. |
+| Tutorial state | Schema/tutorial version, completion, active step, elapsed timeout, fallback state, and detected input method. |
+| Trigger | Observes friendly selection, contextual orders, production, objective progress, pause, and tweak-panel opening. |
+| Callout | Independent top-right safe-area panel with localized title/body/input copy, step count, Skip, and time-based fallback guidance. |
+| Progression | Select → command → production → objective → pause → Tweak Controls. |
+| Persistence | Completion is separate from leaderboard/tweak data; title replay arms the next match. |
+| Tests | `tutorial_test.gd`, `responsive_input_test.gd`, localization parity, and native captures cover progression, persistence, methods, portrait reflow, and both locales. |
 
 The toast lane is not suitable for critical tutorial state: every message replaces the prior text and restarts a short timer. Add a queue, priority policy, accessible history, and explicit callout ownership before using it for durable guidance.
 
@@ -405,7 +410,7 @@ English (`en-US`) and Simplified Chinese (`zh-CN`) ship as strict JSON key-value
 
 The simulation retains stable IDs and emits semantic `battle_notice(key, placeholder_values, team)` events; it never owns translated prose. `FactionCatalog` likewise stores `name_key`, `role_key`, and other display-key fields rather than locale-specific text. New player-facing copy must enter both catalogs and be rendered through `I18n.t(...)`—do not place localized prose in simulation state or persisted records.
 
-The title-screen EN/CN selector applies for the current app session. It intentionally has no durable locale preference yet. `ThemeFactory` installs the bundled Noto Sans CJK SC font for Latin, punctuation, and Simplified Chinese coverage. Keep its copyright notice with the font. `tests/localization_test.gd` checks catalog/key/placeholder parity, literal call-site keys, tweak descriptor keys, raw-copy regressions, title switching, and catalog-wide font coverage; `tests/localization_visual_capture.gd` produces eight Chinese UI states, including the generated tweak panel, for manual layout review.[15]
+The title-screen EN/CN selector applies for the current app session. It intentionally has no durable locale preference yet. `ThemeFactory` installs the bundled Noto Sans CJK SC font for Latin, punctuation, and Simplified Chinese coverage. Keep its copyright notice with the font. `tests/localization_test.gd` checks catalog/key/placeholder parity, literal call-site keys, tweak descriptor keys, raw-copy regressions, title switching, and catalog-wide font coverage; `tests/localization_visual_capture.gd` produces nine Chinese UI states, including tutorial, generated tweak, pause, and confirmation surfaces, for manual layout review.[15]
 
 Do not bake language text into generated images. Key art, portraits, icons, cursors, and command indicators must remain language-neutral.
 
@@ -428,7 +433,7 @@ The shipped control surface is:
 
 The existing settings menu remains as a compact presentation shortcut for audio mute, effect density, Reduced Motion, camera impulse, and floating values. Mute, Reduced Motion, and Fog now share the authoritative tweak values rather than maintaining duplicate settings state. Import/Export JSON and host/sandbox synchronization are not implemented.
 
-Current accessibility consists of keyboard-focusable controls, visible focus styling, localized tooltips/accessibility names, HUD scale/opacity, responsive scrolling, and Reduced Motion propagation. There is no complete modal focus trap, input rebinding UI, high-contrast mode, screen-reader verification, touch-control layer, or notification history. Do not claim those capabilities without implementation and tests.
+Current accessibility consists of keyboard/gamepad-focusable controls, visible focus styling, localized tooltips/accessibility names, HUD scale/opacity, safe-area responsive scrolling/reflow, 48 px touch actions, contextual tutorial prompts, and Reduced Motion propagation. There is no complete modal focus trap, input rebinding UI, high-contrast mode, screen-reader verification, or notification history. Do not claim those capabilities without implementation and tests.
 
 A browser export cannot write directly to the Manus sandbox. A future sync mechanism needs a separately implemented host/backend adapter with a versioned envelope, allowlisted keys/ranges, unknown-field and secret rejection, local/host precedence, conflict handling, offline behavior, and explicit user intent before transmitting preferences. Keep it outside simulation and hide developer controls in production. The shipped leaderboard bridge is **not** a config-sync implementation.
 
@@ -473,8 +478,11 @@ Use the **smallest relevant gate**. Documentation-only changes need reference ch
 cd /home/ubuntu/proto-rts
 export GODOT_BIN=/path/to/Godot_v4.7.2
 
-# Registered 21-suite regression and performance gate:
+# Registered 25-suite regression and performance gate:
 GODOT_BIN="$GODOT_BIN" tools/run_tests.sh
+
+# Template packaging gate (metadata + clean source-free import and boot):
+GODOT_BIN="$GODOT_BIN" tools/validate_template.sh
 
 # UI/render/art work: native capture generators:
 "$GODOT_BIN" --path . --script tests/visual_capture.gd

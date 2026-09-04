@@ -50,6 +50,10 @@ TEST_LOG_DIR="$(mktemp -d)"
 trap 'rm -rf "${TEST_LOG_DIR}"' EXIT
 
 for test_script in \
+	  tests/template_metadata_test.gd \
+	  tests/template_boot_test.gd \
+	  tests/tutorial_test.gd \
+	  tests/responsive_input_test.gd \
 	  tests/map_test.gd \
 	  tests/projection_test.gd \
 	  tests/assets_test.gd \

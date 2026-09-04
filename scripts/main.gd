@@ -4,7 +4,9 @@ const STATE_TITLE := &"title"
 const STATE_FACTION := &"faction"
 const STATE_MATCH := &"match"
 const STATE_RESULT := &"result"
-const TITLE_ART := preload("res://assets/runtime/ui/mandate_of_myth_title.webp")
+const SHELL_BACKGROUND := preload("res://assets/runtime/backgrounds/jade_meridian_backdrop.webp")
+const SHELL_FOREGROUND := preload("res://assets/runtime/foregrounds/jade_meridian_foreground.png")
+const PAUSE_FRAME := preload("res://assets/runtime/ui/mandate_pause_frame.png")
 const BATTLEFIELD_MINIMAP := preload("res://scripts/view/battlefield_minimap.gd")
 const HUD_ICON := preload("res://scripts/ui/hud_icon.gd")
 const HUD_COMMAND_BUTTON := preload("res://scripts/ui/hud_command_button.gd")
@@ -14,6 +16,11 @@ const LEADERBOARD_DIALOG_SCRIPT := preload("res://scripts/ui/leaderboard_dialog.
 const TWEAK_CATALOG := preload("res://config/tweaks/catalog.gd")
 const TWEAK_SERVICE_SCRIPT := preload("res://scripts/tuning/tweak_service.gd")
 const TWEAK_PANEL_SCRIPT := preload("res://scripts/ui/tweak_panel.gd")
+const INPUT_ROUTER_SCRIPT := preload("res://scripts/input/input_router.gd")
+const TUTORIAL_DIRECTOR_SCRIPT := preload("res://scripts/tutorial/tutorial_director.gd")
+const TUTORIAL_CALLOUT_SCRIPT := preload("res://scripts/ui/tutorial_callout.gd")
+const TOUCH_CONTROLS_SCRIPT := preload("res://scripts/ui/touch_controls.gd")
+const RESPONSIVE_LAYOUT := preload("res://scripts/ui/responsive_layout.gd")
 const PERSISTENT_COMMAND_IDS: Array[StringName] = [
 	&"build",
 	&"build_farm",
@@ -79,6 +86,8 @@ var _pause_menu: PanelContainer
 var _settings_menu: PanelContainer
 var _resume_button: Button
 var _settings_button: Button
+var _restart_button: Button
+var _return_title_button: Button
 var _resign_button: Button
 var _settings_audio_button: Button
 var _settings_effect_intensity_button: Button
@@ -86,6 +95,14 @@ var _settings_reduced_motion_button: Button
 var _settings_camera_impulse_button: Button
 var _settings_damage_numbers_button: Button
 var _settings_back_button: Button
+var _tutorial_replay_button: Button
+var _confirm_menu: PanelContainer
+var _confirm_title: Label
+var _confirm_body: Label
+var _confirm_accept_button: Button
+var _confirm_cancel_button: Button
+var _confirm_action: StringName = &""
+var _pause_frame: TextureRect
 var _pause_button: Button
 var _audio_button: Button
 var _fog_button: Button
@@ -127,9 +144,29 @@ var _tweak_previous_paused := false
 var _tweak_previous_pause_visible := false
 var _tweak_previous_settings_visible := false
 var _tweak_button_pressing := false
+var input_router: InputRouter
+var tutorial_director: TutorialDirector
+var tutorial_save_path: String = TutorialDirector.SAVE_PATH
+var _tutorial_callout: TutorialCallout
+var _touch_controls: TouchControls
+var _top_bar_grid: GridContainer
+var _command_deck_grid: GridContainer
+var _faction_grid: GridContainer
+var _faction_scroll: ScrollContainer
+var _title_content: VBoxContainer
+var _objective_progress_snapshot: Array[bool] = []
 
 
 func _ready() -> void:
+	input_router = INPUT_ROUTER_SCRIPT.new() as InputRouter
+	input_router.name = "InputRouter"
+	add_child(input_router)
+	input_router.method_changed.connect(_on_input_method_changed)
+	tutorial_director = TUTORIAL_DIRECTOR_SCRIPT.new() as TutorialDirector
+	tutorial_director.name = "TutorialDirector"
+	add_child(tutorial_director)
+	tutorial_director.setup(tutorial_save_path)
+	tutorial_director.callout_changed.connect(_on_tutorial_callout_changed)
 	tweak_service = TWEAK_SERVICE_SCRIPT.new() as TweakService
 	tweak_service.name = "TweakService"
 	add_child(tweak_service)
@@ -153,6 +190,7 @@ func _ready() -> void:
 	var game_window := get_window()
 	game_window.mouse_entered.connect(CursorSystem.resume)
 	game_window.mouse_exited.connect(CursorSystem.suspend)
+	get_viewport().size_changed.connect(_apply_responsive_layout)
 	CursorSystem.resume()
 	_show_title()
 
@@ -162,9 +200,22 @@ func _exit_tree() -> void:
 
 
 func _process(delta: float) -> void:
+	if tutorial_director != null:
+		tutorial_director.advance(delta, paused)
 	if state == STATE_MATCH and simulation != null:
 		if not paused:
 			simulation.advance(delta * float(tweak_service.active_value(&"gameplay.time_scale")))
+			if input_router != null and input_router.method == InputRouter.GAMEPAD and battlefield != null:
+				var camera_stick := Vector2(
+					Input.get_joy_axis(0, JOY_AXIS_LEFT_X),
+					Input.get_joy_axis(0, JOY_AXIS_LEFT_Y),
+				)
+				var cursor_stick := Vector2(
+					Input.get_joy_axis(0, JOY_AXIS_RIGHT_X),
+					Input.get_joy_axis(0, JOY_AXIS_RIGHT_Y),
+				)
+				battlefield.gamepad_pan(camera_stick, delta)
+				battlefield.gamepad_move_cursor(cursor_stick, delta)
 		_hud_timer -= delta
 		if _hud_timer <= 0.0:
 			_hud_timer = 0.1
@@ -177,6 +228,11 @@ func _process(delta: float) -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if input_router != null:
+		input_router.observe(event)
+	if event is InputEventJoypadButton:
+		_handle_gamepad_button(event as InputEventJoypadButton)
+		return
 	if not (event is InputEventKey):
 		return
 	var key := event as InputEventKey
@@ -227,7 +283,9 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	if paused:
 		match key.keycode:
 			KEY_ESCAPE:
-				if _settings_menu != null and _settings_menu.visible:
+				if _confirm_menu != null and _confirm_menu.visible:
+					_cancel_abandon_confirmation()
+				elif _settings_menu != null and _settings_menu.visible:
 					_show_pause_menu()
 				else:
 					_set_paused(false)
@@ -250,6 +308,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 				or battlefield.patrol_armed
 				or battlefield.repair_armed
 				or battlefield.rally_armed
+				or battlefield.context_armed
 				or battlefield.placement_worker_id >= 0
 			):
 				battlefield.cancel_modes()
@@ -303,6 +362,61 @@ func _control_group_index(key: InputEventKey) -> int:
 	return -1
 
 
+func _handle_gamepad_button(event: InputEventJoypadButton) -> void:
+	if not event.pressed:
+		return
+	audio_director.ensure_bgm()
+	if state != STATE_MATCH or battlefield == null:
+		return
+	if event.button_index == JOY_BUTTON_START:
+		_toggle_pause()
+		get_viewport().set_input_as_handled()
+		return
+	if paused:
+		if event.button_index == JOY_BUTTON_B:
+			if _confirm_menu != null and _confirm_menu.visible:
+				_cancel_abandon_confirmation()
+			elif _settings_menu != null and _settings_menu.visible:
+				_show_pause_menu()
+			else:
+				_set_paused(false)
+			get_viewport().set_input_as_handled()
+		return
+	var focus_owner := get_viewport().gui_get_focus_owner()
+	if event.button_index == JOY_BUTTON_A and focus_owner is BaseButton and focus_owner.is_visible_in_tree():
+		# Let Godot's normal ui_accept path activate focused HUD controls.
+		return
+	match event.button_index:
+		JOY_BUTTON_A:
+			battlefield.gamepad_primary()
+		JOY_BUTTON_X:
+			battlefield.gamepad_context()
+		JOY_BUTTON_Y:
+			battlefield.select_all_army()
+			_show_feedback(I18n.t(&"feedback.army_selected"), false)
+		JOY_BUTTON_B:
+			if (
+				battlefield.move_armed
+				or battlefield.attack_move_armed
+				or battlefield.patrol_armed
+				or battlefield.repair_armed
+				or battlefield.rally_armed
+				or battlefield.context_armed
+				or battlefield.placement_worker_id >= 0
+			):
+				battlefield.cancel_modes()
+				_update_armed_command_styles()
+			else:
+				battlefield.select_entities([])
+		JOY_BUTTON_LEFT_SHOULDER:
+			battlefield.zoom_by(1.0 / 1.14)
+		JOY_BUTTON_RIGHT_SHOULDER:
+			battlefield.zoom_by(1.14)
+		_:
+			return
+	get_viewport().set_input_as_handled()
+
+
 func _clear_screen() -> void:
 	if _screen != null:
 		_screen.queue_free()
@@ -331,7 +445,16 @@ func _clear_screen() -> void:
 	_settings_menu = null
 	_resume_button = null
 	_settings_button = null
+	_restart_button = null
+	_return_title_button = null
 	_resign_button = null
+	_confirm_menu = null
+	_confirm_title = null
+	_confirm_body = null
+	_confirm_accept_button = null
+	_confirm_cancel_button = null
+	_confirm_action = &""
+	_pause_frame = null
 	_settings_audio_button = null
 	_settings_back_button = null
 	_pause_button = null
@@ -352,6 +475,15 @@ func _clear_screen() -> void:
 	_leaderboard_button = null
 	_result_leaderboard_button = null
 	_locale_buttons.clear()
+	_tutorial_replay_button = null
+	_tutorial_callout = null
+	_touch_controls = null
+	_top_bar_grid = null
+	_command_deck_grid = null
+	_faction_grid = null
+	_faction_scroll = null
+	_title_content = null
+	_objective_progress_snapshot.clear()
 	_tweak_layer = null
 	_tweak_button = null
 	_tweak_panel = null
@@ -368,7 +500,121 @@ func _make_screen() -> Control:
 	result.theme = ThemeFactory.create()
 	add_child(result)
 	_screen = result
+	result.resized.connect(_apply_responsive_layout)
+	_apply_responsive_layout.call_deferred()
 	return result
+
+
+func _on_input_method_changed(method: StringName) -> void:
+	if tutorial_director != null:
+		tutorial_director.set_input_method(method)
+	if battlefield != null:
+		battlefield.set_gamepad_active(method == InputRouter.GAMEPAD)
+	if _touch_controls != null:
+		_touch_controls.visible = state == STATE_MATCH and method == InputRouter.TOUCH and not paused
+	_apply_responsive_layout()
+
+
+func _on_tutorial_callout_changed(callout: Dictionary) -> void:
+	if _tutorial_callout != null:
+		_tutorial_callout.show_callout(callout)
+		_apply_responsive_layout()
+
+
+func _apply_responsive_layout() -> void:
+	if _screen == null or not is_instance_valid(_screen):
+		return
+	var viewport_size := _screen.size
+	if viewport_size.x <= 1.0 or viewport_size.y <= 1.0:
+		viewport_size = get_viewport().get_visible_rect().size
+	if viewport_size.x <= 1.0 or viewport_size.y <= 1.0:
+		return
+	var safe := RESPONSIVE_LAYOUT.safe_rect(viewport_size, DisplayServer.get_display_safe_area()) as Rect2
+	var portrait := RESPONSIVE_LAYOUT.is_portrait(viewport_size) as bool
+	if _title_content != null:
+		var title_size := RESPONSIVE_LAYOUT.clamped_panel_size(
+			Vector2(520.0, 360.0), safe, Vector2(minf(320.0, safe.size.x), 320.0)
+		) as Vector2
+		_title_content.set_anchors_preset(Control.PRESET_TOP_LEFT)
+		_title_content.position = safe.position + (safe.size - title_size) * 0.5
+		_title_content.size = title_size
+	if _faction_scroll != null:
+		_faction_scroll.set_anchors_preset(Control.PRESET_TOP_LEFT)
+		_faction_scroll.position = safe.position + Vector2(0.0, 68.0)
+		_faction_scroll.size = Vector2(safe.size.x, maxf(240.0, safe.size.y - 132.0))
+	if _faction_grid != null:
+		_faction_grid.columns = 2 if portrait else 4
+		for child in _faction_grid.get_children():
+			if child is Control:
+				(child as Control).custom_minimum_size.x = maxf(
+					260.0,
+					(safe.size.x - 14.0 * float(_faction_grid.columns - 1)) / float(_faction_grid.columns),
+				)
+	var top_bar := _screen.get_node_or_null("TopBar") as Control
+	var top_height := 190.0 if portrait else 50.0
+	if top_bar != null:
+		top_bar.set_anchors_preset(Control.PRESET_TOP_LEFT)
+		top_bar.position = safe.position
+		top_bar.size = Vector2(safe.size.x, top_height)
+	if _top_bar_grid != null:
+		_top_bar_grid.columns = 3 if portrait else 10
+		for child in _top_bar_grid.get_children():
+			if child is Control:
+				var item := child as Control
+				item.custom_minimum_size.x = 0.0 if portrait else item.custom_minimum_size.x
+	var deck_height := 598.0 if portrait else 234.0
+	if _command_deck != null:
+		_command_deck.set_anchors_preset(Control.PRESET_TOP_LEFT)
+		_command_deck.position = Vector2(safe.position.x, safe.end.y - deck_height)
+		_command_deck.size = Vector2(safe.size.x, deck_height)
+	if _command_deck_grid != null:
+		_command_deck_grid.columns = 1 if portrait else 3
+		var minimap_panel := _command_deck_grid.get_node_or_null("MinimapPanel") as Control
+		var selection_panel := _command_deck_grid.get_node_or_null("SelectionBay") as Control
+		var command_panel := _command_deck_grid.get_node_or_null("CommandCard") as Control
+		if minimap_panel != null:
+			minimap_panel.custom_minimum_size = Vector2(0.0 if portrait else 236.0, 188.0 if portrait else 0.0)
+		if selection_panel != null:
+			selection_panel.custom_minimum_size = Vector2.ZERO if not portrait else Vector2(0.0, 164.0)
+		if command_panel != null:
+			command_panel.custom_minimum_size = Vector2(0.0 if portrait else 424.0, 218.0 if portrait else 0.0)
+	if _objective_panel != null:
+		var objective_top := top_height + 8.0
+		if portrait and _tutorial_callout != null and _tutorial_callout.visible:
+			objective_top += 214.0
+		_objective_panel.position = safe.position + Vector2(2.0, objective_top)
+		_objective_panel.size.x = minf(326.0, safe.size.x)
+	if _toast_panel != null:
+		_toast_panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
+		_toast_panel.size = Vector2(minf(440.0, safe.size.x), 38.0)
+		_toast_panel.position = Vector2(
+			safe.position.x + (safe.size.x - _toast_panel.size.x) * 0.5,
+			safe.end.y - deck_height - 46.0,
+		)
+	var touch_height := 0.0
+	if _touch_controls != null and _touch_controls.visible:
+		touch_height = _touch_controls.occupied_height() + 8.0
+		_touch_controls.apply_layout(safe, deck_height + 8.0)
+	if _tutorial_callout != null:
+		_tutorial_callout.apply_layout(portrait, safe, safe.position.y + top_height + 8.0)
+	if _tweak_button != null:
+		var tweak_bottom := deck_height + touch_height + 8.0 if state in [STATE_MATCH, STATE_RESULT] else 18.0
+		_tweak_button.offset_top = -tweak_bottom - 46.0
+		_tweak_button.offset_bottom = -tweak_bottom
+	if _pause_frame != null:
+		var frame_size := RESPONSIVE_LAYOUT.clamped_panel_size(Vector2(560.0, 660.0), safe, Vector2(360.0, 520.0)) as Vector2
+		_pause_frame.set_anchors_preset(Control.PRESET_TOP_LEFT)
+		_pause_frame.position = safe.position + (safe.size - frame_size) * 0.5
+		_pause_frame.size = frame_size
+	for menu in [_pause_menu, _settings_menu, _confirm_menu]:
+		if menu == null:
+			continue
+		var modal := menu as Control
+		var preferred_height := 560.0 if modal == _settings_menu else 520.0 if modal == _pause_menu else 380.0
+		var modal_size := RESPONSIVE_LAYOUT.clamped_panel_size(Vector2(460.0, preferred_height), safe, Vector2(320.0, 340.0)) as Vector2
+		modal.set_anchors_preset(Control.PRESET_TOP_LEFT)
+		modal.position = safe.position + (safe.size - modal_size) * 0.5
+		modal.size = modal_size
 
 
 func _build_tweak_access(root: Control) -> void:
@@ -438,6 +684,8 @@ func _open_tweak_panel() -> void:
 	_tweak_previous_settings_visible = _settings_menu != null and _settings_menu.visible
 	if state == STATE_MATCH and not paused:
 		_set_paused(true)
+	if tutorial_director != null:
+		tutorial_director.notify_event(&"tweak_opened")
 	_tweak_panel.open()
 
 
@@ -519,18 +767,28 @@ func _apply_tweak_boundary(mode: StringName) -> void:
 func _on_battlefield_audio_cue(cue: StringName) -> void:
 	if cue in [&"order_move", &"order_attack", &"order_work"]:
 		_apply_tweak_boundary(TWEAK_CATALOG.NEXT_ACTION)
+		if tutorial_director != null:
+			tutorial_director.notify_event(&"command_issued")
 	audio_director.play_cue(cue)
 
 
 func _add_title_background(root: Control, darkness: float = 0.38) -> void:
-	var art := TextureRect.new()
-	art.name = "GeneratedTitleArt"
-	art.texture = TITLE_ART
-	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-	art.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(art)
+	var background := TextureRect.new()
+	background.name = "GeneratedShellBackground"
+	background.texture = SHELL_BACKGROUND
+	background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	background.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(background)
+	var foreground := TextureRect.new()
+	foreground.name = "GeneratedShellForeground"
+	foreground.texture = SHELL_FOREGROUND
+	foreground.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	foreground.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	foreground.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	foreground.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(foreground)
 	var shade := ColorRect.new()
 	shade.color = Color(0.01, 0.025, 0.028, darkness)
 	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -541,6 +799,8 @@ func _add_title_background(root: Control, darkness: float = 0.38) -> void:
 func _show_title() -> void:
 	if tweak_service != null:
 		tweak_service.end_run()
+	if tutorial_director != null:
+		tutorial_director.end_run()
 	state = STATE_TITLE
 	paused = false
 	simulation = null
@@ -549,29 +809,39 @@ func _show_title() -> void:
 	var root := _make_screen()
 	_add_title_background(root, 0.42)
 
-	var content := VBoxContainer.new()
-	content.custom_minimum_size = Vector2(520, 292)
-	content.set_anchors_preset(Control.PRESET_CENTER)
-	content.position = Vector2(-260, -146)
-	content.alignment = BoxContainer.ALIGNMENT_CENTER
-	content.add_theme_constant_override(&"separation", 22)
-	root.add_child(content)
+	_title_content = VBoxContainer.new()
+	_title_content.name = "TitleContent"
+	_title_content.custom_minimum_size = Vector2(520, 360)
+	_title_content.set_anchors_preset(Control.PRESET_CENTER)
+	_title_content.position = Vector2(-260, -180)
+	_title_content.alignment = BoxContainer.ALIGNMENT_CENTER
+	_title_content.add_theme_constant_override(&"separation", 18)
+	root.add_child(_title_content)
 
 	var title := ThemeFactory.label(I18n.t(&"ui.title.heading"), 48, Color("fff0c8"))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	content.add_child(title)
+	_title_content.add_child(title)
 	var play := ThemeFactory.button(I18n.t(&"ui.title.start"))
 	play.custom_minimum_size = Vector2(340, 56)
 	play.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_connect_button(play, _show_faction_select)
-	content.add_child(play)
+	_title_content.add_child(play)
 	_leaderboard_button = ThemeFactory.button(I18n.t(&"ui.leaderboard"), I18n.t(&"ui.leaderboard_tooltip"))
 	_leaderboard_button.name = "TitleLeaderboardButton"
 	_leaderboard_button.custom_minimum_size = Vector2(340, 48)
 	_leaderboard_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_connect_button(_leaderboard_button, func() -> void: _open_leaderboard(_leaderboard_button))
-	content.add_child(_leaderboard_button)
-	_build_locale_selector(content)
+	_title_content.add_child(_leaderboard_button)
+	_tutorial_replay_button = ThemeFactory.button(
+		I18n.t(&"tutorial.replay"),
+		I18n.t(&"tutorial.replay_tooltip"),
+	)
+	_tutorial_replay_button.name = "ReplayTutorialButton"
+	_tutorial_replay_button.custom_minimum_size = Vector2(340, 48)
+	_tutorial_replay_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_connect_button(_tutorial_replay_button, _replay_tutorial)
+	_title_content.add_child(_tutorial_replay_button)
+	_build_locale_selector(_title_content)
 	_build_leaderboard_dialog(root)
 	_build_tweak_access(root)
 	play.grab_focus()
@@ -613,9 +883,18 @@ func _select_locale(locale_id: StringName) -> void:
 		_show_title()
 
 
+func _replay_tutorial() -> void:
+	if tutorial_director != null:
+		tutorial_director.replay_next_run()
+	audio_director.play_ui(&"ui_confirm")
+	_show_faction_select()
+
+
 func _show_faction_select() -> void:
 	if tweak_service != null:
 		tweak_service.end_run()
+	if tutorial_director != null:
+		tutorial_director.end_run()
 	state = STATE_FACTION
 	audio_director.set_music_state(STATE_FACTION)
 	var root := _make_screen()
@@ -628,16 +907,25 @@ func _show_faction_select() -> void:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	root.add_child(title)
 
-	var card_row := HBoxContainer.new()
-	card_row.name = "FactionCards"
-	card_row.set_anchors_preset(Control.PRESET_CENTER)
-	card_row.position = Vector2(-590, -245)
-	card_row.size = Vector2(1180, 500)
-	card_row.add_theme_constant_override(&"separation", 14)
-	root.add_child(card_row)
+	_faction_scroll = ScrollContainer.new()
+	_faction_scroll.name = "FactionCards"
+	_faction_scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_faction_scroll.offset_left = 42.0
+	_faction_scroll.offset_top = 76.0
+	_faction_scroll.offset_right = -42.0
+	_faction_scroll.offset_bottom = -76.0
+	_faction_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	root.add_child(_faction_scroll)
+	_faction_grid = GridContainer.new()
+	_faction_grid.name = "FactionGrid"
+	_faction_grid.columns = 4
+	_faction_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_faction_grid.add_theme_constant_override(&"h_separation", 14)
+	_faction_grid.add_theme_constant_override(&"v_separation", 14)
+	_faction_scroll.add_child(_faction_grid)
 
 	for faction_id in FactionCatalog.ORDER:
-		card_row.add_child(_make_faction_card(faction_id))
+		_faction_grid.add_child(_make_faction_card(faction_id))
 
 	var back := ThemeFactory.button(I18n.t(&"ui.faction.back"))
 	back.position = Vector2(20, 18)
@@ -729,8 +1017,15 @@ func _start_match(faction_id: StringName) -> void:
 	_build_help_panel(root)
 	_build_leaderboard_dialog(root)
 	_build_tweak_access(root)
+	_build_touch_controls(root)
+	_build_tutorial_callout(root)
+	if tutorial_director != null:
+		tutorial_director.set_input_method(input_router.method if input_router != null else InputRouter.KEYBOARD_MOUSE)
+		tutorial_director.start_run()
+	_on_input_method_changed(input_router.method if input_router != null else InputRouter.KEYBOARD_MOUSE)
 	_update_hud()
 	_show_feedback(I18n.t(&"feedback.match_intro"), false)
+	_apply_responsive_layout.call_deferred()
 
 
 func _build_top_bar(root: Control) -> void:
@@ -743,32 +1038,35 @@ func _build_top_bar(root: Control) -> void:
 	panel.offset_bottom = 56
 	panel.add_theme_stylebox_override(&"panel", ThemeFactory.hud_deck_style(ThemeFactory.GOLD))
 	root.add_child(panel)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override(&"separation", 5)
-	panel.add_child(row)
+	_top_bar_grid = GridContainer.new()
+	_top_bar_grid.name = "TopBarGrid"
+	_top_bar_grid.columns = 10
+	_top_bar_grid.add_theme_constant_override(&"h_separation", 5)
+	_top_bar_grid.add_theme_constant_override(&"v_separation", 5)
+	panel.add_child(_top_bar_grid)
 	_score_label = ThemeFactory.label(I18n.t(&"ui.hud.score", {"score": 0}), 14, ThemeFactory.GOLD)
 	_score_label.name = "ScoreLabel"
 	_score_label.custom_minimum_size.x = 222
 	_score_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(_score_label)
-	_add_resource_chip(row, &"jade", &"jade", I18n.t(&"ui.hud.jade"), ThemeFactory.JADE, 88.0)
-	_add_resource_chip(row, &"lumber", &"lumber", I18n.t(&"ui.hud.lumber"), ThemeFactory.LUMBER, 100.0)
-	_add_resource_chip(row, &"essence", &"essence", I18n.t(&"ui.hud.essence"), ThemeFactory.ESSENCE, 108.0)
-	_add_resource_chip(row, &"food", &"food", I18n.t(&"ui.hud.food"), ThemeFactory.FOOD, 136.0)
-	_add_resource_chip(row, &"population", &"population", I18n.t(&"ui.hud.population"), ThemeFactory.IVORY, 88.0)
-	_add_resource_chip(row, &"dens", &"den", I18n.t(&"ui.hud.dens"), ThemeFactory.GOLD, 82.0)
-	_add_resource_chip(row, &"time", &"clock", I18n.t(&"ui.hud.time"), ThemeFactory.MUTED, 82.0)
+	_top_bar_grid.add_child(_score_label)
+	_add_resource_chip(_top_bar_grid, &"jade", &"jade", I18n.t(&"ui.hud.jade"), ThemeFactory.JADE, 88.0)
+	_add_resource_chip(_top_bar_grid, &"lumber", &"lumber", I18n.t(&"ui.hud.lumber"), ThemeFactory.LUMBER, 100.0)
+	_add_resource_chip(_top_bar_grid, &"essence", &"essence", I18n.t(&"ui.hud.essence"), ThemeFactory.ESSENCE, 108.0)
+	_add_resource_chip(_top_bar_grid, &"food", &"food", I18n.t(&"ui.hud.food"), ThemeFactory.FOOD, 136.0)
+	_add_resource_chip(_top_bar_grid, &"population", &"population", I18n.t(&"ui.hud.population"), ThemeFactory.IVORY, 88.0)
+	_add_resource_chip(_top_bar_grid, &"dens", &"den", I18n.t(&"ui.hud.dens"), ThemeFactory.GOLD, 82.0)
+	_add_resource_chip(_top_bar_grid, &"time", &"clock", I18n.t(&"ui.hud.time"), ThemeFactory.MUTED, 82.0)
 	_pause_button = ThemeFactory.icon_button(HUD_UTILITY_ICON_TEXTURES[&"pause"], I18n.t(&"ui.hud.pause"))
 	_pause_button.name = "PauseButton"
 	_pause_button.pressed.connect(_toggle_pause)
-	row.add_child(_pause_button)
+	_top_bar_grid.add_child(_pause_button)
 	_audio_button = ThemeFactory.icon_button(
 		HUD_UTILITY_ICON_TEXTURES[&"audio_muted" if audio_director.muted else &"audio_on"],
 		I18n.t(&"ui.hud.audio_tooltip"),
 	)
 	_audio_button.name = "AudioButton"
 	_audio_button.pressed.connect(_toggle_audio)
-	row.add_child(_audio_button)
+	_top_bar_grid.add_child(_audio_button)
 
 
 func _add_resource_chip(
@@ -828,12 +1126,15 @@ func _build_bottom_hud(root: Control) -> void:
 	var player_accent := FactionCatalog.definition(selected_faction)["accent"] as Color
 	_command_deck.add_theme_stylebox_override(&"panel", ThemeFactory.hud_deck_style(player_accent))
 	root.add_child(_command_deck)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override(&"separation", 7)
-	_command_deck.add_child(row)
-	row.add_child(_build_minimap_bay())
-	row.add_child(_build_selection_bay())
-	row.add_child(_build_command_bay())
+	_command_deck_grid = GridContainer.new()
+	_command_deck_grid.name = "CommandDeckGrid"
+	_command_deck_grid.columns = 3
+	_command_deck_grid.add_theme_constant_override(&"h_separation", 7)
+	_command_deck_grid.add_theme_constant_override(&"v_separation", 7)
+	_command_deck.add_child(_command_deck_grid)
+	_command_deck_grid.add_child(_build_minimap_bay())
+	_command_deck_grid.add_child(_build_selection_bay())
+	_command_deck_grid.add_child(_build_command_bay())
 	_build_toast(root)
 
 
@@ -1119,6 +1420,8 @@ func _build_toast(root: Control) -> void:
 func _build_pause_overlay(root: Control) -> void:
 	_pause_overlay = Control.new()
 	_pause_overlay.name = "PauseOverlay"
+	_pause_overlay.z_index = 190
+	_pause_overlay.process_mode = Node.PROCESS_MODE_ALWAYS
 	_pause_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.add_child(_pause_overlay)
 
@@ -1128,8 +1431,20 @@ func _build_pause_overlay(root: Control) -> void:
 	shade.mouse_filter = Control.MOUSE_FILTER_STOP
 	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_pause_overlay.add_child(shade)
+	_pause_frame = TextureRect.new()
+	_pause_frame.name = "GeneratedPauseFrame"
+	_pause_frame.texture = PAUSE_FRAME
+	_pause_frame.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_pause_frame.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_pause_frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_pause_frame.set_anchors_preset(Control.PRESET_CENTER)
+	_pause_frame.position = Vector2(-280.0, -330.0)
+	_pause_frame.size = Vector2(560.0, 660.0)
+	_pause_overlay.add_child(_pause_frame)
 
 	_pause_menu = _make_modal_menu("PauseMenu", I18n.t(&"ui.pause.paused"), I18n.t(&"ui.pause.mandate_waits"))
+	_pause_menu.position = Vector2(-210.0, -260.0)
+	_pause_menu.size = Vector2(420.0, 520.0)
 	_pause_overlay.add_child(_pause_menu)
 	var pause_column := _pause_menu.get_node("MenuColumn") as VBoxContainer
 	_resume_button = _make_modal_button(I18n.t(&"ui.pause.resume"), I18n.t(&"ui.pause.resume_tooltip"))
@@ -1140,6 +1455,14 @@ func _build_pause_overlay(root: Control) -> void:
 	_settings_button.name = "SettingsButton"
 	_connect_button(_settings_button, _show_settings_menu)
 	pause_column.add_child(_settings_button)
+	_restart_button = _make_modal_button(I18n.t(&"ui.pause.restart"), I18n.t(&"ui.pause.restart_tooltip"))
+	_restart_button.name = "RestartButton"
+	_connect_button(_restart_button, _show_abandon_confirmation.bind(&"restart"), &"ui_cancel")
+	pause_column.add_child(_restart_button)
+	_return_title_button = _make_modal_button(I18n.t(&"ui.pause.return_title"), I18n.t(&"ui.pause.return_title_tooltip"))
+	_return_title_button.name = "ReturnTitleButton"
+	_connect_button(_return_title_button, _show_abandon_confirmation.bind(&"title"), &"ui_cancel")
+	pause_column.add_child(_return_title_button)
 	_resign_button = _make_modal_button(I18n.t(&"ui.pause.resign"), I18n.t(&"ui.pause.resign_tooltip"))
 	_resign_button.name = "ResignButton"
 	_resign_button.add_theme_color_override(&"font_color", ThemeFactory.DANGER)
@@ -1192,10 +1515,36 @@ func _build_pause_overlay(root: Control) -> void:
 	settings_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	settings_column.add_child(settings_hint)
 
+	_confirm_menu = _make_modal_menu(
+		"AbandonConfirmation",
+		I18n.t(&"ui.pause.confirm_title"),
+		I18n.t(&"ui.pause.confirm_subtitle"),
+	)
+	_confirm_menu.position = Vector2(-210.0, -190.0)
+	_confirm_menu.size = Vector2(420.0, 380.0)
+	_pause_overlay.add_child(_confirm_menu)
+	var confirm_column := _confirm_menu.get_node("MenuColumn") as VBoxContainer
+	_confirm_title = _confirm_menu.get_node("MenuColumn/ModalTitle") as Label
+	_confirm_body = ThemeFactory.label("", 14, ThemeFactory.IVORY)
+	_confirm_body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_confirm_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_confirm_body.custom_minimum_size = Vector2(340.0, 72.0)
+	confirm_column.add_child(_confirm_body)
+	_confirm_accept_button = _make_modal_button(I18n.t(&"ui.pause.confirm_accept"), I18n.t(&"ui.pause.confirm_accept_tooltip"))
+	_confirm_accept_button.name = "ConfirmAbandonButton"
+	_confirm_accept_button.add_theme_color_override(&"font_color", ThemeFactory.DANGER)
+	_connect_button(_confirm_accept_button, _accept_abandon_confirmation, &"ui_cancel")
+	confirm_column.add_child(_confirm_accept_button)
+	_confirm_cancel_button = _make_modal_button(I18n.t(&"ui.pause.confirm_cancel"), I18n.t(&"ui.pause.confirm_cancel_tooltip"))
+	_confirm_cancel_button.name = "CancelAbandonButton"
+	_connect_button(_confirm_cancel_button, _cancel_abandon_confirmation, &"ui_cancel")
+	confirm_column.add_child(_confirm_cancel_button)
+
 	_update_audio_controls()
 	_update_effect_controls()
 	_pause_overlay.visible = false
 	_settings_menu.visible = false
+	_confirm_menu.visible = false
 
 
 func _make_modal_menu(node_name: String, title_text: String, subtitle_text: String) -> PanelContainer:
@@ -1214,6 +1563,7 @@ func _make_modal_menu(node_name: String, title_text: String, subtitle_text: Stri
 	column.add_theme_constant_override(&"separation", 12)
 	panel.add_child(column)
 	var title := ThemeFactory.label(title_text, 34, ThemeFactory.GOLD)
+	title.name = "ModalTitle"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(title)
 	var subtitle := ThemeFactory.label(subtitle_text, 12, ThemeFactory.JADE)
@@ -1264,6 +1614,46 @@ func _build_help_panel(root: Control) -> void:
 		_objective_rows.append(label)
 
 
+func _build_touch_controls(root: Control) -> void:
+	_touch_controls = TOUCH_CONTROLS_SCRIPT.new() as TouchControls
+	root.add_child(_touch_controls)
+	_touch_controls.workers_requested.connect(func() -> void:
+		battlefield.select_all_workers()
+		_show_feedback(I18n.t(&"feedback.all_workers_selected"), false)
+	)
+	_touch_controls.army_requested.connect(func() -> void:
+		battlefield.select_all_army()
+		_show_feedback(I18n.t(&"feedback.army_selected"), false)
+	)
+	_touch_controls.move_requested.connect(func() -> void:
+		battlefield.begin_move(false)
+		_update_armed_command_styles()
+	)
+	_touch_controls.attack_requested.connect(func() -> void:
+		battlefield.begin_attack_move(false)
+		_update_armed_command_styles()
+	)
+	_touch_controls.context_requested.connect(func() -> void:
+		battlefield.begin_context_order()
+		_update_armed_command_styles()
+	)
+	_touch_controls.cancel_requested.connect(func() -> void:
+		battlefield.cancel_modes()
+		_update_armed_command_styles()
+		audio_director.play_ui(&"ui_cancel")
+		_show_feedback(I18n.t(&"feedback.command_cancelled"), false)
+	)
+
+
+func _build_tutorial_callout(root: Control) -> void:
+	_tutorial_callout = TUTORIAL_CALLOUT_SCRIPT.new() as TutorialCallout
+	root.add_child(_tutorial_callout)
+	_tutorial_callout.skip_requested.connect(func() -> void:
+		if tutorial_director != null:
+			tutorial_director.skip()
+	)
+
+
 func _build_minimap(root: Control) -> void:
 	# The minimap is integrated into the bottom command deck.
 	pass
@@ -1309,7 +1699,13 @@ func _update_hud() -> void:
 		_fog_button.tooltip_text = I18n.t(&"ui.hud.fog_on") if battlefield.fog_enabled else I18n.t(&"ui.hud.fog_off")
 
 
-func _on_selection_changed(_ids: Array) -> void:
+func _on_selection_changed(ids: Array) -> void:
+	if tutorial_director != null:
+		for id_value in ids:
+			var entity_state := simulation.entity(int(id_value))
+			if int(entity_state.get("team", RtsSimulation.TEAM_NEUTRAL)) == RtsSimulation.TEAM_PLAYER:
+				tutorial_director.notify_event(&"select_player")
+				break
 	_update_hud()
 
 
@@ -1335,6 +1731,15 @@ func _update_objectives() -> void:
 	var player_shenlongs := simulation.team_entity_ids(RtsSimulation.TEAM_PLAYER, [&"shenlong"])
 	var rivals_defeated := RtsSimulation.TEAM_COUNT - 1 - simulation.living_rival_count()
 	var completed: Array[bool] = [food_buildings > 0, dens > 0, not player_shenlongs.is_empty(), simulation.living_rival_count() == 0]
+	if _objective_progress_snapshot.is_empty():
+		_objective_progress_snapshot.assign(completed)
+	else:
+		for index in range(completed.size()):
+			if completed[index] and not _objective_progress_snapshot[index]:
+				if tutorial_director != null:
+					tutorial_director.notify_event(&"objective_progressed")
+				break
+		_objective_progress_snapshot.assign(completed)
 	var copy: Array[String] = [
 		I18n.t(&"ui.objective.food_supply", {"count": mini(food_buildings, 1), "total": 1}),
 		I18n.t(&"ui.objective.capture_den", {"count": dens, "total": MapCatalog.CAVES.size()}),
@@ -2079,6 +2484,8 @@ func _command_train(kind: StringName) -> void:
 		return
 	if simulation.command_train(RtsSimulation.TEAM_PLAYER, structure_id, kind):
 		_apply_tweak_boundary(TWEAK_CATALOG.NEXT_ACTION)
+		if tutorial_director != null:
+			tutorial_director.notify_event(&"production_ordered")
 		audio_director.play_ui(&"ui_confirm")
 		_show_feedback(I18n.t(&"feedback.training_queued", {"unit": I18n.t(FactionCatalog.entity_text_key(kind))}), false)
 	else:
@@ -2245,9 +2652,12 @@ func _set_paused(next_paused: bool) -> void:
 	if battlefield != null:
 		battlefield.set_process(not paused)
 	if paused:
+		if tutorial_director != null:
+			tutorial_director.notify_event(&"pause_opened")
 		_show_pause_menu()
 	else:
 		_pause_overlay.visible = false
+	_on_input_method_changed(input_router.method if input_router != null else InputRouter.KEYBOARD_MOUSE)
 	audio_director.set_music_state(&"paused" if paused else STATE_MATCH)
 	audio_director.play_ui(&"ui_cancel" if paused else &"ui_confirm")
 	_show_feedback(I18n.t(&"feedback.pause_on") if paused else I18n.t(&"feedback.pause_off"), false)
@@ -2259,6 +2669,8 @@ func _show_pause_menu() -> void:
 	_pause_overlay.visible = true
 	_pause_menu.visible = true
 	_settings_menu.visible = false
+	_confirm_menu.visible = false
+	_confirm_action = &""
 	_resume_button.call_deferred("grab_focus")
 
 
@@ -2268,9 +2680,42 @@ func _show_settings_menu() -> void:
 	_pause_overlay.visible = true
 	_pause_menu.visible = false
 	_settings_menu.visible = true
+	_confirm_menu.visible = false
 	_update_audio_controls()
 	_update_effect_controls()
 	_settings_audio_button.call_deferred("grab_focus")
+
+
+func _show_abandon_confirmation(action: StringName) -> void:
+	if not paused or action not in [&"restart", &"title"]:
+		return
+	_confirm_action = action
+	_pause_menu.visible = false
+	_settings_menu.visible = false
+	_confirm_menu.visible = true
+	_confirm_title.text = I18n.t(
+		&"ui.pause.confirm_restart_title" if action == &"restart" else &"ui.pause.confirm_title_title"
+	)
+	_confirm_body.text = I18n.t(
+		&"ui.pause.confirm_restart_body" if action == &"restart" else &"ui.pause.confirm_title_body"
+	)
+	_confirm_accept_button.call_deferred("grab_focus")
+
+
+func _cancel_abandon_confirmation() -> void:
+	if _confirm_menu == null:
+		return
+	audio_director.play_ui(&"ui_cancel")
+	_show_pause_menu()
+
+
+func _accept_abandon_confirmation() -> void:
+	var action := _confirm_action
+	_confirm_action = &""
+	if action == &"restart":
+		_start_match(selected_faction)
+	elif action == &"title":
+		_show_title()
 
 
 func _resign_match() -> void:
@@ -2368,6 +2813,8 @@ func _on_match_ended(result: StringName) -> void:
 	if _match_score_recorded or simulation == null:
 		return
 	_match_score_recorded = true
+	if tutorial_director != null:
+		tutorial_director.end_run()
 	var final_score := simulation.team_score(RtsSimulation.TEAM_PLAYER)
 	leaderboard_store.record_match(
 		final_score,
@@ -2381,6 +2828,7 @@ func _on_match_ended(result: StringName) -> void:
 		leaderboard_bridge.submit_current()
 	paused = true
 	state = STATE_RESULT
+	_on_input_method_changed(input_router.method if input_router != null else InputRouter.KEYBOARD_MOUSE)
 	if _pause_overlay != null:
 		_pause_overlay.visible = false
 	audio_director.play_outcome(result)

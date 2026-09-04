@@ -9,6 +9,9 @@ func _run() -> void:
 	var failures: Array[String] = []
 	var paths: Array[String] = [
 		"res://assets/runtime/ui/mandate_of_myth_title.webp",
+		"res://assets/runtime/backgrounds/jade_meridian_backdrop.webp",
+		"res://assets/runtime/foregrounds/jade_meridian_foreground.png",
+		"res://assets/runtime/ui/mandate_pause_frame.png",
 		"res://assets/runtime/ui/idle_worker_alert.png",
 		"res://assets/runtime/terrain/jade_meadow.webp",
 		"res://assets/runtime/terrain/inkstone_ridge.webp",
@@ -64,8 +67,8 @@ func _run() -> void:
 	var retired_gather_sfx := "res://assets/runtime/audio/sfx/gather_resource.ogg"
 	if ResourceLoader.exists(retired_gather_sfx):
 		failures.append("retired worker gather SFX still exists: %s" % retired_gather_sfx)
-	if paths.size() != 118:
-		failures.append("expected 118 runtime assets, enumerated %d" % paths.size())
+	if paths.size() != 121:
+		failures.append("expected 121 runtime assets, enumerated %d" % paths.size())
 	var report := JSON.parse_string(FileAccess.get_file_as_string("res://assets/runtime/asset-report.json")) as Dictionary
 	var expected_aligned_sources := {
 		"assets/runtime/buildings/celestial_wall.png": "assets/source/buildings/celestial_wall_aligned.png",
@@ -81,7 +84,7 @@ func _run() -> void:
 	for missing_runtime_path in expected_aligned_sources:
 		failures.append("asset report omitted aligned runtime derivative: %s" % missing_runtime_path)
 	if failures.is_empty():
-		print("PASS assets_test: 118 generated runtime assets resolve")
+		print("PASS assets_test: 121 runtime asset references resolve")
 		quit(0)
 	else:
 		for failure in failures:

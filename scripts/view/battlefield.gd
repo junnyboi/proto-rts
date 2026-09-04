@@ -156,6 +156,10 @@ const CAMERA_PAN_SPEED := 1000.0
 const CAMERA_PAN_RESPONSE := 10.0
 const CAMERA_PAN_STOP_EPSILON := 0.5
 const CONTROL_GROUP_DOUBLE_TAP_MS := 450
+const GAMEPAD_CURSOR_SPEED := 620.0
+const GAMEPAD_PAN_SPEED := 780.0
+const GAMEPAD_DEADZONE := 0.18
+const TOUCH_DRAG_THRESHOLD := 12.0
 
 var simulation: RtsSimulation
 var selected_ids: Array[int] = []
@@ -164,6 +168,7 @@ var attack_move_armed := false
 var patrol_armed := false
 var repair_armed := false
 var rally_armed := false
+var context_armed := false
 var placement_worker_id := -1
 var placement_kind: StringName = &""
 var placement_orientation: StringName = &"y"
@@ -175,6 +180,7 @@ var camera_offset := Vector2.ZERO
 var _tweak_zoom_multiplier := 1.0
 var _camera_initialized := false
 var _camera_pan_velocity := Vector2.ZERO
+var _last_viewport_size := Vector2.ZERO
 var _middle_dragging := false
 var _selection_pressed := false
 var _selection_dragging := false
@@ -188,6 +194,13 @@ var _armed_append := false
 var _last_control_group := -1
 var _last_control_group_recall_ms := -1000
 var _mouse_position := Vector2.ZERO
+var _gamepad_cursor := Vector2.ZERO
+var _gamepad_active := false
+var _touch_positions: Dictionary = {}
+var _touch_starts: Dictionary = {}
+var _touch_dragged: Dictionary = {}
+var _touch_pinch_distance := 0.0
+var _touch_gesture_consumed := false
 var _cursor_state: StringName = &""
 var _texture_cache: Dictionary = {}
 var _texture_bottom_margin_cache: Dictionary = {}
@@ -226,6 +239,7 @@ func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
 	resized.connect(_on_resized)
+	_last_viewport_size = size
 	call_deferred("_fit_camera")
 
 
@@ -252,7 +266,11 @@ func _on_resized() -> void:
 	if not _camera_initialized:
 		_fit_camera()
 	else:
+		if _last_viewport_size.x > 1.0 and _last_viewport_size.y > 1.0:
+			camera_offset += (size - _last_viewport_size) * 0.5
 		_clamp_camera()
+	_last_viewport_size = size
+	_gamepad_cursor = _gamepad_cursor.clamp(Vector2(12.0, 12.0), size - Vector2(12.0, 12.0))
 	queue_redraw()
 
 
@@ -292,6 +310,49 @@ func set_tweak_zoom_multiplier(value: float) -> void:
 
 func zoom_by(factor: float) -> void:
 	_zoom_at(size * 0.5, factor)
+
+
+func set_gamepad_active(value: bool) -> void:
+	_gamepad_active = value
+	if value and _gamepad_cursor.is_zero_approx():
+		_gamepad_cursor = size * 0.5
+	queue_redraw()
+
+
+func gamepad_pan(stick: Vector2, delta: float) -> void:
+	if not _gamepad_active or stick.length() < GAMEPAD_DEADZONE:
+		return
+	camera_offset -= stick * GAMEPAD_PAN_SPEED * delta
+	_camera_pan_velocity = Vector2.ZERO
+	_clamp_camera()
+	queue_redraw()
+
+
+func gamepad_move_cursor(stick: Vector2, delta: float) -> void:
+	if not _gamepad_active or stick.length() < GAMEPAD_DEADZONE:
+		return
+	_gamepad_cursor += stick * GAMEPAD_CURSOR_SPEED * delta
+	_gamepad_cursor = _gamepad_cursor.clamp(Vector2(12.0, 12.0), size - Vector2(12.0, 12.0))
+	_mouse_position = _gamepad_cursor
+	_refresh_cursor()
+	queue_redraw()
+
+
+func gamepad_primary() -> void:
+	if not _gamepad_active:
+		return
+	_handle_left_press(_gamepad_cursor)
+	_handle_left_release(_gamepad_cursor)
+	_refresh_cursor()
+	queue_redraw()
+
+
+func gamepad_context() -> void:
+	if not _gamepad_active:
+		return
+	_handle_right_click(_gamepad_cursor)
+	_refresh_cursor()
+	queue_redraw()
 
 
 func screen_to_map_position(screen_position: Vector2) -> Vector2:
@@ -467,7 +528,56 @@ func _event_is_presentable(event: Dictionary) -> bool:
 func _gui_input(event: InputEvent) -> void:
 	if simulation == null or not simulation.outcome.is_empty():
 		return
-	if event is InputEventMouseMotion:
+	if event is InputEventScreenTouch:
+		var touch := event as InputEventScreenTouch
+		if touch.pressed:
+			if _touch_positions.is_empty():
+				_touch_gesture_consumed = false
+			_touch_positions[touch.index] = touch.position
+			_touch_starts[touch.index] = touch.position
+			_touch_dragged[touch.index] = false
+			if _touch_positions.size() >= 2:
+				_touch_gesture_consumed = true
+				_touch_pinch_distance = _active_touch_distance()
+		else:
+			var start_position := _touch_starts.get(touch.index, touch.position) as Vector2
+			var was_dragged := bool(_touch_dragged.get(touch.index, false))
+			_touch_positions.erase(touch.index)
+			_touch_starts.erase(touch.index)
+			_touch_dragged.erase(touch.index)
+			if not was_dragged and not _touch_gesture_consumed and start_position.distance_to(touch.position) < TOUCH_DRAG_THRESHOLD:
+				_mouse_position = touch.position
+				_handle_touch_tap(touch.position)
+			if _touch_positions.size() < 2:
+				_touch_pinch_distance = 0.0
+			if _touch_positions.is_empty():
+				_touch_gesture_consumed = false
+		_refresh_cursor()
+		queue_redraw()
+		accept_event()
+		return
+	elif event is InputEventScreenDrag:
+		var drag := event as InputEventScreenDrag
+		_touch_positions[drag.index] = drag.position
+		var start_position := _touch_starts.get(drag.index, drag.position) as Vector2
+		if start_position.distance_to(drag.position) >= TOUCH_DRAG_THRESHOLD:
+			_touch_dragged[drag.index] = true
+		_mouse_position = drag.position
+		if _touch_positions.size() >= 2:
+			_touch_gesture_consumed = true
+			var next_distance := _active_touch_distance()
+			if _touch_pinch_distance > 1.0 and next_distance > 1.0:
+				_zoom_at(_active_touch_midpoint(), clampf(next_distance / _touch_pinch_distance, 0.82, 1.22))
+			_touch_pinch_distance = next_distance
+		else:
+			camera_offset += drag.relative
+			_camera_pan_velocity = Vector2.ZERO
+			_clamp_camera()
+		_refresh_cursor()
+		queue_redraw()
+		accept_event()
+		return
+	elif event is InputEventMouseMotion:
 		var motion := event as InputEventMouseMotion
 		_mouse_position = motion.position
 		if _middle_dragging:
@@ -528,6 +638,28 @@ func _gui_input(event: InputEvent) -> void:
 			_handle_right_click(button.position, button.shift_pressed)
 			_refresh_cursor()
 			accept_event()
+
+
+func _active_touch_distance() -> float:
+	var positions := _touch_positions.values()
+	if positions.size() < 2:
+		return 0.0
+	return (positions[0] as Vector2).distance_to(positions[1] as Vector2)
+
+
+func _active_touch_midpoint() -> Vector2:
+	var positions := _touch_positions.values()
+	if positions.size() < 2:
+		return _mouse_position
+	return ((positions[0] as Vector2) + (positions[1] as Vector2)) * 0.5
+
+
+func _handle_touch_tap(screen_position: Vector2) -> void:
+	if context_armed:
+		_handle_right_click(screen_position)
+		return
+	_handle_left_press(screen_position)
+	_handle_left_release(screen_position)
 
 
 func _handle_left_press(screen_position: Vector2, append: bool = false) -> void:
@@ -1020,6 +1152,22 @@ func begin_move(append: bool = false) -> void:
 	feedback.emit(I18n.t(&"battlefield.move_queued_choose") if append else I18n.t(&"battlefield.move_armed"), false)
 
 
+func begin_context_order() -> void:
+	if context_armed:
+		cancel_modes()
+		audio_cue.emit(&"ui_cancel")
+		feedback.emit(I18n.t(&"battlefield.context_cancelled"), false)
+		return
+	if selected_commandable_units().is_empty() and primary_selected_structure() < 0:
+		feedback.emit(I18n.t(&"battlefield.context_requires_selection"), true)
+		return
+	cancel_modes()
+	context_armed = true
+	_refresh_cursor()
+	audio_cue.emit(&"ui_confirm")
+	feedback.emit(I18n.t(&"battlefield.context_armed"), false)
+
+
 func begin_patrol(append: bool = false) -> void:
 	if patrol_armed:
 		cancel_modes()
@@ -1139,6 +1287,7 @@ func cancel_modes() -> void:
 	patrol_armed = false
 	repair_armed = false
 	rally_armed = false
+	context_armed = false
 	placement_worker_id = -1
 	placement_kind = &""
 	placement_orientation = &"y"
@@ -2016,6 +2165,11 @@ func _draw() -> void:
 		draw_rect(rect, Color(0.32, 0.93, 0.72, 0.12), true)
 		draw_rect(rect, PLAYER_COLOR, false, 1.5)
 	camera_offset = logical_camera_offset
+	if _gamepad_active:
+		draw_circle(_gamepad_cursor, 13.0, Color(0.01, 0.04, 0.04, 0.82))
+		draw_arc(_gamepad_cursor, 13.0, 0.0, TAU, 32, Color("fff0a0"), 2.2, true)
+		draw_line(_gamepad_cursor - Vector2(6.0, 0.0), _gamepad_cursor + Vector2(6.0, 0.0), Color("78dfb7"), 1.5)
+		draw_line(_gamepad_cursor - Vector2(0.0, 6.0), _gamepad_cursor + Vector2(0.0, 6.0), Color("78dfb7"), 1.5)
 
 
 func _draw_terrain() -> void:

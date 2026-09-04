@@ -23,11 +23,16 @@ The economy-ribbon refresh adds illustrated Jade, Lumber, Essence, Food, Populat
 
 The top-bar utility refresh adds painted Pause, Resume, Audio On, and Audio Muted icons. The built-in GPT Image 2 workflow used the existing HUD only as a style-and-scale reference. Exact generation and isolation-correction prompts are recorded in `HUD_UTILITY_ICON_GENERATION_PROMPTS.md`.
 
+The reusable presentation-layer refresh adds a replaceable Jade Meridian backdrop, a transparent edge foreground, and a transparent pause-menu frame. All three were generated with the built-in GPT Image 2 workflow on 4 September 2026. The pause frame required one GPT Image 2 background-extraction correction because its first output contained a baked checkerboard. Exact prompts and source-to-runtime mappings are recorded in `TEMPLATE_LAYER_GENERATION_PROMPTS.md`.
+
 ## Source inventory
 
 | Category | Files | Generation intent |
 | --- | --- | --- |
 | Key art | `key_art/mandate_of_myth_title.png` | Four-faction Jade Meridian battlefield, no text or interface |
+| Presentation background | `backgrounds/jade_meridian_backdrop.png` | Replaceable text-free 16:9 valley backdrop for shell routes |
+| Presentation foreground | `foregrounds/jade_meridian_foreground.png` | Transparent pine, bamboo, jade-rock, mist, and ember edge layer |
+| Pause frame | `ui/mandate_pause_frame.png` | Transparent lacquer, gold, and jade frame surrounding real localized controls |
 | Interface | `ui/idle_worker_alert.png` | Gold-and-jade exclamation marker for visible idle workers |
 | Resource HUD icons | `ui/resource_icons/jade.png`, `lumber.png`, `essence.png`, `food.png`, `population.png`, `dens.png` | Compact painted economy-ribbon symbols optimized for recognition at 24–28 pixels |
 | Utility HUD icons | `ui/utility_icons/pause.png`, `resume.png`, `audio_on.png`, `audio_muted.png` | Compact stateful top-bar controls optimized for recognition at 24–26 pixels |

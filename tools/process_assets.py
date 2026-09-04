@@ -245,6 +245,18 @@ def save_transparent_icon(
     return describe(destination, source)
 
 
+def save_transparent_layer(
+    source: Path,
+    destination: Path,
+    size: tuple[int, int],
+) -> dict:
+    """Resize a full-canvas GPT Image 2 layer while preserving authored alpha."""
+    image = Image.open(source).convert("RGBA").resize(size, RESAMPLING)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    image.save(destination, "PNG", optimize=True)
+    return describe(destination, source)
+
+
 def save_keyed_icon(
     source: Path,
     destination: Path,
@@ -322,6 +334,28 @@ def main() -> None:
             RUNTIME / "ui" / "mandate_of_myth_title.webp",
             (1600, 900),
             quality=86,
+        )
+    )
+    records.append(
+        save_webp(
+            SOURCE / "backgrounds" / "jade_meridian_backdrop.png",
+            RUNTIME / "backgrounds" / "jade_meridian_backdrop.webp",
+            (1600, 900),
+            quality=86,
+        )
+    )
+    records.append(
+        save_transparent_layer(
+            SOURCE / "foregrounds" / "jade_meridian_foreground.png",
+            RUNTIME / "foregrounds" / "jade_meridian_foreground.png",
+            (1600, 900),
+        )
+    )
+    records.append(
+        save_transparent_layer(
+            SOURCE / "ui" / "mandate_pause_frame.png",
+            RUNTIME / "ui" / "mandate_pause_frame.png",
+            (560, 660),
         )
     )
     records.append(

@@ -716,10 +716,13 @@ func _run() -> void:
 	var game := scene.instantiate()
 	var leaderboard_save_path := "user://visual_leaderboard_test.json"
 	var tweak_save_path := "user://visual_tweak_test.json"
+	var tutorial_save_path := "user://visual_tutorial_test.json"
 	_cleanup_leaderboard(leaderboard_save_path)
 	_cleanup_leaderboard(tweak_save_path)
+	_cleanup_leaderboard(tutorial_save_path)
 	game.leaderboard_save_path = leaderboard_save_path
 	game.tweak_save_path = tweak_save_path
+	game.tutorial_save_path = tutorial_save_path
 	root.add_child(game)
 	await _settle()
 	_capture("title")
@@ -741,6 +744,7 @@ func _run() -> void:
 	game.call("_start_match", &"human")
 	await _settle(20)
 	_capture("skirmish")
+	game.tutorial_director.skip()
 	var cargo_preview_worker_kinds: Array[StringName] = [&"worker"]
 	var cargo_preview_workers: Array[int] = game.simulation.team_entity_ids(
 		RtsSimulation.TEAM_PLAYER,
@@ -761,6 +765,11 @@ func _run() -> void:
 	game.call("_toggle_pause")
 	await _settle(2)
 	_capture("paused")
+	game.call("_show_abandon_confirmation", &"restart")
+	await _settle(2)
+	_capture("restart-confirmation")
+	game.call("_cancel_abandon_confirmation")
+	await _settle(2)
 	game._settings_button.pressed.emit()
 	await _settle(2)
 	_capture("settings")
@@ -1135,6 +1144,18 @@ func _run() -> void:
 		game.simulation.entity(gallery_tower_id)["alive"] = false
 		for gallery_unit_id in gallery_unit_ids:
 			game.simulation.entity(gallery_unit_id)["alive"] = false
+	game.tutorial_director.replay_next_run()
+	game.call("_start_match", &"human")
+	await _settle(20)
+	var landscape_size := root.size
+	root.size = Vector2i(720, 1280)
+	game.input_router.force_method(InputRouter.TOUCH)
+	await _settle(4)
+	_capture("skirmish-portrait-touch")
+	root.size = landscape_size
+	game.input_router.force_method(InputRouter.KEYBOARD_MOUSE)
+	game.tutorial_director.skip()
+	await _settle(4)
 	game.call("_on_match_ended", &"victory")
 	await _settle(2)
 	_capture("result")
@@ -1155,7 +1176,8 @@ func _run() -> void:
 	await process_frame
 	_cleanup_leaderboard(leaderboard_save_path)
 	_cleanup_leaderboard(tweak_save_path)
-	print("PASS visual_capture: title, tweak controls, title/result leaderboards, faction-select, skirmish, worker cargo icons, pause, settings, four game-juice proof states, Stronghold upgrade effects, enemy inspection, caves, production queue, armed command, multi-selection, food economy, all-race wall, corner, polygon, gate, and gate-wall corner audits, fortifications, four-faction tower garrisons, wildlife hunt and regeneration fade, command visualization, Shenlong objective, egg carrier, map overview, and result")
+	_cleanup_leaderboard(tutorial_save_path)
+	print("PASS visual_capture: title, tweak controls, title/result leaderboards, faction-select, tutorial skirmish, portrait touch, pause, restart confirmation, settings, gameplay/effect/fortification states, map overview, and result")
 	quit(0)
 
 

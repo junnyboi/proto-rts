@@ -1,0 +1,11 @@
+{
+  "id": "game-template-rts-mandate-of-myth",
+  "kind": "game",
+  "game_genre": "rts",
+  "status": "ready",
+  "name": "Game Template - RTS",
+  "description": "A reusable Godot 4.7.2 browser RTS foundation with a complete four-faction skirmish, bilingual first-run onboarding, GPT Image 2 presentation layers, keyboard/mouse, gamepad and touch input, responsive landscape/portrait UI, runtime tuning, effects, centralized audio, and local leaderboard seams.",
+  "capabilities": [
+    "static"
+  ]
+}

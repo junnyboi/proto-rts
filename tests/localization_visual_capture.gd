@@ -16,10 +16,13 @@ func _run() -> void:
 	var game := scene.instantiate()
 	var save_path := "user://localization_visual_test.json"
 	var tweak_save_path := "user://localization_visual_tweak_test.json"
+	var tutorial_save_path := "user://localization_visual_tutorial_test.json"
 	_cleanup(save_path)
 	_cleanup(tweak_save_path)
+	_cleanup(tutorial_save_path)
 	game.leaderboard_save_path = save_path
 	game.tweak_save_path = tweak_save_path
+	game.tutorial_save_path = tutorial_save_path
 	root.add_child(game)
 	await _settle(10)
 	await _capture("title-cn")
@@ -56,6 +59,11 @@ func _run() -> void:
 	game.call("_toggle_pause")
 	await _settle(3)
 	await _capture("pause-cn")
+	game.call("_show_abandon_confirmation", &"title")
+	await _settle(3)
+	await _capture("return-title-confirmation-cn")
+	game.call("_cancel_abandon_confirmation")
+	await _settle(3)
 	game._settings_button.pressed.emit()
 	await _settle(3)
 	await _capture("settings-cn")
@@ -77,8 +85,9 @@ func _run() -> void:
 	I18n.set_locale(&"en-US")
 	_cleanup(save_path)
 	_cleanup(tweak_save_path)
+	_cleanup(tutorial_save_path)
 	if _failures.is_empty():
-		print("PASS localization_visual_capture: 8 Chinese UI states captured")
+		print("PASS localization_visual_capture: 9 Chinese UI states captured")
 		quit(0)
 		return
 	for failure: String in _failures:
