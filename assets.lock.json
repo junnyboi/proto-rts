@@ -1582,6 +1582,30 @@
       "assetType": "image",
       "groupId": "template",
       "used": true
+    },
+    "assets/fonts/ManusCC0-Bold.ttf": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/10/game-template/game-rts/2026.09.10-manuscc0-v1.100/099f6d50114f83533f689ddc37028fcff2bd2a2c4871a332488c1a433f440804/Assets/Template/fonts/ManusCC0-Bold.ttf",
+      "sha256": "sha256:099f6d50114f83533f689ddc37028fcff2bd2a2c4871a332488c1a433f440804",
+      "size": 26820,
+      "assetType": "font",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/fonts/ManusCC0-Medium.ttf": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/10/game-template/game-rts/2026.09.10-manuscc0-v1.100/f28a0f3aee8f427798bf972504d5640d5d28b8692a73102ac39556fa7ffb1ee2/Assets/Template/fonts/ManusCC0-Medium.ttf",
+      "sha256": "sha256:f28a0f3aee8f427798bf972504d5640d5d28b8692a73102ac39556fa7ffb1ee2",
+      "size": 26912,
+      "assetType": "font",
+      "groupId": "template",
+      "used": true
+    },
+    "assets/fonts/ManusCC0-Regular.ttf": {
+      "path": "https://d1oupeiobkpcny.cloudfront.net/assets/dashboard/materials/2026/09/10/game-template/game-rts/2026.09.10-manuscc0-v1.100/b5124032e8e51434e05a51c327a9a614ac96b85ecf9b6cdcfc58834a9ae1347d/Assets/Template/fonts/ManusCC0-Regular.ttf",
+      "sha256": "sha256:b5124032e8e51434e05a51c327a9a614ac96b85ecf9b6cdcfc58834a9ae1347d",
+      "size": 26872,
+      "assetType": "font",
+      "groupId": "template",
+      "used": true
     }
   }
 }

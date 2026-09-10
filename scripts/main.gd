@@ -550,18 +550,30 @@ func _apply_responsive_layout() -> void:
 					260.0,
 					(safe.size.x - 14.0 * float(_faction_grid.columns - 1)) / float(_faction_grid.columns),
 				)
-	var top_bar := _screen.get_node_or_null("TopBar") as Control
+	var top_bar := _screen.get_node_or_null("TopBar") as PanelContainer
 	var top_height := 190.0 if portrait else 50.0
-	if top_bar != null:
+	if top_bar != null and _top_bar_grid != null:
+		# Measure the actual localized counters before choosing how many fit in a row.
+		# Longer values add rows; they never lose digits behind a clipped chip.
+		var padding := top_bar.get_theme_stylebox(&"panel").get_minimum_size()
+		var minimum_sizes: Array[Vector2] = []
+		for child in _top_bar_grid.get_children():
+			if child is Control and (child as Control).visible:
+				minimum_sizes.append((child as Control).get_combined_minimum_size())
+		var spacing := Vector2(
+			_top_bar_grid.get_theme_constant(&"h_separation"),
+			_top_bar_grid.get_theme_constant(&"v_separation"),
+		)
+		_top_bar_grid.columns = RESPONSIVE_LAYOUT.fitting_grid_columns(
+			minimum_sizes, maxf(1.0, safe.size.x - padding.x), spacing.x,
+			3 if portrait else 10,
+		)
+		top_height = maxf(top_height, RESPONSIVE_LAYOUT.grid_content_size(
+			minimum_sizes, _top_bar_grid.columns, spacing,
+		).y + padding.y)
 		top_bar.set_anchors_preset(Control.PRESET_TOP_LEFT)
 		top_bar.position = safe.position
 		top_bar.size = Vector2(safe.size.x, top_height)
-	if _top_bar_grid != null:
-		_top_bar_grid.columns = 3 if portrait else 10
-		for child in _top_bar_grid.get_children():
-			if child is Control:
-				var item := child as Control
-				item.custom_minimum_size.x = 0.0 if portrait else item.custom_minimum_size.x
 	var deck_height := 598.0 if portrait else 234.0
 	if _command_deck != null:
 		_command_deck.set_anchors_preset(Control.PRESET_TOP_LEFT)
@@ -1044,16 +1056,16 @@ func _build_top_bar(root: Control) -> void:
 	panel.add_child(_top_bar_grid)
 	_score_label = ThemeFactory.label(I18n.t(&"ui.hud.score", {"score": 0}), 14, ThemeFactory.GOLD)
 	_score_label.name = "ScoreLabel"
-	_score_label.custom_minimum_size.x = 222
+	_score_label.minimum_size_changed.connect(_apply_responsive_layout)
 	_score_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_top_bar_grid.add_child(_score_label)
-	_add_resource_chip(_top_bar_grid, &"jade", &"jade", I18n.t(&"ui.hud.jade"), ThemeFactory.JADE, 88.0)
-	_add_resource_chip(_top_bar_grid, &"lumber", &"lumber", I18n.t(&"ui.hud.lumber"), ThemeFactory.LUMBER, 100.0)
-	_add_resource_chip(_top_bar_grid, &"essence", &"essence", I18n.t(&"ui.hud.essence"), ThemeFactory.ESSENCE, 108.0)
-	_add_resource_chip(_top_bar_grid, &"food", &"food", I18n.t(&"ui.hud.food"), ThemeFactory.FOOD, 136.0)
-	_add_resource_chip(_top_bar_grid, &"population", &"population", I18n.t(&"ui.hud.population"), ThemeFactory.IVORY, 88.0)
-	_add_resource_chip(_top_bar_grid, &"dens", &"den", I18n.t(&"ui.hud.dens"), ThemeFactory.GOLD, 82.0)
-	_add_resource_chip(_top_bar_grid, &"time", &"clock", I18n.t(&"ui.hud.time"), ThemeFactory.MUTED, 82.0)
+	_add_resource_chip(_top_bar_grid, &"jade", &"jade", I18n.t(&"ui.hud.jade"), ThemeFactory.JADE)
+	_add_resource_chip(_top_bar_grid, &"lumber", &"lumber", I18n.t(&"ui.hud.lumber"), ThemeFactory.LUMBER)
+	_add_resource_chip(_top_bar_grid, &"essence", &"essence", I18n.t(&"ui.hud.essence"), ThemeFactory.ESSENCE)
+	_add_resource_chip(_top_bar_grid, &"food", &"food", I18n.t(&"ui.hud.food"), ThemeFactory.FOOD)
+	_add_resource_chip(_top_bar_grid, &"population", &"population", I18n.t(&"ui.hud.population"), ThemeFactory.IVORY)
+	_add_resource_chip(_top_bar_grid, &"dens", &"den", I18n.t(&"ui.hud.dens"), ThemeFactory.GOLD)
+	_add_resource_chip(_top_bar_grid, &"time", &"clock", I18n.t(&"ui.hud.time"), ThemeFactory.MUTED)
 	_pause_button = ThemeFactory.icon_button(HUD_UTILITY_ICON_TEXTURES[&"pause"], I18n.t(&"ui.hud.pause"))
 	_pause_button.name = "PauseButton"
 	_pause_button.pressed.connect(_toggle_pause)
@@ -1073,11 +1085,9 @@ func _add_resource_chip(
 	glyph: StringName,
 	label_text: String,
 	color: Color,
-	minimum_width: float,
 ) -> void:
 	var chip := PanelContainer.new()
 	chip.name = "%sChip" % String(id).capitalize()
-	chip.custom_minimum_size.x = minimum_width
 	chip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	chip.add_theme_stylebox_override(&"panel", ThemeFactory.economy_chip_style(color))
 	container.add_child(chip)
@@ -1108,7 +1118,7 @@ func _add_resource_chip(
 	copy.add_child(name_label)
 	var value_label := ThemeFactory.label("0", 15, ThemeFactory.IVORY)
 	value_label.name = "%sValue" % String(id).capitalize()
-	value_label.clip_text = true
+	value_label.minimum_size_changed.connect(_apply_responsive_layout)
 	copy.add_child(value_label)
 	_resource_values[id] = value_label
 
