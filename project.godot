@@ -62,6 +62,10 @@ camera_right={
 ]
 }
 
+[gui]
+
+theme/custom_font="res://resources/manuscc0_font.tres"
+
 [rendering]
 
 renderer/rendering_method="gl_compatibility"
