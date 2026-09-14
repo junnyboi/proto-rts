@@ -4442,7 +4442,7 @@ func _draw_effect_value(value: Dictionary) -> void:
 	var label := "%s%d" % [prefix, absi(amount)]
 	var color := value.get("color", Color.WHITE) as Color
 	color.a *= sin(progress * PI)
-	var font := ThemeDB.fallback_font
+	var font := get_theme_font(&"font")
 	var font_size := maxi(11, int(15.0 * camera_scale))
 	draw_string(font, center + Vector2(1.0, 1.0), label, HORIZONTAL_ALIGNMENT_CENTER, -1.0, font_size, Color(0.0, 0.0, 0.0, color.a * 0.72))
 	draw_string(font, center, label, HORIZONTAL_ALIGNMENT_CENTER, -1.0, font_size, color)
