@@ -218,10 +218,20 @@ after its capabilities are known.
 | R5 | Terrain/wall/minimap/fog/presentation caches implemented; no HUD throttling or stale pre/post-animation picking cache |
 | R6 | Event defensive copies retained: callers mutate/read dictionaries; removing ownership boundaries is not a verified equivalent optimization |
 | G1–G4, C1–C2, X4–X6 | Gameplay simplification, roster/map/economy cuts, save migrations, UI/debug/input/faction removals superseded by the user's constraint |
-| D1–D3 | Release tooling, verified local compression, packages, gates, and CI implemented; live host cutover requires an identified host |
+| D1–D3 | Release tooling, verified local compression, packages, gates, and CI implemented; existing Pages root retained because its gameplay/UI and persistence baseline differs |
 | X2 | Custom engine not adopted: official template is preserved; no browser compatibility/startup evidence justifies replacing it |
 | X7 | Smaller packages and CI artifacts added; no history rewrite, destructive cleanup, or removal of accessible masters/builds |
 
 Remaining opportunities are long-match profiling within the retained dictionary
 contract, actual host compression/cache setup, and browser acceptance on target
 hardware. None requires removing game content.
+
+## Final delivery and existing live-site boundary
+
+Implementation commit: `3aec9bc`. The [complete maintainer CI run](https://github.com/junnyboi/proto-rts/actions/runs/34862639663) passed: pinned Linux engine setup, font provenance, all registered tests, native font/screens, clean package boot, export closure/budgets, independent pack boot, HTTP integrity, and artifact upload.
+
+Local deliverables are `build/release/preserved-gameplay/`, `build/packages/proto-rts-editable-3aec9bc.zip` (**10.82 MiB**) and `build/packages/proto-rts-authoring-3aec9bc.zip` (**268.26 MiB**). CI also retains revision-specific downloadable release/capture artifacts. Every member in the 303-file editable and 427-file authoring archives passed integrity checks. A disposable restoration regenerated all 97 artwork derivatives with identical bytes and decoded pixels, plus the font/report/checksums byte-for-byte; all 124 restored immutable source hashes stayed unchanged. The Chinese title, faction selection and tweak screens additionally matched the original native captures pixel-for-pixel.
+
+Local Git packing reclaimed **272.02 MiB** (`918408` → `639860` KiB). The command was `git -c gc.reflogExpire=never -c gc.reflogExpireUnreachable=never gc --no-prune`; refs were hash-checked unchanged, with no history rewrite or pruning. The user's existing `project.godot` diff remains untouched and uncommitted.
+
+Read-only hosting inspection found GitHub Pages at <https://junnyboi.github.io/proto-rts/>, publishing `gh-pages`. All nine existing root artifacts exactly match main commit `6db2aa0` (3 September), before substantial later food, wildlife, targeting, localization, tuning, tutorial/input and typography changes. Replacing that root would publish unrelated gameplay/UI changes. A candidate subdirectory on the same origin would also share the loaders' `/userfs` IndexedDB and leaderboard/preference paths. Therefore **no Pages files, branch, entrypoint, or player storage were changed**. The current-content candidate remains available locally and as CI artifacts. Future live acceptance needs a separate origin or a deliberately verified persistence boundary; the older live game must not be silently replaced as part of this preservation-only optimization. The existing Pages server already negotiates gzip for HTML, JavaScript, WASM and PCK; the new candidate's reported gzip/Brotli totals come from its verified local responses.
