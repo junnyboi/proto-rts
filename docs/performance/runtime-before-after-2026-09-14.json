@@ -1,0 +1,352 @@
+{
+  "measured_date": "2026-09-14",
+  "execution": "Native headless Godot, Dummy audio; alternating sequential fresh processes",
+  "comparison": "Original unchanged four-player content and default AI; human player issues no commands",
+  "baseline_simulation_sha256": "4b7b9176cf38af26da9d81b00f6561fc95066ae835c45d849a993064ac9d8da5",
+  "optimized_simulation_sha256": "d68955639fe56c84bf024538bbdb1b2db136de4805f4eda70f5edc4eff51dabd",
+  "spatial_grid_sha256": "78c04bb00f1c97ccd75147dc500bab80237173b41e510015dfc58df78574c270",
+  "benchmark_sha256": "7108a8c718cd98b1cbc479f91223d4e174f8a83a3c21f14464432e6b765654ea",
+  "all_state_rng_vision_and_event_digests_match": true,
+  "summary": {
+    "baseline": {
+      "median_overall_mean_tick_us": 12118.512777777767,
+      "median_window_mean_tick_us": [
+        10234.9883333333,
+        12147.4216666667,
+        13934.46
+      ],
+      "median_window_p95_tick_us": [
+        11823,
+        13515,
+        15395
+      ]
+    },
+    "optimized": {
+      "median_overall_mean_tick_us": 5014.365000000003,
+      "median_window_mean_tick_us": [
+        3977.57166666667,
+        4883.96666666667,
+        6181.55666666667
+      ],
+      "median_window_p95_tick_us": [
+        5073,
+        5767,
+        6968
+      ]
+    }
+  },
+  "runs": [
+    {
+      "engine": "4.7.2-stable (official)",
+      "event_sha256": "11c9d382ddc094673ffabbd938925135319107bed1dc7e196e0fd7de39f4f7d0",
+      "fixture": "original_four_player_default_ai_first_60_simulated_seconds",
+      "processor": "Apple M5 Pro",
+      "setup_us": 15971,
+      "windows": [
+        {
+          "combat_mean_us": 1966.80166666667,
+          "entity_count": 391,
+          "max_tick_us": 21046,
+          "mean_tick_us": 10234.9883333333,
+          "p95_tick_us": 11852,
+          "samples": 600,
+          "seconds_from": 0,
+          "seconds_to": 20,
+          "separation_mean_us": 6585.49166666667,
+          "state_sha256": "f08e4e7aa13a6a70d7ab032ee3cb4a146c7f6a675768820d578a8a802d74aaf1",
+          "visibility_mean_us": 488.831666666667
+        },
+        {
+          "combat_mean_us": 2411.29166666667,
+          "entity_count": 395,
+          "max_tick_us": 20728,
+          "mean_tick_us": 12186.09,
+          "p95_tick_us": 13377,
+          "samples": 600,
+          "seconds_from": 20,
+          "seconds_to": 40,
+          "separation_mean_us": 7355.625,
+          "state_sha256": "948c17872d55a20cf3993d6a197fe04ab6262ab75adc433e9c96814f3bb1a3b7",
+          "visibility_mean_us": 604.101666666667
+        },
+        {
+          "combat_mean_us": 2585.74833333333,
+          "entity_count": 395,
+          "max_tick_us": 20221,
+          "mean_tick_us": 13934.46,
+          "p95_tick_us": 14943,
+          "samples": 600,
+          "seconds_from": 40,
+          "seconds_to": 60,
+          "separation_mean_us": 7510.02166666667,
+          "state_sha256": "8bd795e761690ce971d8031fe5674a6d598c9dffe28e2c7ba1d609f3960ade1c",
+          "visibility_mean_us": 643.34
+        }
+      ],
+      "kind": "baseline",
+      "run": 1,
+      "wall_seconds": 22.162904041999997,
+      "project_path": "/tmp/proto-rts-preserved-baseline.ETJeZF"
+    },
+    {
+      "engine": "4.7.2-stable (official)",
+      "event_sha256": "11c9d382ddc094673ffabbd938925135319107bed1dc7e196e0fd7de39f4f7d0",
+      "fixture": "original_four_player_default_ai_first_60_simulated_seconds",
+      "processor": "Apple M5 Pro",
+      "setup_us": 15146,
+      "windows": [
+        {
+          "combat_mean_us": 1948.78166666667,
+          "entity_count": 391,
+          "max_tick_us": 15634,
+          "mean_tick_us": 3977.57166666667,
+          "p95_tick_us": 5073,
+          "samples": 600,
+          "seconds_from": 0,
+          "seconds_to": 20,
+          "separation_mean_us": 770.396666666667,
+          "state_sha256": "f08e4e7aa13a6a70d7ab032ee3cb4a146c7f6a675768820d578a8a802d74aaf1",
+          "visibility_mean_us": 114.025
+        },
+        {
+          "combat_mean_us": 2374.41833333333,
+          "entity_count": 395,
+          "max_tick_us": 12986,
+          "mean_tick_us": 4883.96666666667,
+          "p95_tick_us": 5767,
+          "samples": 600,
+          "seconds_from": 20,
+          "seconds_to": 40,
+          "separation_mean_us": 800.701666666667,
+          "state_sha256": "948c17872d55a20cf3993d6a197fe04ab6262ab75adc433e9c96814f3bb1a3b7",
+          "visibility_mean_us": 127.9
+        },
+        {
+          "combat_mean_us": 2571.35166666667,
+          "entity_count": 395,
+          "max_tick_us": 12147,
+          "mean_tick_us": 6181.55666666667,
+          "p95_tick_us": 6968,
+          "samples": 600,
+          "seconds_from": 40,
+          "seconds_to": 60,
+          "separation_mean_us": 820.233333333333,
+          "state_sha256": "8bd795e761690ce971d8031fe5674a6d598c9dffe28e2c7ba1d609f3960ade1c",
+          "visibility_mean_us": 123.37
+        }
+      ],
+      "kind": "optimized",
+      "run": 2,
+      "wall_seconds": 9.310633250000002,
+      "project_path": "/Users/jun/Documents/Projects/Games/proto-rts"
+    },
+    {
+      "engine": "4.7.2-stable (official)",
+      "event_sha256": "11c9d382ddc094673ffabbd938925135319107bed1dc7e196e0fd7de39f4f7d0",
+      "fixture": "original_four_player_default_ai_first_60_simulated_seconds",
+      "processor": "Apple M5 Pro",
+      "setup_us": 15158,
+      "windows": [
+        {
+          "combat_mean_us": 1969.39333333333,
+          "entity_count": 391,
+          "max_tick_us": 15270,
+          "mean_tick_us": 4007.465,
+          "p95_tick_us": 5287,
+          "samples": 600,
+          "seconds_from": 0,
+          "seconds_to": 20,
+          "separation_mean_us": 781.016666666667,
+          "state_sha256": "f08e4e7aa13a6a70d7ab032ee3cb4a146c7f6a675768820d578a8a802d74aaf1",
+          "visibility_mean_us": 114.275
+        },
+        {
+          "combat_mean_us": 2459.185,
+          "entity_count": 395,
+          "max_tick_us": 13080,
+          "mean_tick_us": 5069.12333333333,
+          "p95_tick_us": 6022,
+          "samples": 600,
+          "seconds_from": 20,
+          "seconds_to": 40,
+          "separation_mean_us": 836.773333333333,
+          "state_sha256": "948c17872d55a20cf3993d6a197fe04ab6262ab75adc433e9c96814f3bb1a3b7",
+          "visibility_mean_us": 134.035
+        },
+        {
+          "combat_mean_us": 2811.215,
+          "entity_count": 395,
+          "max_tick_us": 15779,
+          "mean_tick_us": 6894.995,
+          "p95_tick_us": 10587,
+          "samples": 600,
+          "seconds_from": 40,
+          "seconds_to": 60,
+          "separation_mean_us": 916.955,
+          "state_sha256": "8bd795e761690ce971d8031fe5674a6d598c9dffe28e2c7ba1d609f3960ade1c",
+          "visibility_mean_us": 141.001666666667
+        }
+      ],
+      "kind": "optimized",
+      "run": 3,
+      "wall_seconds": 9.906749917000003,
+      "project_path": "/Users/jun/Documents/Projects/Games/proto-rts"
+    },
+    {
+      "engine": "4.7.2-stable (official)",
+      "event_sha256": "11c9d382ddc094673ffabbd938925135319107bed1dc7e196e0fd7de39f4f7d0",
+      "fixture": "original_four_player_default_ai_first_60_simulated_seconds",
+      "processor": "Apple M5 Pro",
+      "setup_us": 16410,
+      "windows": [
+        {
+          "combat_mean_us": 1978.20833333333,
+          "entity_count": 391,
+          "max_tick_us": 21497,
+          "mean_tick_us": 10256.6516666667,
+          "p95_tick_us": 11823,
+          "samples": 600,
+          "seconds_from": 0,
+          "seconds_to": 20,
+          "separation_mean_us": 6599.83666666667,
+          "state_sha256": "f08e4e7aa13a6a70d7ab032ee3cb4a146c7f6a675768820d578a8a802d74aaf1",
+          "visibility_mean_us": 492.468333333333
+        },
+        {
+          "combat_mean_us": 2411.96833333333,
+          "entity_count": 395,
+          "max_tick_us": 20238,
+          "mean_tick_us": 12147.4216666667,
+          "p95_tick_us": 14112,
+          "samples": 600,
+          "seconds_from": 20,
+          "seconds_to": 40,
+          "separation_mean_us": 7336.78833333333,
+          "state_sha256": "948c17872d55a20cf3993d6a197fe04ab6262ab75adc433e9c96814f3bb1a3b7",
+          "visibility_mean_us": 601.298333333333
+        },
+        {
+          "combat_mean_us": 2635.42,
+          "entity_count": 395,
+          "max_tick_us": 21249,
+          "mean_tick_us": 14193.515,
+          "p95_tick_us": 16088,
+          "samples": 600,
+          "seconds_from": 40,
+          "seconds_to": 60,
+          "separation_mean_us": 7614.29833333333,
+          "state_sha256": "8bd795e761690ce971d8031fe5674a6d598c9dffe28e2c7ba1d609f3960ade1c",
+          "visibility_mean_us": 652.51
+        }
+      ],
+      "kind": "baseline",
+      "run": 4,
+      "wall_seconds": 22.2820945,
+      "project_path": "/tmp/proto-rts-preserved-baseline.ETJeZF"
+    },
+    {
+      "engine": "4.7.2-stable (official)",
+      "event_sha256": "11c9d382ddc094673ffabbd938925135319107bed1dc7e196e0fd7de39f4f7d0",
+      "fixture": "original_four_player_default_ai_first_60_simulated_seconds",
+      "processor": "Apple M5 Pro",
+      "setup_us": 16022,
+      "windows": [
+        {
+          "combat_mean_us": 1931.535,
+          "entity_count": 391,
+          "max_tick_us": 21259,
+          "mean_tick_us": 10090.0783333333,
+          "p95_tick_us": 11683,
+          "samples": 600,
+          "seconds_from": 0,
+          "seconds_to": 20,
+          "separation_mean_us": 6514.63166666667,
+          "state_sha256": "f08e4e7aa13a6a70d7ab032ee3cb4a146c7f6a675768820d578a8a802d74aaf1",
+          "visibility_mean_us": 484.551666666667
+        },
+        {
+          "combat_mean_us": 2376.17833333333,
+          "entity_count": 395,
+          "max_tick_us": 20248,
+          "mean_tick_us": 12053.985,
+          "p95_tick_us": 13515,
+          "samples": 600,
+          "seconds_from": 20,
+          "seconds_to": 40,
+          "separation_mean_us": 7283.20333333333,
+          "state_sha256": "948c17872d55a20cf3993d6a197fe04ab6262ab75adc433e9c96814f3bb1a3b7",
+          "visibility_mean_us": 602.596666666667
+        },
+        {
+          "combat_mean_us": 2573.945,
+          "entity_count": 395,
+          "max_tick_us": 20076,
+          "mean_tick_us": 13908.8583333333,
+          "p95_tick_us": 15395,
+          "samples": 600,
+          "seconds_from": 40,
+          "seconds_to": 60,
+          "separation_mean_us": 7466.425,
+          "state_sha256": "8bd795e761690ce971d8031fe5674a6d598c9dffe28e2c7ba1d609f3960ade1c",
+          "visibility_mean_us": 650.613333333333
+        }
+      ],
+      "kind": "baseline",
+      "run": 5,
+      "wall_seconds": 21.885539833000003,
+      "project_path": "/tmp/proto-rts-preserved-baseline.ETJeZF"
+    },
+    {
+      "engine": "4.7.2-stable (official)",
+      "event_sha256": "11c9d382ddc094673ffabbd938925135319107bed1dc7e196e0fd7de39f4f7d0",
+      "fixture": "original_four_player_default_ai_first_60_simulated_seconds",
+      "processor": "Apple M5 Pro",
+      "setup_us": 15474,
+      "windows": [
+        {
+          "combat_mean_us": 1931.14,
+          "entity_count": 391,
+          "max_tick_us": 15324,
+          "mean_tick_us": 3931.60333333333,
+          "p95_tick_us": 5021,
+          "samples": 600,
+          "seconds_from": 0,
+          "seconds_to": 20,
+          "separation_mean_us": 764.815,
+          "state_sha256": "f08e4e7aa13a6a70d7ab032ee3cb4a146c7f6a675768820d578a8a802d74aaf1",
+          "visibility_mean_us": 111.101666666667
+        },
+        {
+          "combat_mean_us": 2369.04666666667,
+          "entity_count": 395,
+          "max_tick_us": 12623,
+          "mean_tick_us": 4856.93,
+          "p95_tick_us": 5714,
+          "samples": 600,
+          "seconds_from": 20,
+          "seconds_to": 40,
+          "separation_mean_us": 799.425,
+          "state_sha256": "948c17872d55a20cf3993d6a197fe04ab6262ab75adc433e9c96814f3bb1a3b7",
+          "visibility_mean_us": 126.34
+        },
+        {
+          "combat_mean_us": 2565.685,
+          "entity_count": 395,
+          "max_tick_us": 12012,
+          "mean_tick_us": 6130.545,
+          "p95_tick_us": 6949,
+          "samples": 600,
+          "seconds_from": 40,
+          "seconds_to": 60,
+          "separation_mean_us": 817.295,
+          "state_sha256": "8bd795e761690ce971d8031fe5674a6d598c9dffe28e2c7ba1d609f3960ade1c",
+          "visibility_mean_us": 120.34
+        }
+      ],
+      "kind": "optimized",
+      "run": 6,
+      "wall_seconds": 9.193433999999996,
+      "project_path": "/Users/jun/Documents/Projects/Games/proto-rts"
+    }
+  ]
+}

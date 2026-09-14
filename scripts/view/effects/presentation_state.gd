@@ -8,6 +8,7 @@ const HEALTH_SETTLE_SPEED := 8.0
 
 var records: Dictionary = {}
 var wildlife_fades: Dictionary = {}
+var _active_records: Dictionary = {}
 var hovered_entity_id := -1
 var reduced_motion := false
 
@@ -15,6 +16,7 @@ var reduced_motion := false
 func clear() -> void:
 	records.clear()
 	wildlife_fades.clear()
+	_active_records.clear()
 	hovered_entity_id = -1
 
 
@@ -27,7 +29,7 @@ func synchronize(entities: Dictionary) -> void:
 	for raw_entity in entities.values():
 		var entity := raw_entity as Dictionary
 		var entity_id := int(entity.get("id", -1))
-		if entity_id < 0:
+		if entity_id < 0 or not bool(entity.get("alive", true)):
 			continue
 		seen[entity_id] = true
 		var hp := float(entity.get("hp", 0.0))
@@ -44,16 +46,18 @@ func synchronize(entities: Dictionary) -> void:
 			}
 		var record := records[entity_id] as Dictionary
 		record["target_hp"] = hp
-		records[entity_id] = record
+		if float(record["display_hp"]) != hp:
+			_active_records[entity_id] = true
 	for raw_id in records.keys():
 		var entity_id := int(raw_id)
 		if not seen.has(entity_id):
 			records.erase(entity_id)
 			wildlife_fades.erase(entity_id)
+			_active_records.erase(entity_id)
 
 
 func advance(delta: float) -> void:
-	for raw_id in records.keys():
+	for raw_id in _active_records.keys():
 		var entity_id := int(raw_id)
 		var record := records[entity_id] as Dictionary
 		record["attack_elapsed"] = minf(ATTACK_DURATION, float(record.get("attack_elapsed", ATTACK_DURATION)) + delta)
@@ -63,7 +67,14 @@ func advance(delta: float) -> void:
 		var display_hp := float(record.get("display_hp", 0.0))
 		var target_hp := float(record.get("target_hp", display_hp))
 		record["display_hp"] = lerpf(display_hp, target_hp, clampf(delta * HEALTH_SETTLE_SPEED, 0.0, 1.0))
-		records[entity_id] = record
+		if (
+			float(record["attack_elapsed"]) == ATTACK_DURATION
+			and float(record["hit_elapsed"]) == HIT_DURATION
+			and float(record["selection_elapsed"]) == 1.0
+			and float(record["hover_elapsed"]) == 1.0
+			and float(record["display_hp"]) == target_hp
+		):
+			_active_records.erase(entity_id)
 	for raw_id in wildlife_fades.keys():
 		var entity_id := int(raw_id)
 		var elapsed := minf(
@@ -96,10 +107,12 @@ func consume_event(event: Dictionary) -> void:
 		attacker_record["attack_direction"] = direction
 		attacker_record["attack_family"] = event.get("attack_family", &"melee")
 		records[attacker_id] = attacker_record
+		_active_records[attacker_id] = true
 	if records.has(target_id):
 		var target_record := records[target_id] as Dictionary
 		target_record["hit_elapsed"] = 0.0
 		records[target_id] = target_record
+		_active_records[target_id] = true
 
 
 func set_hover(entity_id: int) -> void:
@@ -110,6 +123,7 @@ func set_hover(entity_id: int) -> void:
 		var record := records[entity_id] as Dictionary
 		record["hover_elapsed"] = 0.0
 		records[entity_id] = record
+		_active_records[entity_id] = true
 
 
 func note_selection(ids: Array[int]) -> void:
@@ -118,6 +132,7 @@ func note_selection(ids: Array[int]) -> void:
 			var record := records[entity_id] as Dictionary
 			record["selection_elapsed"] = 0.0
 			records[entity_id] = record
+			_active_records[entity_id] = true
 
 
 func visual_transform(entity_id: int) -> Dictionary:

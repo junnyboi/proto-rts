@@ -5,3 +5,6 @@
 __pycache__/
 *.pyc
 build/web/.serve.pid
+build/release/
+build/packages/
+build/verification/

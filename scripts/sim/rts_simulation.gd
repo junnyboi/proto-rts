@@ -1,6 +1,8 @@
 class_name RtsSimulation
 extends RefCounted
 
+const SPATIAL_GRID_SCRIPT := preload("res://scripts/sim/spatial_grid.gd")
+
 signal match_ended(result: StringName)
 signal state_changed
 signal battle_notice(key: StringName, placeholder_values: Dictionary, team: int)
@@ -177,6 +179,11 @@ var _extra_ai_skill_tests: Dictionary = {}
 var _line_of_sight_blockers: Dictionary = {}
 var _visible_cells_by_team: Array[Dictionary] = []
 var _explored_cells_by_team: Array[Dictionary] = []
+var _vision_sources_by_team: Array[Dictionary] = []
+var _visibility_revisions: Array[int] = []
+var _visibility_revision_serial := 0
+var _vision_offsets_by_radius: Dictionary = {}
+var _separation_grid := SPATIAL_GRID_SCRIPT.new()
 var _tweak_values: Dictionary = {}
 
 
@@ -2036,8 +2043,12 @@ func _set_path(entity_state: Dictionary, destination: Vector2i) -> void:
 		return
 	var team := int(entity_state.get("team", TEAM_NEUTRAL))
 	var can_phase_through_friendly_structures := not bool(entity_state.get("carrying_egg", false))
+	# The query cannot change structures. Prepare this exact ordered footprint
+	# mask once and use it for both temporary graph edits, without a persistent
+	# cache that could miss ownership changes or direct authoritative edits.
+	var friendly_structure_cells := _friendly_structure_cells(team) if can_phase_through_friendly_structures else {}
 	if can_phase_through_friendly_structures:
-		_set_friendly_structures_solid(team, false)
+		_apply_friendly_structure_solidity(friendly_structure_cells, false)
 	var shenlong_avoidance_cells := _block_ai_shenlong_avoidance_zone(entity_state)
 	var start_was_solid := _astar.is_point_solid(start)
 	if start_was_solid:
@@ -2049,7 +2060,7 @@ func _set_path(entity_state: Dictionary, destination: Vector2i) -> void:
 	for cell in shenlong_avoidance_cells:
 		_astar.set_point_solid(cell, false)
 	if can_phase_through_friendly_structures:
-		_set_friendly_structures_solid(team, true)
+		_apply_friendly_structure_solidity(friendly_structure_cells, true)
 	entity_state["path_endpoint"] = target
 	var path: Array[Vector2] = []
 	for cell in cell_path:
@@ -2085,8 +2096,12 @@ func _block_ai_shenlong_avoidance_zone(entity_state: Dictionary) -> Array[Vector
 
 
 func _set_friendly_structures_solid(team: int, solid: bool) -> void:
+	_apply_friendly_structure_solidity(_friendly_structure_cells(team), solid)
+
+
+func _friendly_structure_cells(team: int) -> Dictionary:
 	if team < 0:
-		return
+		return {}
 	var structure_cells: Dictionary = {}
 	for raw_entity in entities.values():
 		var entity_state := raw_entity as Dictionary
@@ -2103,6 +2118,10 @@ func _set_friendly_structures_solid(team: int, solid: bool) -> void:
 			if MapCatalog.in_bounds(cell):
 				var remains_solid: bool = entity_state.get("kind") in SOLID_FRIENDLY_STRUCTURE_KINDS
 				structure_cells[cell] = bool(structure_cells.get(cell, false)) or remains_solid
+	return structure_cells
+
+
+func _apply_friendly_structure_solidity(structure_cells: Dictionary, solid: bool) -> void:
 	for raw_cell in structure_cells:
 		var cell := raw_cell as Vector2i
 		_astar.set_point_solid(cell, solid or bool(structure_cells[cell]))
@@ -4265,17 +4284,27 @@ func _nearest_unexplored_resource(worker: Dictionary, resource_kind: StringName 
 func _reset_visibility() -> void:
 	_visible_cells_by_team.clear()
 	_explored_cells_by_team.clear()
+	_vision_sources_by_team.clear()
+	_visibility_revisions.clear()
+	# A reused simulation must invalidate views even when its new opening vision
+	# happens to be identical to the previous match's last published revision.
+	_visibility_revision_serial += 1
 	for _team in range(players.size()):
 		_visible_cells_by_team.append({})
 		_explored_cells_by_team.append({})
+		_vision_sources_by_team.append({})
+		_visibility_revisions.append(_visibility_revision_serial)
 
 
 func _refresh_visibility() -> void:
 	if _visible_cells_by_team.size() != players.size():
 		_reset_visibility()
-	var next_visible_by_team: Array[Dictionary] = []
+	var next_sources_by_team: Array[Dictionary] = []
 	for _team in range(players.size()):
-		next_visible_by_team.append({})
+		next_sources_by_team.append({})
+	# Read authoritative dictionaries at every existing refresh boundary. This
+	# also observes direct fixture edits, ownership transfers and tower occupants;
+	# no lifecycle notification or reduced simulation cadence is required.
 	for raw_entity in entities.values():
 		var entity_state := raw_entity as Dictionary
 		var team := int(entity_state.get("team", TEAM_NEUTRAL))
@@ -4288,23 +4317,48 @@ func _refresh_visibility() -> void:
 			continue
 		var radius := _vision_radius(entity_state)
 		var origin := Vector2i(_entity_center(entity_state).floor())
-		var team_visibility := next_visible_by_team[team]
-		for y in range(origin.y - radius, origin.y + radius + 1):
-			for x in range(origin.x - radius, origin.x + radius + 1):
-				var cell := Vector2i(x, y)
-				if not MapCatalog.in_bounds(cell):
-					continue
-				var offset := cell - origin
-				if offset.length_squared() <= radius * radius:
-					team_visibility[cell] = true
-		next_visible_by_team[team] = team_visibility
+		next_sources_by_team[team][int(entity_state["id"])] = Vector3i(origin.x, origin.y, radius)
 	for team in range(players.size()):
-		var next_visible := next_visible_by_team[team]
+		var next_sources := next_sources_by_team[team]
+		if next_sources == _vision_sources_by_team[team]:
+			continue
+		_vision_sources_by_team[team] = next_sources
+		var next_visible: Dictionary = {}
+		for raw_source in next_sources.values():
+			var source := raw_source as Vector3i
+			var origin := Vector2i(source.x, source.y)
+			for offset in _vision_offsets(source.z):
+				var cell := origin + offset
+				if MapCatalog.in_bounds(cell):
+					next_visible[cell] = true
+		var changed := next_visible != _visible_cells_by_team[team]
 		_visible_cells_by_team[team] = next_visible
 		var explored: Dictionary = _explored_cells_by_team[team]
+		var explored_size := explored.size()
 		for cell in next_visible:
 			explored[cell] = true
 		_explored_cells_by_team[team] = explored
+		if changed or explored.size() != explored_size:
+			_visibility_revision_serial += 1
+			_visibility_revisions[team] = _visibility_revision_serial
+
+
+func _vision_offsets(radius: int) -> Array[Vector2i]:
+	if not _vision_offsets_by_radius.has(radius):
+		var offsets: Array[Vector2i] = []
+		for y in range(-radius, radius + 1):
+			for x in range(-radius, radius + 1):
+				var offset := Vector2i(x, y)
+				if offset.length_squared() <= radius * radius:
+					offsets.append(offset)
+		_vision_offsets_by_radius[radius] = offsets
+	return _vision_offsets_by_radius[radius]
+
+
+func visibility_revision_for_team(team: int) -> int:
+	if team < 0 or team >= _visibility_revisions.size():
+		return -1
+	return _visibility_revisions[team]
 
 
 func _vision_radius(entity_state: Dictionary) -> int:
@@ -4406,14 +4460,14 @@ func _resolve_unit_separation(tick_delta: float = TICK_SECONDS) -> void:
 	unit_ids.sort()
 	var step_delta := tick_delta / float(UNIT_SEPARATION_ITERATIONS)
 	for _iteration in range(UNIT_SEPARATION_ITERATIONS):
+		_separation_grid.rebuild(unit_ids, entities)
 		var displacements: Dictionary = {}
 		for unit_id in unit_ids:
 			displacements[unit_id] = Vector2.ZERO
 		for first_index in range(unit_ids.size()):
 			var first_id := unit_ids[first_index]
 			var first := entity(first_id)
-			for second_index in range(first_index + 1, unit_ids.size()):
-				var second_id := unit_ids[second_index]
+			for second_id in _separation_grid.later_neighbors(first_id, first["position"] as Vector2):
 				var second := entity(second_id)
 				if _moving_friendly_units_can_overlap(first, second) or not _units_should_separate(first, second):
 					continue

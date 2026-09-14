@@ -40,6 +40,9 @@ fi
 
 export GODOT_SILENCE_ROOT_WARNING=1
 
+echo "==> tests/release_pipeline_test.py"
+python3 "${ROOT}/tests/release_pipeline_test.py"
+
 # A clean clone has no global-script cache. Prime imports before direct SceneTree scripts.
 if [[ ! -s "${ROOT}/.godot/global_script_class_cache.cfg" ]]; then
   echo "==> initializing Godot imports"
@@ -61,6 +64,7 @@ for test_script in \
 	  tests/effect_director_test.gd \
 	  tests/cursor_test.gd \
 	  tests/localization_test.gd \
+	  tests/economy_typography_test.gd \
 	  tests/leaderboard_test.gd \
 	  tests/tweak_service_test.gd \
 	  tests/tweak_ui_test.gd \
@@ -70,7 +74,10 @@ for test_script in \
   tests/fortification_test.gd \
   tests/visibility_test.gd \
 	  tests/view_overlay_test.gd \
+	  tests/view_cache_test.gd \
   tests/simulation_test.gd \
+  tests/runtime_equivalence_test.gd \
+  tests/runtime_performance_test.gd \
 	  tests/core_regression_test.gd \
 	  tests/battlefield_regression_test.gd \
 	  tests/ui_regression_test.gd \
@@ -78,7 +85,7 @@ for test_script in \
 do
   echo "==> ${test_script}"
   test_log="${TEST_LOG_DIR}/$(basename "${test_script}").log"
-  "${GODOT_BIN}" --headless --path "${ROOT}" --script "${ROOT}/${test_script}" 2>&1 | tee "${test_log}"
+  "${GODOT_BIN}" --headless --audio-driver Dummy --path "${ROOT}" --script "${ROOT}/${test_script}" 2>&1 | tee "${test_log}"
   if grep -Eq 'SCRIPT ERROR|Parse Error|Compile Error|No loader found for resource|Failed to load script' "${test_log}"; then
     echo "Fatal Godot diagnostic detected in ${test_script}" >&2
     exit 1

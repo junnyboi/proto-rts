@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create optimized runtime derivatives from immutable GPT Image 2 masters."""
+"""Create runtime art and font derivatives while preserving original assets."""
 
 from __future__ import annotations
 
@@ -304,6 +304,9 @@ def describe(path: Path, source: Path) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+    font_mode = parser.add_mutually_exclusive_group()
+    font_mode.add_argument("--fonts-only", action="store_true", help="Generate only the lossless CJK font subset and its provenance.")
+    font_mode.add_argument("--check-fonts", action="store_true", help="Verify font regeneration and original glyph equivalence without writing files.")
     parser.add_argument(
         "--truncate-audio-first-half",
         metavar="CUE",
@@ -315,6 +318,13 @@ def main() -> None:
         help="Separate input file for --truncate-audio-first-half.",
     )
     args = parser.parse_args()
+    if args.fonts_only or args.check_fonts:
+        if args.truncate_audio_first_half or args.audio_source:
+            parser.error("Font modes cannot be combined with audio processing")
+        from font_pipeline import process_fonts
+
+        process_fonts(ROOT, check=args.check_fonts)
+        return
     if args.truncate_audio_first_half:
         if args.audio_source is None:
             parser.error("--audio-source is required when truncating audio")

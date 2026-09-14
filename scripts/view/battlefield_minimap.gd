@@ -31,6 +31,10 @@ var _entity_image: Image
 var _entity_texture: ImageTexture
 var _fog_image: Image
 var _fog_texture: ImageTexture
+var _entity_markers: Array = []
+var _entity_overlay_valid := false
+var _fog_source: Battlefield
+var _fog_revision := -1
 
 
 func _ready() -> void:
@@ -44,6 +48,9 @@ func _ready() -> void:
 
 func set_battlefield(value: Battlefield) -> void:
 	battlefield = value
+	_entity_overlay_valid = false
+	_fog_source = null
+	_fog_revision = -1
 	queue_redraw()
 
 
@@ -111,7 +118,14 @@ func _draw() -> void:
 
 
 func _draw_entities(map_rect: Rect2) -> void:
-	_entity_image.fill(Color.TRANSPARENT)
+	_refresh_entity_overlay()
+	draw_texture_rect(_entity_texture, map_rect, false)
+
+
+func _refresh_entity_overlay() -> bool:
+	# Record the exact ordered paint operations. Order matters where markers
+	# overlap, while sub-cell movement cannot change this pixel overlay.
+	var next_markers: Array = []
 	for raw_entity in battlefield.simulation.entities.values():
 		var entity_state := raw_entity as Dictionary
 		if int(entity_state.get("garrisoned_in", -1)) >= 0:
@@ -141,20 +155,45 @@ func _draw_entities(map_rect: Rect2) -> void:
 			color = RIVAL_TWO_COLOR
 		elif team == RtsSimulation.TEAM_RIVAL_THREE:
 			color = RIVAL_THREE_COLOR
-		if category == &"structure":
+		var mode := 2 if category == &"structure" else (1 if category in [&"unit", &"wildlife", &"objective"] else 0)
+		next_markers.append(cell)
+		next_markers.append(footprint if mode == 2 else Vector2i.ONE)
+		next_markers.append(mode)
+		next_markers.append(color)
+	if _entity_overlay_valid and next_markers == _entity_markers:
+		return false
+	_entity_markers = next_markers
+	_entity_overlay_valid = true
+	_entity_image.fill(Color.TRANSPARENT)
+	for index in range(0, _entity_markers.size(), 4):
+		var cell := _entity_markers[index] as Vector2i
+		var footprint := _entity_markers[index + 1] as Vector2i
+		var mode := int(_entity_markers[index + 2])
+		var color := _entity_markers[index + 3] as Color
+		if mode == 2:
 			for footprint_cell in MapCatalog.footprint_cells(cell, footprint):
 				_set_overlay_pixel(_entity_image, footprint_cell, color)
-		elif category in [&"unit", &"wildlife", &"objective"]:
+		elif mode == 1:
 			_paint_marker(_entity_image, cell, color, 1)
 		else:
 			_set_overlay_pixel(_entity_image, cell, color)
 	_entity_texture.update(_entity_image)
-	draw_texture_rect(_entity_texture, map_rect, false)
+	return true
 
 
 func _draw_fog(map_rect: Rect2) -> void:
 	if not battlefield.fog_enabled:
 		return
+	_refresh_fog_overlay()
+	draw_texture_rect(_fog_texture, map_rect, false)
+
+
+func _refresh_fog_overlay() -> bool:
+	var revision := battlefield.fog_visibility_revision()
+	if _fog_source == battlefield and _fog_revision == revision:
+		return false
+	_fog_source = battlefield
+	_fog_revision = revision
 	_fog_image.fill(Color.TRANSPARENT)
 	for y in range(MapCatalog.SIZE.y):
 		for x in range(MapCatalog.SIZE.x):
@@ -166,7 +205,7 @@ func _draw_fog(map_rect: Rect2) -> void:
 				color = Color(0.0, 0.012, 0.016, 0.94)
 			_fog_image.set_pixelv(_cell_to_image_pixel(cell), color)
 	_fog_texture.update(_fog_image)
-	draw_texture_rect(_fog_texture, map_rect, false)
+	return true
 
 
 func _set_overlay_pixel(image: Image, cell: Vector2i, color: Color) -> void:

@@ -9,8 +9,14 @@ func _run() -> void:
 	var failures: Array[String] = []
 	var scene := load("res://scenes/main.tscn") as PackedScene
 	var game := scene.instantiate()
-	var leaderboard_save_path := "user://hud_leaderboard_test_%d.json" % Time.get_ticks_usec()
+	var suffix := "%d_%d" % [OS.get_process_id(), Time.get_ticks_usec()]
+	var leaderboard_save_path := "user://hud_leaderboard_test_%s.json" % suffix
 	game.leaderboard_save_path = leaderboard_save_path
+	# Settings assertions start from defaults and must not read or change the
+	# player's saved accessibility preferences or tutorial completion.
+	game.tweak_save_path = "user://hud_tweak_test_%s.json" % suffix
+	game.tutorial_save_path = "user://hud_tutorial_test_%s.json" % suffix
+	var owned_save_paths: Array[String] = [leaderboard_save_path, game.tweak_save_path, game.tutorial_save_path]
 	root.add_child(game)
 	await process_frame
 	_verify_title_leaderboard(game, failures)
@@ -43,7 +49,8 @@ func _run() -> void:
 	director._music_player.stream = null
 	game.queue_free()
 	await process_frame
-	_cleanup_leaderboard(leaderboard_save_path)
+	for save_path in owned_save_paths:
+		_cleanup_save(save_path)
 	if not CursorSystem.is_suspended():
 		failures.append("game shutdown did not release the custom cursor registry")
 	if failures.is_empty():
@@ -839,7 +846,7 @@ func _verify_resign(game: Node, simulation: RtsSimulation, failures: Array[Strin
 		failures.append("duplicate match-ended event recorded the same score twice")
 
 
-func _cleanup_leaderboard(save_path: String) -> void:
+func _cleanup_save(save_path: String) -> void:
 	for path in [save_path, "%s.bak" % save_path, "%s.tmp" % save_path]:
 		if FileAccess.file_exists(path):
 			DirAccess.remove_absolute(ProjectSettings.globalize_path(path))

@@ -478,36 +478,33 @@ Use the **smallest relevant gate**. Documentation-only changes need reference ch
 cd /home/ubuntu/proto-rts
 export GODOT_BIN=/path/to/Godot_v4.7.2
 
-# Registered 25-suite regression and performance gate:
+# Registered 29-suite Godot gate plus Python release pipeline checks:
 GODOT_BIN="$GODOT_BIN" tools/run_tests.sh
 
 # Template packaging gate (metadata + clean source-free import and boot):
 GODOT_BIN="$GODOT_BIN" tools/validate_template.sh
 
-# UI/render/art work: native capture generators:
-"$GODOT_BIN" --path . --script tests/visual_capture.gd
+# UI/render/art work: native capture generators (optional output override):
+RTS_CAPTURE_DIR="$PWD/build/verification/native" "$GODOT_BIN" --audio-driver Dummy --path . --script tests/visual_capture.gd
 "$GODOT_BIN" --path . --script tests/cursor_visual_capture.gd
-"$GODOT_BIN" --path . --script tests/localization_visual_capture.gd
+RTS_CAPTURE_DIR="$PWD/build/verification/chinese" "$GODOT_BIN" --audio-driver Dummy --path . --script tests/localization_visual_capture.gd
+"$GODOT_BIN" --audio-driver Dummy --path . --script tests/font_rendering_test.gd
 
-# Release build:
-mkdir -p build/web
-"$GODOT_BIN" --headless --path . \
-  --export-release Web build/web/index.html
+# Fresh release, with size/closure checks and deterministic gzip:
+RTS_BUILD_ID="$(date -u +%Y%m%dT%H%M%SZ)"
+tools/export_web.sh "build/release/$RTS_BUILD_ID"
+python3 tools/verify_web_delivery.py --local-directory "build/release/$RTS_BUILD_ID" \
+  --manifest "build/release/$RTS_BUILD_ID/delivery-manifest.json"
 
-test -s build/web/index.html
-test -s build/web/index.js
-test -s build/web/index.wasm
-test -s build/web/index.pck
-
-# Manual smoke-test server; this command performs no assertions:
-python3 -m http.server 8060 --directory build/web
+# Manual play server with content negotiation:
+python3 tools/serve_web.py "build/release/$RTS_BUILD_ID"
 ```
 
-The native visual scripts are **capture generators, not pixel-diff tests**. A zero exit proves scenarios rendered and files were saved; it does not approve grounding, composition, fog contrast, cursor hotspots, or motion. Manually review affected images. The capture scripts overwrite tracked `captures/*.png`, and export overwrites tracked `build/web/index.*`; review and commit those diffs deliberately or restore them before unrelated work.
+The native visual scripts are **capture generators, not pixel-diff tests**. A zero exit proves scenarios rendered and files were saved; it does not approve grounding, composition, fog contrast, cursor hotspots, or motion. Manually review affected images. General and localization captures support `RTS_CAPTURE_DIR`; their default destinations remain the tracked captures. The native font test separately verifies exact glyph pixels. The release helper requires a new output directory and leaves earlier releases intact.
 
-For a browser smoke test, open `http://localhost:8060`—never `file://`—and manually verify load with no console/network errors, title/faction navigation, a started match, input/cursors, audio unlock/playback, result, and rematch. This repository has no CI workflow or browser automation.
+For a browser smoke test, open `http://localhost:8060`—never `file://`—and manually verify load with no console/network errors, title/faction navigation, a started match, input/cursors, audio unlock/playback, result, and rematch. Mute new browser tabs except during explicit audio testing. The pinned maintainer CI checks correctness, fonts, native captures, clean packaging, export sizes and HTTP delivery; it does not substitute for browser gameplay acceptance.
 
-The Web preset is single-threaded and excludes build outputs, captures, docs, and tests from the PCK. High-resolution source masters stay excluded only while **`assets/source/.gdignore` is preserved**; lightweight provenance strings may remain. Matching Godot 4.7.2 Web templates are required.[1] [10]
+The Web preset is single-threaded and excludes build outputs, captures, docs, tests, tools, provenance reports, the full authoring CJK font, and two unused textures. It retains all current gameplay and unchanged retained art/audio. High-resolution source masters stay excluded only while **`assets/source/.gdignore` is preserved**. Matching Godot 4.7.2 Web templates are required.[1] [10] See [the optimization results and delivery runbook](docs/lean-delivery.md) for measured savings, Brotli, package profiles, and preservation evidence.
 
 The performance regression expects Battlefield below a 33.3 ms p95 redraw budget and minimap below 16.7 ms. Rebaseline only after deliberate budget changes. Finish every performed gate with `git diff --check` and `git status --short`.
 

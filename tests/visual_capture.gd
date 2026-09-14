@@ -1,6 +1,6 @@
 extends SceneTree
 
-const OUTPUT := "res://captures"
+var OUTPUT := OS.get_environment("RTS_CAPTURE_DIR") if not OS.get_environment("RTS_CAPTURE_DIR").is_empty() else "res://captures"
 
 
 class FortificationFacingAudit:

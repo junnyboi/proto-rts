@@ -1,6 +1,6 @@
 # Lean RTS implementation plan
 
-Status: proposed implementation; no gameplay, asset, or release changes have been applied by this plan.
+Status: **superseded in scope by the approved preservation constraint, 14 September 2026.** The user approved execution only without affecting gameplay, UI, HUD, aesthetics, or animations. The original proposals below remain the audit record; gameplay cuts, lossy assets, altered cadence, UI/debug removals, and save migrations are not the authorized implementation. See [lean-delivery.md](lean-delivery.md) for the compatible implementation, results, commands, and remaining conditional decisions.
 
 Planning baseline: `dcdbc4ebbbf9cebaeebbbb3f75194eac7d62d161`, 14 September 2026. Engine: Godot 4.7.2. Preserve the existing uncommitted `project.godot` edit. Reconfirm the current revision and measurements when implementation starts.
 

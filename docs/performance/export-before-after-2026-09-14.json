@@ -1,0 +1,45 @@
+{
+  "baseline_revision": "eecf4a5",
+  "engine": "4.7.2.stable.official.ed1daf0bf",
+  "baseline": {
+    "raw_bytes": 69260174,
+    "gzip_bytes": 39137116,
+    "pck_bytes": 29305504,
+    "pck_categories": {
+      "other": 349382,
+      "fonts": 14495040,
+      "textures": 9793938,
+      "audio": 4139059,
+      "scripts": 493910
+    }
+  },
+  "candidate": {
+    "raw_bytes": 53108622,
+    "gzip_bytes": 23117101,
+    "brotli_bytes": 20035130,
+    "pck_bytes": 13153952,
+    "pck_categories": {
+      "other": 188240,
+      "fonts": 342129,
+      "textures": 7950812,
+      "audio": 4139059,
+      "scripts": 500034
+    }
+  },
+  "http_verification": {
+    "files": 9,
+    "response_body_bytes": {
+      "identity": 53108622,
+      "gzip": 23117101,
+      "br": 20035130
+    }
+  },
+  "media_preservation": {
+    "unchanged_imported_media": 119,
+    "removed_unused_entries": [
+      ".godot/imported/jade_forest.webp-ff5afb1ef77243cb126b70a6c0095a39.ctex",
+      ".godot/imported/mandate_of_myth_title.webp-ae76d514868344b4581cab15109c76a7.ctex"
+    ],
+    "changed_retained_media": []
+  }
+}

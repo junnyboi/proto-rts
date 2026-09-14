@@ -3,7 +3,7 @@ extends RefCounted
 
 const HUD_UTILITY_ICON_LIGHTEN_SHADER := preload("res://scripts/ui/hud_utility_icon_lighten.gdshader")
 const PRIMARY_FONT: FontFile = preload("res://assets/fonts/ManusCC0-Regular.ttf")
-const CJK_FONT: FontFile = preload("res://assets/fonts/NotoSansCJKsc-Regular.otf")
+const CJK_FONT: FontFile = preload("res://assets/runtime/fonts/NotoSansCJKsc-UI.otf")
 const INK := Color("0b1719")
 const INK_DEEP := Color("071012")
 const INK_SOFT := Color("14282a")

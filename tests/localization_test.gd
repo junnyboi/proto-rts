@@ -55,6 +55,7 @@ func _run() -> void:
 		var entries := (chinese_entries_value as Dictionary).get("entries", {}) as Dictionary
 		for codepoint: int in _required_codepoints(entries):
 			_expect(theme.default_font.has_char(codepoint), "runtime font chain lacks U+%04X" % codepoint, failures)
+	_verify_font_equivalence(failures)
 
 	var catalog_lookup := {}
 	for key: String in english_keys:
@@ -108,6 +109,35 @@ func _required_codepoints(entries: Dictionary) -> Array[int]:
 		result.append(int(raw_codepoint))
 	result.sort()
 	return result
+
+
+func _verify_font_equivalence(failures: Array[String]) -> void:
+	# The original remains available for development verification but is excluded
+	# from the browser PCK. Compare shaping/metrics as well as glyph coverage.
+	var reduced := ThemeFactory.CJK_FONT
+	_expect(reduced != null, "subset font is unavailable", failures)
+	if reduced == null:
+		return
+	_expect(reduced.has_char(0x25CC), "subset lacks the text shaper's dotted-circle glyph", failures)
+	var original_path := "res://assets/fonts/NotoSansCJKsc-Regular.otf"
+	if not ResourceLoader.exists(original_path):
+		print("SKIP original-font comparison: editable package omits the archived source; subset coverage remains checked")
+		return
+	var original := load(original_path) as FontFile
+	_expect(original != null, "original font could not be loaded for comparison", failures)
+	if original == null:
+		return
+	for font_size: int in [12, 14, 16, 17, 18, 20, 24, 28, 36, 48]:
+		_expect(is_equal_approx(original.get_ascent(font_size), reduced.get_ascent(font_size)), "subset changed font ascent", failures)
+		_expect(is_equal_approx(original.get_descent(font_size), reduced.get_descent(font_size)), "subset changed font descent", failures)
+		for locale: String in ["en-US", "zh-CN"]:
+			var catalog := JSON.parse_string(FileAccess.get_file_as_string("res://localization/%s.json" % locale)) as Dictionary
+			var entries := catalog.get("entries", {}) as Dictionary
+			for key: String in entries:
+				var value := String(entries[key])
+				var before := original.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+				var after := reduced.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+				_expect(before.is_equal_approx(after), "subset changed shaped text size for %s.%s at %dpx" % [locale, key, font_size], failures)
 
 
 func _audit_player_copy_literals(failures: Array[String]) -> void:

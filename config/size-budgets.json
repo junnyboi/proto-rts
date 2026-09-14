@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "note": "Lossless, existing-content Web release. Limits count identity files once; gzip is a separate transport budget.",
+  "raw_bytes": 54000000,
+  "gzip_bytes": 24000000,
+  "pck_bytes": 14000000,
+  "cjk_font_bytes": 524288,
+  "forbidden_pck_fragments": [
+    "NotoSansCJKsc-Regular.otf",
+    "mandate_of_myth_title.webp",
+    "jade_forest.webp",
+    "assets/source/",
+    "assets.lock.json",
+    "asset-report.json",
+    "audio-report.json",
+    "font-report.json",
+    "SHA256SUMS",
+    "tests/",
+    "config/size-budgets.json",
+    "config/package-profiles.json"
+  ],
+  "required_pck_fragments": [
+    "NotoSansCJKsc-UI.otf-",
+    "localization/en-US.json",
+    "localization/zh-CN.json"
+  ]
+}

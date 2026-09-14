@@ -1,0 +1,67 @@
+name: Verify preserved RTS release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GODOT_BIN: /tmp/rts-engine/Godot_v4.7.2-stable_linux.x86_64
+      GODOT_SILENCE_ROOT_WARNING: "1"
+      RTS_REPORT_ONLY_TIMINGS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned engine and Web templates
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 -o /tmp/godot.zip https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip
+          curl --fail --location --retry 3 -o /tmp/templates.tpz https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_export_templates.tpz
+          echo 'cadd3204e728a35d3f13adb7fd0d7902636b79f6b95c40c265eb73b6c35329e4  /tmp/godot.zip' | sha256sum --check
+          echo 'f298490b8d44d934be425a5a65a51bf15f422428b229a06a6e11d9ffea248011  /tmp/templates.tpz' | sha256sum --check
+          unzip -q /tmp/godot.zip -d /tmp/rts-engine
+          unzip -q /tmp/templates.tpz 'templates/web_*' -d /tmp/rts-templates
+          mkdir -p "$HOME/.local/share/godot/export_templates/4.7.2.stable"
+          cp /tmp/rts-templates/templates/web_* "$HOME/.local/share/godot/export_templates/4.7.2.stable/"
+          python3 -m venv /tmp/rts-python
+          /tmp/rts-python/bin/pip install -r tools/requirements-assets.txt -r tools/requirements-release.txt
+          sudo apt-get update -qq
+          sudo apt-get install -y xvfb libgl1-mesa-dri libxrandr2 libxinerama1 libxcursor1 libxi6
+      - name: Font provenance and correctness suite
+        run: |
+          /tmp/rts-python/bin/python tools/process_assets.py --check-fonts
+          tools/run_tests.sh
+          tools/validate_template.sh
+      - name: Native font and screen evidence
+        run: |
+          mkdir -p build/verification/native build/verification/chinese
+          xvfb-run -a "$GODOT_BIN" --audio-driver Dummy --path . --script tests/font_rendering_test.gd
+          RTS_CAPTURE_DIR="$PWD/build/verification/native" xvfb-run -a "$GODOT_BIN" --audio-driver Dummy --path . --script tests/visual_capture.gd
+          RTS_CAPTURE_DIR="$PWD/build/verification/chinese" xvfb-run -a "$GODOT_BIN" --audio-driver Dummy --path . --script tests/localization_visual_capture.gd
+      - name: Web export, independent pack boot, HTTP integrity, editable archive
+        run: |
+          PYTHON_BIN=/tmp/rts-python/bin/python BROTLI=1 tools/export_web.sh build/release/ci
+          mkdir -p /tmp/rts-empty-project
+          "$GODOT_BIN" --headless --audio-driver Dummy --path /tmp/rts-empty-project --main-pack "$PWD/build/release/ci/index.pck" --quit-after 60 > build/verification/pack-boot.log 2>&1
+          cat build/verification/pack-boot.log
+          if grep -Eq 'SCRIPT ERROR|Parse Error|Compile Error|Failed to load' build/verification/pack-boot.log; then exit 1; fi
+          /tmp/rts-python/bin/python tools/verify_web_delivery.py --local-directory build/release/ci --manifest build/release/ci/delivery-manifest.json --encodings identity gzip br
+          python3 tools/package_template.py --output build/packages/editable.zip
+      - name: Retain revision-specific release and capture evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: preserved-rts-${{ github.sha }}
+          path: |
+            build/release/
+            build/packages/
+            build/verification/
+          if-no-files-found: warn

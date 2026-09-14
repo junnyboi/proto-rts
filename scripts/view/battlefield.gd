@@ -11,7 +11,6 @@ const TERRAIN_TEXTURES := {
 	&"meadow": preload("res://assets/runtime/terrain/jade_meadow.webp"),
 	&"ridge": preload("res://assets/runtime/terrain/inkstone_ridge.webp"),
 	&"water": preload("res://assets/runtime/terrain/celadon_water.webp"),
-	&"forest": preload("res://assets/runtime/terrain/jade_forest.webp"),
 	&"road": preload("res://assets/runtime/terrain/meridian_road.webp"),
 	&"bridge": preload("res://assets/runtime/terrain/moon_bridge.webp"),
 }
@@ -161,6 +160,16 @@ const GAMEPAD_PAN_SPEED := 780.0
 const GAMEPAD_DEADZONE := 0.18
 const TOUCH_DRAG_THRESHOLD := 12.0
 
+class TerrainBlock:
+	var cell: Vector2i
+	var terrain: StringName
+	var center: Vector2
+	var points: PackedVector2Array
+	var colors: PackedColorArray
+	var uvs: PackedVector2Array
+	var texture: Texture2D
+
+
 var simulation: RtsSimulation
 var selected_ids: Array[int] = []
 var move_armed := false
@@ -210,11 +219,15 @@ var _texture_ground_slope_cache: Dictionary = {}
 var _texture_pick_mask_cache: Dictionary = {}
 var _wall_render_lookup: Dictionary = {}
 var _gate_bottom_corner_render_lookup: Dictionary = {}
+var _wall_render_signature: Array = []
+var _terrain_blocks: Array[TerrainBlock] = []
 var _effect_director = EFFECT_DIRECTOR_SCRIPT.new()
 var _presentation = PRESENTATION_STATE_SCRIPT.new()
 var _visible_cells: Dictionary = {}
 var _explored_cells: Dictionary = {}
 var _visibility_timer := 0.0
+var _visibility_source_revision := -1
+var _fog_visibility_revision := 0
 var _fog_mask_builder
 var _fog_mask_texture: ImageTexture
 var _fog_mask_dirty := true
@@ -256,6 +269,10 @@ func set_simulation(value: RtsSimulation) -> void:
 	_presentation.clear()
 	_visible_cells.clear()
 	_explored_cells.clear()
+	_visibility_source_revision = -1
+	_wall_render_signature.clear()
+	_wall_render_lookup.clear()
+	_gate_bottom_corner_render_lookup.clear()
 	_fog_mask_dirty = true
 	_refresh_visibility()
 	_fit_camera()
@@ -365,6 +382,7 @@ func set_fog_enabled(value: bool) -> void:
 	fog_enabled = value
 	if fog_enabled:
 		_fog_mask_dirty = true
+	_fog_visibility_revision += 1
 	fog_visibility_changed.emit()
 	queue_redraw()
 
@@ -484,6 +502,10 @@ func _prune_selected_ids() -> void:
 func _refresh_visibility() -> void:
 	if simulation == null:
 		return
+	var revision := simulation.visibility_revision_for_team(RtsSimulation.TEAM_PLAYER)
+	if revision == _visibility_source_revision:
+		return
+	_visibility_source_revision = revision
 	var next_visible := simulation.visible_cells_for_team(RtsSimulation.TEAM_PLAYER)
 	var next_explored := simulation.explored_cells_for_team(RtsSimulation.TEAM_PLAYER)
 	var changed := next_visible != _visible_cells or next_explored != _explored_cells
@@ -491,8 +513,13 @@ func _refresh_visibility() -> void:
 	_explored_cells = next_explored
 	if changed:
 		_fog_mask_dirty = true
+		_fog_visibility_revision += 1
 		fog_visibility_changed.emit()
 		queue_redraw()
+
+
+func fog_visibility_revision() -> int:
+	return _fog_visibility_revision
 
 
 func _entity_center_cell(entity_state: Dictionary) -> Vector2i:
@@ -1384,20 +1411,18 @@ func entity_at_screen(screen_position: Vector2, selectable_only: bool) -> int:
 
 
 func command_target_at_screen(screen_position: Vector2, selectable_only: bool) -> int:
-	var sprite_hits: Array[Dictionary] = []
+	var hit_id := -1
 	for raw_entity in simulation.entities.values():
 		var entity_state := raw_entity as Dictionary
 		if not _is_entity_pickable(entity_state, selectable_only):
 			continue
 		if _entity_sprite_contains_screen_point(entity_state, screen_position):
-			sprite_hits.append(entity_state)
-	if sprite_hits.size() == 1:
-		return int(sprite_hits[0]["id"])
-	if sprite_hits.size() > 1:
-		# Sprite silhouettes make large art targetable, but an overlap is visually
-		# ambiguous. Preserve the established tile-anchor rules for that case.
-		return _tile_entity_at_screen(screen_position, selectable_only)
-	return -1
+			if hit_id >= 0:
+				# A second silhouette makes the result ambiguous regardless of any
+				# remaining hits. The fallback still examines every tile anchor.
+				return _tile_entity_at_screen(screen_position, selectable_only)
+			hit_id = int(entity_state["id"])
+	return hit_id
 
 
 func _tile_entity_at_screen(screen_position: Vector2, selectable_only: bool) -> int:
@@ -2187,41 +2212,93 @@ func _draw() -> void:
 
 
 func _draw_terrain() -> void:
+	_ensure_terrain_blocks()
+	for block in _terrain_blocks:
+		if not _is_terrain_block_on_screen(block):
+			continue
+		var points := _terrain_block_polygon(block)
+		draw_polygon(points, _terrain_block_colors(block), _terrain_block_uvs(block), block.texture)
+		if camera_scale >= GRID_MIN_SCALE:
+			var closed := points.duplicate()
+			closed.append(points[0])
+			draw_polyline(closed, GRID_COLOR, GRID_LINE_WIDTH, true)
+
+
+func _ensure_terrain_blocks() -> void:
+	if not _terrain_blocks.is_empty():
+		return
 	for depth in range(MapCatalog.AUTHORED_SIZE.x + MapCatalog.AUTHORED_SIZE.y - 1):
 		for macro_y in range(MapCatalog.AUTHORED_SIZE.y):
 			var macro_x := depth - macro_y
 			if macro_x < 0 or macro_x >= MapCatalog.AUTHORED_SIZE.x:
 				continue
-			var cell := Vector2i(macro_x, macro_y) * MapCatalog.CELL_SCALE
-			if not _is_block_on_screen(cell, MapCatalog.CELL_SCALE):
-				continue
-			var terrain := MapCatalog.terrain_at(cell)
-			var points := _transformed_block_polygon(cell, MapCatalog.CELL_SCALE)
-			var texture := TERRAIN_TEXTURES.get(terrain) as Texture2D
+			var block := TerrainBlock.new()
+			block.cell = Vector2i(macro_x, macro_y) * MapCatalog.CELL_SCALE
+			block.terrain = MapCatalog.terrain_at(block.cell)
+			var origin := Vector2(block.cell)
+			var extent := float(MapCatalog.CELL_SCALE)
+			block.center = IsoProjection.position_center(origin + Vector2.ONE * (extent - 1.0) * 0.5)
+			block.points = PackedVector2Array([
+				IsoProjection.project(origin),
+				IsoProjection.project(origin + Vector2(extent, 0.0)),
+				IsoProjection.project(origin + Vector2(extent, extent)),
+				IsoProjection.project(origin + Vector2(0.0, extent)),
+			])
+			block.texture = TERRAIN_TEXTURES.get(block.terrain) as Texture2D
+			# The current map contains no forest terrain. Keep future authored
+			# forests supported without forcing their unused texture into exports.
+			if block.terrain == &"forest":
+				block.texture = load("res://assets/runtime/terrain/jade_forest.webp") as Texture2D
 			var tint := Color.WHITE
-			if terrain == &"ridge":
+			if block.terrain == &"ridge":
 				tint = Color(0.82, 0.87, 0.85, 1.0)
-			elif terrain == &"water":
-				var current := sin(float(cell.x + cell.y) * 0.72 - _water_animation_time * 2.0)
-				var brightness := 0.96 + current * 0.035
-				tint = Color(0.74 * brightness, 0.96 * brightness, brightness, 0.95)
-			elif terrain == &"forest":
+			elif block.terrain == &"forest":
 				tint = Color(0.82, 0.94, 0.83, 1.0)
-			elif terrain == &"road":
+			elif block.terrain == &"road":
 				tint = Color(1.0, 0.97, 0.86, 1.0)
-			elif terrain == &"bridge":
+			elif block.terrain == &"bridge":
 				tint = Color(0.95, 1.0, 0.96, 1.0)
 			else:
 				var variation := 0.92 + float(posmod(macro_x * 17 + macro_y * 29, 7)) * 0.018
 				tint = Color(variation, variation, variation * 0.98, 1.0)
-			var colors := PackedColorArray([tint, tint, tint, tint])
-			var uv_offset := WATER_FLOW_SPEED * _water_animation_time if terrain == &"water" else Vector2.ZERO
-			var uvs := _terrain_uvs(cell, uv_offset, MapCatalog.CELL_SCALE)
-			draw_polygon(points, colors, uvs, texture)
-			if camera_scale >= GRID_MIN_SCALE:
-				var closed := points.duplicate()
-				closed.append(points[0])
-				draw_polyline(closed, GRID_COLOR, GRID_LINE_WIDTH, true)
+			block.colors = PackedColorArray([tint, tint, tint, tint])
+			block.uvs = _terrain_uvs(block.cell, Vector2.ZERO, MapCatalog.CELL_SCALE)
+			_terrain_blocks.append(block)
+
+
+func _is_terrain_block_on_screen(block: TerrainBlock) -> bool:
+	var center := camera_offset + block.center * camera_scale
+	var half_size := Vector2(IsoProjection.TILE_WIDTH, IsoProjection.TILE_HEIGHT) * camera_scale * float(MapCatalog.CELL_SCALE) * 0.5
+	return (
+		center.x + half_size.x >= 0.0
+		and center.x - half_size.x <= size.x
+		and center.y + half_size.y >= 0.0
+		and center.y - half_size.y <= size.y
+	)
+
+
+func _terrain_block_polygon(block: TerrainBlock) -> PackedVector2Array:
+	var points := PackedVector2Array()
+	for point in block.points:
+		points.append(point * camera_scale + camera_offset)
+	return points
+
+
+func _terrain_block_colors(block: TerrainBlock) -> PackedColorArray:
+	if block.terrain != &"water":
+		return block.colors
+	var current := sin(float(block.cell.x + block.cell.y) * 0.72 - _water_animation_time * 2.0)
+	var brightness := 0.96 + current * 0.035
+	var tint := Color(0.74 * brightness, 0.96 * brightness, brightness, 0.95)
+	return PackedColorArray([tint, tint, tint, tint])
+
+
+func _terrain_block_uvs(block: TerrainBlock) -> PackedVector2Array:
+	if block.terrain != &"water":
+		return block.uvs
+	# Keep the original arithmetic order for animated UVs, including its
+	# floating-point rounding, rather than adding an offset to cached corners.
+	return _terrain_uvs(block.cell, WATER_FLOW_SPEED * _water_animation_time, MapCatalog.CELL_SCALE)
 
 
 func _terrain_uvs(cell: Vector2i, offset: Vector2 = Vector2.ZERO, extent_cells: int = 1) -> PackedVector2Array:
@@ -3364,17 +3441,38 @@ func _wall_lookup_key(team: int, cell: Vector2i) -> Vector3i:
 
 
 func _rebuild_wall_render_lookup() -> void:
-	_wall_render_lookup.clear()
-	_gate_bottom_corner_render_lookup.clear()
 	if simulation == null:
+		_wall_render_lookup.clear()
+		_gate_bottom_corner_render_lookup.clear()
+		_wall_render_signature.clear()
 		return
+	var signature: Array = []
+	var structures: Array[Dictionary] = []
 	for raw_entity in simulation.entities.values():
 		var entity_state := raw_entity as Dictionary
 		if (
 			not bool(entity_state.get("alive", false))
 			or float(entity_state.get("complete", 0.0)) < 1.0
+			or entity_state.get("kind") not in [&"wall", &"gate"]
 		):
 			continue
+		structures.append(entity_state)
+		# Preserve insertion order: overlapping authored segments use the last
+		# matching entity. Copy fields, not dictionaries that can mutate in place.
+		signature.append([
+			entity_state.get("id", -1),
+			entity_state.get("kind"),
+			entity_state.get("cell", Vector2i(-1, -1)),
+			entity_state.get("team", RtsSimulation.TEAM_NEUTRAL),
+			entity_state.get("footprint", Vector2i.ONE),
+			entity_state.get("orientation", &"y"),
+		])
+	if signature == _wall_render_signature:
+		return
+	_wall_render_signature = signature
+	_wall_render_lookup.clear()
+	_gate_bottom_corner_render_lookup.clear()
+	for entity_state in structures:
 		var kind := entity_state.get("kind", &"") as StringName
 		var cell := entity_state.get("cell", Vector2i(-1, -1)) as Vector2i
 		var team := int(entity_state.get("team", RtsSimulation.TEAM_NEUTRAL))

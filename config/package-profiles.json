@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "common_excludes": [".git", ".godot", ".venv", "__pycache__", ".DS_Store", "build", "captures", "*.pyc"],
+  "authored_imports": ["assets/fonts/ManusCC0-Regular.ttf.import", "assets/fonts/ManusCC0-Medium.ttf.import", "assets/fonts/ManusCC0-Bold.ttf.import"],
+  "profiles": {
+    "editable": {
+      "description": "Runnable editable project; runtime derivatives included, original art/font masters omitted.",
+      "include": ["AGENTS.md", "README.md", ".gitignore", "project.godot", "export_presets.cfg", "default_bus_layout.tres", "template.json", "assets.lock.json", "assets/fonts", "assets/runtime", "config", "docs", "localization", "resources", "scenes", "scripts", "tests", "tools"],
+      "exclude": ["assets/fonts/NotoSansCJKsc-Regular.otf"]
+    },
+    "authoring": {
+      "description": "Self-contained editable source archive including immutable art and full font masters; excludes generated builds and local environments.",
+      "include": ["AGENTS.md", "README.md", ".gitignore", "project.godot", "export_presets.cfg", "default_bus_layout.tres", "template.json", "assets.lock.json", "assets", "config", "docs", "localization", "resources", "scenes", "scripts", "tests", "tools"],
+      "exclude": []
+    }
+  }
+}
