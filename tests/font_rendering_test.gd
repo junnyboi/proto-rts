@@ -19,7 +19,7 @@ func _run() -> void:
 		if raw_codepoint in report["source_unsupported_codepoints"]:
 			continue
 		if not reduced.has_char(codepoint):
-			push_error("Subset lacks required character %s" % raw_codepoint)
+			push_error("Bundled full font lacks required character %s" % raw_codepoint)
 			quit(1)
 			return
 		if codepoint < 33 or codepoint in [0x2028, 0x2029]:
@@ -30,7 +30,7 @@ func _run() -> void:
 			text += "\n"
 	var original_path := "res://assets/fonts/NotoSansCJKsc-Regular.otf"
 	if not ResourceLoader.exists(original_path):
-		print("PASS font_rendering_test: subset coverage; SKIP original comparison because source archive is not installed")
+		print("PASS font_rendering_test: full font coverage; SKIP original comparison because source archive is not installed")
 		quit(0)
 		return
 	var original := load(original_path) as FontFile
@@ -70,7 +70,7 @@ func _run() -> void:
 			if not capture_dir.is_empty():
 				DirAccess.make_dir_recursive_absolute(capture_dir)
 				before.save_png(capture_dir.path_join("original-%d.png" % font_size))
-				after.save_png(capture_dir.path_join("subset-%d.png" % font_size))
+				after.save_png(capture_dir.path_join("full-%d.png" % font_size))
 			push_error("Font pixels differ at %dpx" % font_size)
 			quit(1)
 			return

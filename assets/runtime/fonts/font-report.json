@@ -37,9 +37,9 @@
     "scripts/view/fog_mask_builder.gd",
     "scripts/view/map_edge_contour.gd"
   ],
-  "covered_codepoint_count": 828,
+  "covered_codepoint_count": 44810,
   "fonttools_version": "4.60.2",
-  "generator": "FontTools subset",
+  "generator": "byte-identical complete source copy",
   "glyph_outline_and_metrics_verified": true,
   "hinting_preserved": true,
   "layout_features": "all",
@@ -682,6 +682,7 @@
     "U+6C14",
     "U+6C38",
     "U+6C42",
+    "U+6C49",
     "U+6C60",
     "U+6CA1",
     "U+6CBB",
@@ -956,9 +957,9 @@
     "U+FF1F"
   ],
   "runtime": "assets/runtime/fonts/NotoSansCJKsc-UI.otf",
-  "runtime_glyph_count": 1759,
-  "runtime_sha256": "5899268524e6f4d9326f307ee294ade85bf4c987bd1a00c7f7f0e964aa400fea",
-  "runtime_size_bytes": 338212,
+  "runtime_glyph_count": 65535,
+  "runtime_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+  "runtime_size_bytes": 16437364,
   "schema_version": 1,
   "source": "assets/fonts/NotoSansCJKsc-Regular.otf",
   "source_glyph_count": 65535,
@@ -1045,5 +1046,6 @@
     "U+206D",
     "U+206E",
     "U+206F"
-  ]
+  ],
+  "subset": false
 }

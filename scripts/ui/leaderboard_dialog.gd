@@ -236,7 +236,7 @@ func _save_callsign() -> void:
 	if not validation_error.is_empty():
 		var values := {}
 		if validation_error == "leaderboard.validation_too_short":
-			values["minimum"] = LeaderboardStore.MIN_CALLSIGN_LENGTH
+			values["minimum"] = _store.minimum_callsign_length(callsign_edit.text)
 		elif validation_error == "leaderboard.validation_too_long":
 			values["maximum"] = LeaderboardStore.MAX_CALLSIGN_LENGTH
 		status_label.text = I18n.t(StringName(validation_error), values).to_upper()

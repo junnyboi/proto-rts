@@ -350,7 +350,7 @@
     "leaderboard.subtitle": "Your strongest campaigns, preserved across the realm.",
     "leaderboard.title": "HALL OF MANDATES",
     "leaderboard.unknown": "UNKNOWN",
-    "leaderboard.validation_charset": "Use letters, numbers, spaces, hyphens, or underscores only.",
+    "leaderboard.validation_charset": "Use Chinese/English letters, numbers, spaces, - or _.",
     "leaderboard.validation_too_long": "Name must be at most {maximum} characters.",
     "leaderboard.validation_too_short": "Name must be at least {minimum} characters.",
     "leaderboard.wins": "{count} WINS",

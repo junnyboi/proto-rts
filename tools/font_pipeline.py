@@ -8,8 +8,6 @@ import json
 from pathlib import Path
 
 import fontTools
-from fontTools import subset
-from fontTools.pens.recordingPen import DecomposingRecordingPen
 from fontTools.ttLib import TTFont
 
 
@@ -24,8 +22,8 @@ def _sha256(data: bytes) -> str:
 
 def _coverage(root: Path) -> tuple[list[int], list[str]]:
     # Include all production text, not only CJK literals: placeholders and
-    # symbols can also be rendered by the fallback font. Callsigns currently
-    # accept ASCII only (LeaderboardStore.validate_callsign).
+    # symbols can also be rendered by the fallback font. Dynamic callsigns use
+    # the complete source face rather than this UI-only validation corpus.
     codepoints = set(range(32, 127))
     codepoints.update(range(0x2000, 0x2070))
     codepoints.update(range(0x3000, 0x3040))
@@ -45,35 +43,6 @@ def _coverage(root: Path) -> tuple[list[int], list[str]]:
     return sorted(codepoints), sorted(str(path.relative_to(root)) for path in inputs)
 
 
-def _verify_glyphs(original: TTFont, reduced: TTFont) -> int:
-    """Compare retained outlines and horizontal/vertical metrics, including GSUB closure."""
-    original_glyphs = original.getGlyphSet()
-    reduced_glyphs = reduced.getGlyphSet()
-    for glyph_name in reduced.getGlyphOrder():
-        if glyph_name not in original_glyphs:
-            raise ValueError(f"Subset introduced unexpected glyph {glyph_name}")
-        before = DecomposingRecordingPen(original_glyphs)
-        after = DecomposingRecordingPen(reduced_glyphs)
-        original_glyphs[glyph_name].draw(before)
-        reduced_glyphs[glyph_name].draw(after)
-        if before.value != after.value:
-            raise ValueError(f"Subset changed outline for {glyph_name}")
-        for table in ("hmtx", "vmtx"):
-            if table in original and original[table][glyph_name] != reduced[table][glyph_name]:
-                raise ValueError(f"Subset changed {table} metrics for {glyph_name}")
-    for table, fields in (
-        ("head", ("unitsPerEm",)),
-        ("hhea", ("ascent", "descent", "lineGap")),
-        ("vhea", ("ascent", "descent", "lineGap")),
-        ("OS/2", ("sTypoAscender", "sTypoDescender", "sTypoLineGap", "usWinAscent", "usWinDescent")),
-    ):
-        if table in original:
-            for field in fields:
-                if getattr(original[table], field) != getattr(reduced[table], field):
-                    raise ValueError(f"Subset changed {table}.{field}")
-    return len(reduced.getGlyphOrder())
-
-
 def process_fonts(root: Path, *, check: bool = False) -> None:
     if fontTools.__version__ != FONTTOOLS_VERSION:
         raise RuntimeError(
@@ -83,32 +52,15 @@ def process_fonts(root: Path, *, check: bool = False) -> None:
     source_bytes = source.read_bytes()
     codepoints, coverage_inputs = _coverage(root)
     original = TTFont(BytesIO(source_bytes), recalcTimestamp=False)
-    reduced = TTFont(BytesIO(source_bytes), recalcTimestamp=False)
-    options = subset.Options()
-    options.layout_features = ["*"]
-    options.layout_scripts = ["*"]
-    options.name_IDs = ["*"]
-    options.name_languages = ["*"]
-    options.name_legacy = True
-    options.hinting = True
-    options.notdef_outline = True
-    options.recalc_timestamp = False
-    subsetter = subset.Subsetter(options=options)
-    subsetter.populate(unicodes=codepoints)
-    subsetter.subset(reduced)
-    output = BytesIO()
-    reduced.save(output)
-    font_bytes = output.getvalue()
-    # Validate serialized bytes rather than only the pre-serialization objects.
-    serialized = TTFont(BytesIO(font_bytes), recalcTimestamp=False)
-    expected_cmap = {key: value for key, value in original.getBestCmap().items() if key in codepoints}
-    actual_cmap = serialized.getBestCmap()
-    if any(actual_cmap.get(key) != value for key, value in expected_cmap.items()):
-        raise ValueError("Subset changed a required character-to-glyph mapping")
-    verified_glyph_count = _verify_glyphs(original, serialized)
+    font_bytes = source_bytes
+    expected_cmap = original.getBestCmap()
+    verified_glyph_count = len(original.getGlyphOrder())
+    if _sha256(font_bytes) != "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b":
+        raise ValueError("Expected the complete pinned Noto Sans CJK SC font; subsets are forbidden")
     report = {
         "schema_version": 1,
-        "generator": "FontTools subset",
+        "generator": "byte-identical complete source copy",
+        "subset": False,
         "fonttools_version": FONTTOOLS_VERSION,
         "source": str(SOURCE_PATH),
         "source_sha256": _sha256(source_bytes),
@@ -148,6 +100,6 @@ def process_fonts(root: Path, *, check: bool = False) -> None:
     if source.read_bytes() != source_bytes:
         raise ValueError("Original font changed during generation")
     print(
-        f"{'Verified' if check else 'Generated'} CJK subset: {len(font_bytes)} bytes; "
-        f"{len(expected_cmap)} required characters; {verified_glyph_count} identical glyph outlines/metrics"
+        f"{'Verified' if check else 'Generated'} complete CJK font: {len(font_bytes)} bytes; "
+        f"{len(expected_cmap)} Unicode codepoints; {verified_glyph_count} identical glyph outlines/metrics"
     )

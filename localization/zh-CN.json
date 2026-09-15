@@ -350,7 +350,7 @@
     "leaderboard.subtitle": "你最辉煌的征战将长存于世。",
     "leaderboard.title": "天命英杰榜",
     "leaderboard.unknown": "未知",
-    "leaderboard.validation_charset": "只能使用英文字母、数字、空格、连字符或下划线。",
+    "leaderboard.validation_charset": "只能使用汉字、英文字母、数字、空格、连字符或下划线。",
     "leaderboard.validation_too_long": "名称不得超过 {maximum} 个字符。",
     "leaderboard.validation_too_short": "名称至少需要 {minimum} 个字符。",
     "leaderboard.wins": "{count} 胜",

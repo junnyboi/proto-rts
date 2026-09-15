@@ -9,6 +9,7 @@ const MAX_HISTORY := 30
 const DEFAULT_LIMIT := 10
 const MAX_SCORE := 9_000_000_000
 const MIN_CALLSIGN_LENGTH := 3
+const MIN_CHINESE_CALLSIGN_LENGTH := 2
 const MAX_CALLSIGN_LENGTH := 20
 const PLACEHOLDER_NAME_PREFIX := "Forgotten One - "
 const LEGACY_PLACEHOLDER_NAME_PREFIX := "MERIDIAN-"
@@ -16,13 +17,14 @@ const LEGACY_PLACEHOLDER_NAME_PREFIX := "MERIDIAN-"
 var _save_path := SAVE_PATH
 var _profile: Dictionary = {}
 var _callsign_pattern := RegEx.new()
+var _chinese_pattern := RegEx.create_from_string("\\p{Han}")
 var _legacy_placeholder_pattern := RegEx.new()
 var _profile_id_pattern := RegEx.new()
 
 
 func setup(custom_save_path: String = SAVE_PATH) -> void:
 	_save_path = custom_save_path
-	_callsign_pattern.compile("^[A-Za-z0-9 _-]{%d,%d}$" % [MIN_CALLSIGN_LENGTH, MAX_CALLSIGN_LENGTH])
+	_callsign_pattern.compile("^(?:[A-Za-z0-9\\p{Han}]\\p{M}*|[ _-])+$")
 	_legacy_placeholder_pattern.compile("^%s[A-F0-9]{4}$" % LEGACY_PLACEHOLDER_NAME_PREFIX)
 	_profile_id_pattern.compile("^[a-f0-9]{32}$")
 	var loaded := _load_profile(_save_path)
@@ -45,13 +47,17 @@ func callsign() -> String:
 
 func validate_callsign(value: String) -> String:
 	var candidate := value.strip_edges()
-	if candidate.length() < MIN_CALLSIGN_LENGTH:
+	if candidate.length() < minimum_callsign_length(candidate):
 		return "leaderboard.validation_too_short"
 	if candidate.length() > MAX_CALLSIGN_LENGTH:
 		return "leaderboard.validation_too_long"
 	if _callsign_pattern.search(candidate) == null:
 		return "leaderboard.validation_charset"
 	return ""
+
+
+func minimum_callsign_length(value: String) -> int:
+	return MIN_CHINESE_CALLSIGN_LENGTH if _chinese_pattern.search(value) != null else MIN_CALLSIGN_LENGTH
 
 
 func set_callsign(value: String) -> String:
