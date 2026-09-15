@@ -3,7 +3,7 @@ extends RefCounted
 
 const HUD_UTILITY_ICON_LIGHTEN_SHADER := preload("res://scripts/ui/hud_utility_icon_lighten.gdshader")
 const PRIMARY_FONT: FontFile = preload("res://assets/fonts/ManusCC0-Regular.ttf")
-const CJK_FONT: FontFile = preload("res://assets/runtime/fonts/NotoSansCJKsc-UI.otf")
+const CJK_FONT: FontFile = preload("res://assets/runtime/fonts/ManusGameSC-Common.woff2")
 const INK := Color("0b1719")
 const INK_DEEP := Color("071012")
 const INK_SOFT := Color("14282a")
@@ -31,7 +31,7 @@ static func create() -> Theme:
 	var theme := Theme.new()
 	var ui_font := FontVariation.new()
 	ui_font.base_font = PRIMARY_FONT
-	ui_font.fallbacks = [CJK_FONT, ThemeDB.fallback_font]
+	ui_font.fallbacks = [CJK_FONT]
 	ui_font.resource_name = "Mandate of Myth Latin and Simplified Chinese UI font"
 	theme.default_font = ui_font
 	theme.set_default_font_size(17)

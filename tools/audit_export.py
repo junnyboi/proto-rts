@@ -114,7 +114,7 @@ def audit(directory: Path, budgets: dict | None = None) -> dict:
         for fragment in budgets["required_pck_fragments"]:
             if not any(fragment in name for name in names):
                 raise ValueError(f"Missing exported resource: {fragment}")
-        cjk = sum(e["bytes"] for e in entries if e["category"] == "fonts" and "NotoSansCJKsc-UI" in e["path"])
+        cjk = sum(e["bytes"] for e in entries if e["category"] == "fonts" and "ManusGameSC-Common" in e["path"])
         if not 0 < cjk <= budgets["cjk_font_bytes"]:
             raise ValueError(f"CJK font budget exceeded/missing: {cjk}")
     return report

@@ -2,13 +2,12 @@
 
 importer="font_data_dynamic"
 type="FontFile"
-uid="uid://6btpltrgiwpq"
-path="res://.godot/imported/NotoSansCJKsc-UI.otf-056566ad7fd05c92d3487aaaefd944bd.fontdata"
+path="res://.godot/imported/ManusGameSC-Common.woff2-efbc2345b6d3c16dbd11fd3d3504601d.fontdata"
 
 [deps]
 
-source_file="res://assets/runtime/fonts/NotoSansCJKsc-UI.otf"
-dest_files=["res://.godot/imported/NotoSansCJKsc-UI.otf-056566ad7fd05c92d3487aaaefd944bd.fontdata"]
+source_file="res://assets/runtime/fonts/ManusGameSC-Common.woff2"
+dest_files=["res://.godot/imported/ManusGameSC-Common.woff2-efbc2345b6d3c16dbd11fd3d3504601d.fontdata"]
 
 [params]
 

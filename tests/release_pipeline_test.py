@@ -85,7 +85,7 @@ class ReleaseTests(unittest.TestCase):
 
     def test_editable_package_is_complete_and_integrity_checked(self):
         selected = {p.relative_to(ROOT).as_posix() for p in members(ROOT, "editable")}
-        self.assertIn("assets/runtime/fonts/NotoSansCJKsc-UI.otf", selected)
+        self.assertIn("assets/runtime/fonts/ManusGameSC-Common.woff2", selected)
         self.assertIn("assets.lock.json", selected)
         self.assertIn("assets/fonts/ManusCC0-Regular.ttf.import", selected)
         self.assertFalse(any(p.startswith((".venv/", ".godot/", ".git/", "build/", "captures/", "assets/source/")) for p in selected))

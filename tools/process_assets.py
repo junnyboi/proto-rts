@@ -305,7 +305,7 @@ def describe(path: Path, source: Path) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser()
     font_mode = parser.add_mutually_exclusive_group()
-    font_mode.add_argument("--fonts-only", action="store_true", help="Install the complete unsubsetted CJK font and its provenance.")
+    font_mode.add_argument("--fonts-only", action="store_true", help="Verify the pinned common-Simplified-Chinese font and record its provenance.")
     font_mode.add_argument("--check-fonts", action="store_true", help="Verify font regeneration and original glyph equivalence without writing files.")
     parser.add_argument(
         "--truncate-audio-first-half",

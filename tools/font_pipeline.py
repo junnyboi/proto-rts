@@ -13,7 +13,7 @@ from fontTools.ttLib import TTFont
 
 FONTTOOLS_VERSION = "4.60.2"
 SOURCE_PATH = Path("assets/fonts/NotoSansCJKsc-Regular.otf")
-RUNTIME_PATH = Path("assets/runtime/fonts/NotoSansCJKsc-UI.otf")
+RUNTIME_PATH = Path("assets/runtime/fonts/ManusGameSC-Common.woff2")
 
 
 def _sha256(data: bytes) -> str:
@@ -22,8 +22,8 @@ def _sha256(data: bytes) -> str:
 
 def _coverage(root: Path) -> tuple[list[int], list[str]]:
     # Include all production text, not only CJK literals: placeholders and
-    # symbols can also be rendered by the fallback font. Dynamic callsigns use
-    # the complete source face rather than this UI-only validation corpus.
+    # symbols can also be rendered by the fallback font. Player names use the
+    # shared common-Chinese repertoire rather than a per-game UI-only subset.
     codepoints = set(range(32, 127))
     codepoints.update(range(0x2000, 0x2070))
     codepoints.update(range(0x3000, 0x3040))
@@ -44,62 +44,40 @@ def _coverage(root: Path) -> tuple[list[int], list[str]]:
 
 
 def process_fonts(root: Path, *, check: bool = False) -> None:
-    if fontTools.__version__ != FONTTOOLS_VERSION:
-        raise RuntimeError(
-            f"FontTools {FONTTOOLS_VERSION} is required; install tools/requirements-assets.txt"
-        )
-    source = root / SOURCE_PATH
-    source_bytes = source.read_bytes()
+    from sync_cjk_font import verify
+    verify()
+    source = root / RUNTIME_PATH
+    font_bytes = source.read_bytes()
+    font = TTFont(BytesIO(font_bytes), recalcTimestamp=False)
+    expected_cmap = font.getBestCmap()
+    repertoire = set(json.loads(source.with_name("cjk-codepoints.json").read_text()))
+    if set(expected_cmap) != repertoire or len(font_bytes) > 1_000_000:
+        raise ValueError("Bounded CJK repertoire or size differs")
     codepoints, coverage_inputs = _coverage(root)
-    original = TTFont(BytesIO(source_bytes), recalcTimestamp=False)
-    font_bytes = source_bytes
-    expected_cmap = original.getBestCmap()
-    verified_glyph_count = len(original.getGlyphOrder())
-    if _sha256(font_bytes) != "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b":
-        raise ValueError("Expected the complete pinned Noto Sans CJK SC font; subsets are forbidden")
     report = {
-        "schema_version": 1,
-        "generator": "byte-identical complete source copy",
-        "subset": False,
-        "fonttools_version": FONTTOOLS_VERSION,
+        "schema_version": 2, "generator": "Pinned common-Simplified-Chinese WOFF2",
+        "subset": True, "maximum_font_bytes": 1_000_000,
         "source": str(SOURCE_PATH),
-        "source_sha256": _sha256(source_bytes),
-        "source_size_bytes": len(source_bytes),
-        "source_glyph_count": len(original.getGlyphOrder()),
-        "runtime": str(RUNTIME_PATH),
-        "runtime_sha256": _sha256(font_bytes),
-        "runtime_size_bytes": len(font_bytes),
-        "runtime_glyph_count": verified_glyph_count,
+        "source_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+        "runtime": str(RUNTIME_PATH), "runtime_sha256": _sha256(font_bytes),
+        "runtime_size_bytes": len(font_bytes), "runtime_glyph_count": len(font.getGlyphOrder()),
         "coverage_inputs": coverage_inputs,
         "requested_codepoints": [f"U+{value:04X}" for value in codepoints],
         "covered_codepoint_count": len(expected_cmap),
-        "source_unsupported_codepoints": [f"U+{value:04X}" for value in codepoints if value not in original.getBestCmap()],
-        "glyph_outline_and_metrics_verified": True,
-        "layout_features": "all",
-        "layout_scripts": "all",
-        "hinting_preserved": True,
-        "license": "assets/fonts/NotoSansCJK-COPYRIGHT.txt",
+        "source_unsupported_codepoints": [f"U+{value:04X}" for value in codepoints if value not in expected_cmap],
+        "repertoire": "6500 TGH first/second-level common/general characters plus 47 UI/name/symbol characters",
+        "license": "assets/runtime/fonts/NotoSansCJK-COPYRIGHT.txt",
     }
-    report_bytes = (json.dumps(report, indent=2, sort_keys=True) + "\n").encode("utf-8")
-    directory = root / RUNTIME_PATH.parent
-    outputs = {
-        directory / RUNTIME_PATH.name: font_bytes,
-        directory / "font-report.json": report_bytes,
-    }
-    outputs[directory / "SHA256SUMS"] = "".join(
-        f"{_sha256(data)}  {path.relative_to(root)}\n" for path, data in outputs.items()
-    ).encode("utf-8")
+    directory = source.parent
+    report_bytes = (json.dumps(report, indent=2, sort_keys=True) + "\n").encode()
+    outputs = {directory / "font-report.json": report_bytes}
+    outputs[directory / "SHA256SUMS"] = (
+        f"{_sha256(font_bytes)}  {RUNTIME_PATH}\n"
+        f"{_sha256(report_bytes)}  {RUNTIME_PATH.parent / 'font-report.json'}\n"
+    ).encode()
     for path, data in outputs.items():
         if check:
             if not path.is_file() or path.read_bytes() != data:
-                raise ValueError(f"Stale font derivative: {path.relative_to(root)}; run --fonts-only")
-        else:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            if not path.is_file() or path.read_bytes() != data:
-                path.write_bytes(data)
-    if source.read_bytes() != source_bytes:
-        raise ValueError("Original font changed during generation")
-    print(
-        f"{'Verified' if check else 'Generated'} complete CJK font: {len(font_bytes)} bytes; "
-        f"{len(expected_cmap)} Unicode codepoints; {verified_glyph_count} identical glyph outlines/metrics"
-    )
+                raise ValueError(f"Stale font report: {path.relative_to(root)}; run --fonts-only")
+        elif not path.exists() or path.read_bytes() != data: path.write_bytes(data)
+    print(f"{'Verified' if check else 'Recorded'} bounded CJK font: {len(font_bytes)} bytes; {len(expected_cmap)} codepoints")

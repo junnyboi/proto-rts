@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "common_excludes": [".git", ".godot", ".venv", "__pycache__", ".DS_Store", "build", "captures", "*.pyc"],
-  "authored_imports": ["assets/runtime/fonts/NotoSansCJKsc-UI.otf.import", "assets/fonts/ManusCC0-Regular.ttf.import", "assets/fonts/ManusCC0-Medium.ttf.import", "assets/fonts/ManusCC0-Bold.ttf.import"],
+  "authored_imports": ["assets/runtime/fonts/ManusGameSC-Common.woff2.import", "assets/fonts/ManusCC0-Regular.ttf.import", "assets/fonts/ManusCC0-Medium.ttf.import", "assets/fonts/ManusCC0-Bold.ttf.import"],
   "profiles": {
     "editable": {
       "description": "Runnable editable project; runtime derivatives included, original art/font masters omitted.",

@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "note": "Full in-game CJK coverage: budget increases are limited to the complete 16,437,364-byte font; loader fonts remain unchanged.",
-  "raw_bytes": 71000000,
-  "gzip_bytes": 38000000,
-  "pck_bytes": 31000000,
-  "cjk_font_bytes": 17000000,
+  "note": "Compact common-Simplified-Chinese fallback: both source font and imported PCK fontdata must remain at most 1,000,000 bytes.",
+  "raw_bytes": 54000000,
+  "gzip_bytes": 24000000,
+  "pck_bytes": 14000000,
+  "cjk_font_bytes": 1000000,
   "forbidden_pck_fragments": [
     "NotoSansCJKsc-Regular.otf",
     "mandate_of_myth_title.webp",
@@ -20,7 +20,7 @@
     "config/package-profiles.json"
   ],
   "required_pck_fragments": [
-    "NotoSansCJKsc-UI.otf-",
+    "ManusGameSC-Common.woff2-",
     "localization/en-US.json",
     "localization/zh-CN.json"
   ]

@@ -33,7 +33,7 @@ def members(root: Path, profile_name: str) -> list[Path]:
             if any(relative.as_posix() == prefix or relative.as_posix().startswith(prefix + "/") for prefix in profile["exclude"]):
                 continue
             selected.add(path)
-    required = ["project.godot", "scenes/main.tscn", "assets/runtime/fonts/NotoSansCJKsc-UI.otf",
+    required = ["project.godot", "scenes/main.tscn", "assets/runtime/fonts/ManusGameSC-Common.woff2",
                 "localization/en-US.json", "localization/zh-CN.json"]
     for name in required:
         if root / name not in selected:
